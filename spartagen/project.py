@@ -97,6 +97,7 @@ class Session:
         self._analysis: Optional[Analysis] = None
         self._bank: Optional[SampleBank] = None
         self._bank_key: Optional[str] = None
+        self._pitch_cache: dict = {}         # tried pitch candidates of this source (see build_bank)
 
     # ── paths ──
     def path(self, *parts: str) -> str:
@@ -124,6 +125,7 @@ class Session:
             self._audio = None
             self._analysis = None
             self._bank = None
+            self._pitch_cache = {}
             if self.project.name.startswith("Untitled"):
                 self.project.name = os.path.splitext(os.path.basename(path))[0][:60]
         return self.project.source_info
@@ -165,7 +167,7 @@ class Session:
                 return self._bank
         an = self.analysis(progress)
         bank = build_bank(self.audio(), SAMPLE_RATE, an, SampleConfig.from_dict(self.project.samples), progress,
-                          shot_cuts=self._shot_cuts())
+                          shot_cuts=self._shot_cuts(), cache=self._pitch_cache)
         with self.lock:
             self._bank = bank
             self._bank_key = key
@@ -319,9 +321,11 @@ class Session:
         folder = folder or self.path("sample_pack")
         files = bank.export(folder, self.project.source_path, video=video)
         meta = os.path.join(folder, "samples.json")
+        from .samples import pack_path
+        samples = {k: dict(v, file=pack_path(bank.samples[k]) + ".wav") for k, v in bank.to_dict().items()}
         with open(meta, "w", encoding="utf-8") as fh:
             json.dump({"source": self.project.source_path, "key": self.project.samples.get("key", "D"),
-                       "samples": bank.to_dict()}, fh, indent=1)
+                       "samples": samples}, fh, indent=1)
         files.append(meta)
         if progress:
             progress(1.0, "sample pack exported")

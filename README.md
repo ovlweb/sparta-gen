@@ -25,8 +25,8 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
 5. **Polishes the mix with an Xleth-style FX rack** (3-band OTT, ChorusCrisp "Jario" pluck, compressor, limiter,
    saturation, reverb, delay, chorus, flanger, phaser, transient shaper, sidechain pump, filter sweeps, tape stop).
 6. **Renders the video**: every note shows its own clip, in sync — fullscreen hits, Madness split screen, 3×3/4×4
-   grids, flips on every hit, flashes, kick zoom-punch and the spinning *OMG TEH EPICNESS* text — over the source
-   itself, blurred and dimmed, behind the boxes.
+   grids, flips on every hit, flashes and kick zoom-punch — over the source itself, blurred and dimmed, behind the
+   boxes.
 
 Everything happens in one app with a **preview before you save**, on **Windows, macOS, Linux and Android**.
 
@@ -50,7 +50,7 @@ Everything happens in one app with a **preview before you save**, on **Windows, 
 | **Android** | Install [Termux](https://termux.dev) (F-Droid/GitHub build), then run `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`. Start with `spartagen gui` — the app opens in your phone's browser. Your videos are under `~/storage/shared/`. *Private repository?* In Termux: `pkg install git && git clone https://<token>@github.com/TheQSN/sparta-gen ~/sparta-gen && bash ~/sparta-gen/scripts/install-termux.sh` (a GitHub token with read access). |
 | **pip** | `pip install -e ".[all]"` (needs ffmpeg on PATH or the `imageio-ffmpeg` extra), then `spartagen gui`. |
 
-Requirements: **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (titles) are optional —
+Requirements: **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
 there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termux without scipy) still work.
 
 ## Using the app
@@ -141,8 +141,8 @@ Sections and what plays in them:
   4-bar block: `1_1_332_1_1_11__1_1_113_3_22221_3_1_332_1_1_111_1111111111111111` with the second line's 3s
   (`3_3__________3__3_3333_33`) before and over the closing roll. The wiki's ORIGINAL (its `1*` as a lead-in two
   16ths before the section) and all 14 edits (CatmanTeam, TheInfySpartan, majugarzett…) are in the library, and an
-  edit can alternate with it. The Chorus's frame (the main phrase big in the middle, a box per pitch along the top)
-  with the spinning *OMG TEH EPICNESS* over its first two bars, one turn per bar.
+  edit can alternate with it. The Chorus's frame (the main phrase big in the middle, a box per pitch along the top);
+  no text over it (the spinning *OMG TEH EPICNESS* is an option: `"titles": true` in the project's video settings).
 - **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
 - **Awesomeness 1 / 2** — the pattern on the main pitch, an octave below on the second, the chords on the second
   to fourth pitch, and the main phrase following its rhythm (part 1 in the first half of each bar, part 2 in the

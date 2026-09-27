@@ -100,11 +100,13 @@ function renderProject() {
     }
     if (!s.has_video) vid.classList.add("hidden");
     $("#btn-analyze").disabled = false;
-    $("#btn-analyze").textContent = p.analyzed ? "Re-open samples" : "Detect samples";
+    $("#btn-analyze").textContent = p.analyzed ? "Re-open samples" : "Detect samples (step by step)";
+    $("#btn-auto").disabled = false;
   } else {
     box.textContent = "Nothing loaded yet.";
     vid.classList.add("hidden");
     $("#btn-analyze").disabled = true;
+    $("#btn-auto").disabled = true;
   }
   S.variant = p.variant || "unextended";
   const o = p.options || {};
@@ -121,6 +123,9 @@ function renderProject() {
   $("#base-info").textContent = mix.base_path
     ? `Base: ${mix.base_path.split(/[\\/]/).pop()}` + (p.base ? ` — ${baseSummary(p.base)}` : " (not mapped)")
     : "No base — the remix uses its own source-made drums and bass.";
+  $("#auto-base-info").textContent = mix.base_path
+    ? `${mix.base_path.split(/[\\/]/).pop()}` + (p.base ? ` — ${p.base.bpm} BPM, ${p.base.bars} bars, the remix follows its sections` : "")
+    : "No base: a classic Sparta structure with drums and bass cut from the video.";
   $("#base-offset").value = mix.base_offset ?? 0;
   $("#base-gain").value = mix.base_gain_db ?? -3;
   $("#base-mode").value = mix.base_mode || "replace";
@@ -632,11 +637,11 @@ $("#btn-lab-add").addEventListener("click", async () => {
 });
 
 // base
-$("#base-file").addEventListener("change", async (e) => {
-  const f = e.target.files[0];
+async function useBase(f) {
   if (!f) return;
   try {
     toast("Mapping the base…", true);
+    $("#auto-base-info").textContent = "Mapping the base (tempo, bars, chords, sections)…";
     S.project = (await upload("/api/base/upload", f, () => {}));
     renderProject(); renderVariants();
     if (S.project.base) {
@@ -644,8 +649,10 @@ $("#base-file").addEventListener("change", async (e) => {
       await loadArrangement(); renderVariants();
       toast("Base mapped — the remix now follows its sections", true);
     } else toast("Base loaded" + (S.project.base_error ? ` (could not map it: ${S.project.base_error})` : ""), true);
-  } catch (err) { toast(err.message); }
-});
+  } catch (err) { toast(err.message); renderProject(); }
+}
+$("#base-file").addEventListener("change", (e) => useBase(e.target.files[0]));
+$("#auto-base").addEventListener("change", (e) => useBase(e.target.files[0]));
 ["base-offset", "base-gain", "base-mode"].forEach((id) => $("#" + id).addEventListener("change", async () => {
   S.project = await api("/api/mix", { body: { base_offset: +$("#base-offset").value, base_gain_db: +$("#base-gain").value, base_mode: $("#base-mode").value } });
   renderProject();
@@ -680,17 +687,31 @@ async function ensureSaved() {
 }
 
 ["btn-preview", "btn-preview-audio", "btn-final", "btn-pack"].forEach((id) => ($("#" + id).dataset.heavy = "1"));
-$("#btn-preview").addEventListener("click", async () => {
-  if (!(await ensureSaved())) return;
-  const r = await runJob("/api/render", { quality: "preview" }, "Preview render");
-  if (!r) return;
+function showPreview(r) {
   const v = $("#preview-video");
   $("#preview-audio").classList.add("hidden");
   v.classList.remove("hidden");
   v.src = r.file_url + (r.file_url.includes("?") ? "&" : "?") + "t=" + Date.now();
   v.play().catch(() => {});
   $("#preview-info").textContent = `${r.title} · ${fmtT(r.duration)} · ${r.events} notes · ${r.lufs} LUFS · peak ${r.peak_db} dBFS`;
+}
+$("#btn-preview").addEventListener("click", async () => {
+  if (!(await ensureSaved())) return;
+  const r = await runJob("/api/render", { quality: "preview" }, "Preview render");
+  if (!r) return;
+  showPreview(r);
   await refreshProject();
+});
+$("#btn-auto").dataset.heavy = "1";
+$("#btn-auto").addEventListener("click", async () => {
+  if (!(await ensureSaved())) return;
+  const r = await runJob("/api/auto", { quality: "preview" }, "Making your Sparta Remix");
+  if (!r) return;
+  await refreshProject();
+  S.arr = null;
+  await loadSamples();
+  go("render");
+  showPreview(r);
 });
 $("#btn-preview-audio").addEventListener("click", async () => {
   if (!(await ensureSaved())) return;

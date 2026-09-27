@@ -511,6 +511,14 @@ def test_the_background_is_the_source_blurred(tmp_path):
     assert abs(float(soft.mean()) - float(sharp.mean())) < 25       # the same picture, just soft
 
 
+def test_no_text_over_the_video_by_default():
+    from spartagen.render_video import VideoConfig
+    for name in ("preview", "720p", "1080p"):
+        cfg = VideoConfig.preset_of(name)
+        assert cfg.titles is False and cfg.intro_title is False
+    assert VideoConfig.from_dict({"titles": True}).titles is True      # still there for whoever wants it
+
+
 def test_citrus_layers_second_hat_and_extra_hit():
     """Measured on Citrus's remix on the extended base: a second hi-hat on the "a" of beat 3 (and the "and"
     of beat 4 every other bar), an extra hit on the "and"s of beats 3 and 4 — over the plain pattern."""

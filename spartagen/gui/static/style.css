@@ -185,3 +185,9 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 @media (max-width: 380px) {
   .steps button span { display: none; }
 }
+
+/* one-click remix */
+.autobox { border: 1px solid var(--red); border-radius: var(--radius); padding: 12px; margin: 12px 0; background: #1c0f0f; }
+.autobox .basepick { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+.autobox .basepick input { width: 100%; }
+#btn-analyze { width: 100%; }

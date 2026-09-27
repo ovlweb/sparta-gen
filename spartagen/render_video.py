@@ -42,7 +42,7 @@ class VideoConfig:
     hold_last: bool = True            # keep the last clip of a cell (dimmed) instead of blinking to black
     hold_dim: float = 0.3
     blink_sections: tuple = ("dundundenden", "intro_hits", "ending")  # these stay black between hits
-    titles: bool = True               # spinning "OMG TEH EPICNESS" etc. (needs Pillow)
+    titles: bool = False              # the spinning "OMG TEH EPICNESS" over the Epicness (off; needs Pillow)
     memory_mb: int = 700
 
     @staticmethod

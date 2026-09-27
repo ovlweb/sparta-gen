@@ -472,6 +472,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(app.project_view(), base_error=str(exc)))
             return self._json(app.project_view())
 
+        # ── one click: samples cut automatically, the remix built (on the base when there is one), a preview ──
+        if path == "/api/auto" and method == "POST":
+            body = self._body_json()
+            quality = body.get("quality", "preview")
+            if not s.project.source_path:
+                return self._error("load a source video first")
+
+            def run(progress):
+                s.analysis(lambda p, m: progress(0.3 * p, m))
+                s.bank(lambda p, m: progress(0.3 + 0.15 * p, m))
+                if s.project.base and s.project.variant != "base" and not s.project.arrangement:
+                    s.set_variant("base", s.project.options)
+                res = s.render(quality, lambda p, m: progress(0.45 + 0.55 * p, m))
+                out = dict(res)
+                out["file_url"] = app.media_url(res.get("file", ""))
+                out["audio_url"] = app.media_url(res.get("audio", ""))
+                return out
+            return self._json(app.start_job(f"auto-{quality}", run).to_dict())
+
         # ── render & export ──
         if path == "/api/render" and method == "POST":
             body = self._body_json()
@@ -493,9 +512,10 @@ class Handler(BaseHTTPRequestHandler):
                     shutil.rmtree(folder)
                 res = s.export_pack(folder, video=bool(body.get("video", True)), progress=lambda p, m: progress(0.9 * p, m))
                 zpath = s.path("exports", f"{_safe(s.project.name)} - sample pack.zip")
+                top = f"{_safe(s.project.name)} - sample pack"
                 with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
                     for f in res["files"]:
-                        z.write(f, os.path.basename(f))
+                        z.write(f, top + "/" + os.path.relpath(f, folder).replace(os.sep, "/"))
                 return {"zip": zpath, "zip_url": app.media_url(zpath), "count": len(res["files"])}
             return self._json(app.start_job("pack", run).to_dict())
         if path == "/api/save_as" and method == "POST":

@@ -3,5 +3,5 @@ numpy>=1.22
 # Recommended
 scipy>=1.8          # faster filtering (pure-numpy fallback exists)
 yt-dlp              # load sources from YouTube / other links
-pillow              # titles ("OMG TEH EPICNESS" spinning text) and audio-only cards
+pillow              # audio-only cards (and the optional spinning Epicness text)
 imageio-ffmpeg      # a bundled ffmpeg when none is installed system-wide

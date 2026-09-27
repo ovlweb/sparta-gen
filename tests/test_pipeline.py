@@ -88,10 +88,14 @@ def test_render_audio_and_video(session, tmp_path):
 
 def test_sample_pack_export(session, tmp_path):
     res = session.export_pack(str(tmp_path / "pack"), video=True)
-    names = {os.path.basename(f) for f in res["files"]}
-    assert {"pitch1.wav", "pitch1.mp4", "kick.wav", "samples.json"} <= names
+    names = {os.path.relpath(f, res["folder"]).replace(os.sep, "/") for f in res["files"]}
+    note = session.bank().get("pitch1").to_dict()["root_note"]
+    assert {f"2 Pitches/Pitch 1 (main) - {note}.wav", f"2 Pitches/Pitch 1 (main) - {note}.mp4",
+            "3 Percussion/Kick.wav", "1 Chorus/Chorus 1 (first part).wav", "samples.json"} <= names
+    assert any(n.startswith("4 Quotes and words/Quote 1") for n in names)
     meta = json.load(open(os.path.join(res["folder"], "samples.json")))
     assert meta["samples"]["pitch1"]["root_note"].startswith("D")
+    assert os.path.isfile(os.path.join(res["folder"], meta["samples"]["kick"]["file"]))
 
 
 def test_project_roundtrip(session, tmp_path):
@@ -164,3 +168,56 @@ def test_extra_percussion_comes_from_other_moments(session):
     if bank.get("perc") is not None:
         assert all(clear(bank.get("perc"), bank.get(k)) for k in ("kick", "snare") if bank.get(k))
     print("hat2" in bank.samples, "perc" in bank.samples)
+
+
+def _overlap(a, b, gap=0.0):
+    return not (a.src_end + gap <= b.src_start or a.src_start >= b.src_end + gap)
+
+
+def test_pitches_are_other_clips_than_the_chorus(session):
+    """The Chorus's clips are heard (and seen) in every Chorus already: the pitches come from other moments."""
+    bank = session.bank()
+    chorus = [bank.get(k) for k in ("chorus_a", "chorus_b", "chorus_c") if bank.get(k)]
+    pitches = [bank.get(k) for k in ("pitch1", "pitch2", "pitch3", "pitch4") if bank.get(k)]
+    assert chorus and len(pitches) >= 3
+    assert not any(_overlap(p, c) for p in pitches for c in chorus)
+
+
+def test_an_auto_pitch_keeps_enough_of_its_note_inside_one_shot(session):
+    from spartagen.samples import SampleConfig, build_bank, AUTO_PITCH_MIN_S
+    x, an = session.audio(), session.analysis()
+    best = build_bank(x, 44100, an, SampleConfig(), shot_cuts=lambda a, b: []).get("pitch1")
+    mid = (best.src_start + best.src_end) / 2
+    # The video cuts twice inside that note: no piece of it is long enough for an auto pick …
+    cuts = lambda a, b: [t for t in (mid - 0.07, mid + 0.07) if a < t < b]      # noqa: E731
+    bank = build_bank(x, 44100, an, SampleConfig(), shot_cuts=cuts)
+    p1 = bank.get("pitch1")
+    assert p1 is not None and not _overlap(p1, best) and p1.duration >= AUTO_PITCH_MIN_S - 0.05
+    # … but a pick made by hand is kept (cut to its longest piece).
+    idx = min(range(len(an.candidates["pitch"])), key=lambda i: abs(an.candidates["pitch"][i].start - best.src_start))
+    mine = build_bank(x, 44100, an, SampleConfig(selections={"pitch1": idx}), shot_cuts=cuts).get("pitch1")
+    assert _overlap(mine, best) and mine.src_end - mine.src_start < 0.3
+
+
+def test_a_new_pick_reuses_the_tuned_candidates(session):
+    session.bank()
+    n = len(session._pitch_cache)
+    assert n > 0
+    session.project.samples["selections"] = {"pitch2": 1}
+    try:
+        bank = session.bank()
+        assert len(session._pitch_cache) == n and bank.get("pitch2") is not None
+    finally:
+        session.project.samples["selections"] = {}
+
+
+def test_voices_are_dealt_by_how_they_take_an_octave_up():
+    """The Chorus lifts the third pitch highest (+19), the second next (+16); the fourth plays low."""
+    from spartagen.samples import Sample, SampleBank, _assign_voice_roles
+    bank = SampleBank(44100)
+    for sid, drop in (("pitch2", 7.0), ("pitch3", 1.0), ("pitch4", 3.5)):
+        bank.samples[sid] = Sample(sid, "pitch", f"{sid} (D4)", 0, 1, np.zeros(10, np.float32), 44100, 62.0,
+                                   meta={"_up_drop": drop})
+    _assign_voice_roles(bank, ["pitch2", "pitch3", "pitch4"])
+    assert {k: v.meta["_up_drop"] for k, v in bank.samples.items()} == {"pitch3": 1.0, "pitch2": 3.5, "pitch4": 7.0}
+    assert all(v.id == k and v.label.startswith(k) for k, v in bank.samples.items())

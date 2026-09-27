@@ -36,6 +36,11 @@ from .audio.psola import TunedSample, tune_to_note, find_marks
 
 #: Main, second, third and fourth pitch — several pitches play the chord lines together.
 PITCH_ROLES = ("pitch1", "pitch2", "pitch3", "pitch4")
+#: Pitch candidates tried (isolated, tuned, measured) before the auto picks are made.
+PITCH_TRIES = 40
+#: An auto-picked pitch keeps at least this much of its note inside one camera shot (an 8th at 140 BPM
+#: is 0.21 s; a little stretching covers the rest).
+AUTO_PITCH_MIN_S = 0.18
 
 
 @dataclass
@@ -433,10 +438,11 @@ def _timbre_scale(ts: list[np.ndarray]) -> Optional[tuple[np.ndarray, float]]:
     return scale, float(np.median(d)) or 1.0
 
 
-def pitch_quality(s: Sample) -> float:
+def pitch_quality(s: Sample, up_drop: Optional[float] = None) -> float:
     """How clearly a tuned sample reads as a note: voiced share × harmonic purity × the share of it
     that sits on the note (a singer bending into the note from a neighbour keeps some of the bend
-    through the tuning) (0..1)."""
+    through the tuning) × how well it survives an octave up (0..1).  ``up_drop``: a measured
+    :func:`octave_up_drop_db`."""
     y = s.audio
     if y.shape[0] < 1024 or not s.pitched:
         return 0.05
@@ -454,8 +460,9 @@ def pitch_quality(s: Sample) -> float:
     k = np.round(fr / f)
     harm = (k >= 1) & (np.abs(fr - k * f) < np.maximum(15.0, 0.03 * k * f))
     purity_db = 10.0 * math.log10(float(S[harm & band].sum()) / max(float(S[~harm & band].sum()), 1e-12))
+    up = octave_up_factor(s) if up_drop is None else _up_factor(up_drop)
     return (max(0.05, voiced) * float(np.clip((purity_db - 3.0) / 15.0, 0.1, 1.0))
-            * float(np.clip((on_note - 0.5) / 0.45, 0.1, 1.0)) * octave_up_factor(s))
+            * float(np.clip((on_note - 0.5) / 0.45, 0.1, 1.0)) * up)
 
 
 def octave_up_drop_db(s: Sample) -> float:
@@ -470,7 +477,11 @@ def octave_up_drop_db(s: Sample) -> float:
 
 
 def octave_up_factor(s: Sample) -> float:
-    return float(np.clip(1.0 - (octave_up_drop_db(s) - 6.0) / 10.0, 0.2, 1.0))
+    return _up_factor(octave_up_drop_db(s))
+
+
+def _up_factor(drop_db: float) -> float:
+    return float(np.clip(1.0 - (drop_db - 6.0) / 10.0, 0.2, 1.0))
 
 
 def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
@@ -624,16 +635,19 @@ class SampleBank:
         return {k: v.to_dict() for k, v in self.samples.items()}
 
     def export(self, folder: str, source_path: Optional[str] = None, video: bool = True) -> list[str]:
-        """Write every sample as WAV (+ its cut video clip) — a ready-to-use sample pack."""
+        """Write every sample as WAV (+ its cut video clip) — a ready-to-use sample pack, in the folders
+        remixers keep: Chorus, Pitches (tuned, the note in the name), Percussion, Quotes and words."""
         from . import ffmpeg as ff
         os.makedirs(folder, exist_ok=True)
         written = []
         for sid, s in self.samples.items():
-            wav = os.path.join(folder, f"{sid}.wav")
+            rel = pack_path(s)
+            wav = os.path.join(folder, rel + ".wav")
+            os.makedirs(os.path.dirname(wav), exist_ok=True)
             dsp.write_wav(wav, s.audio, s.sr)
             written.append(wav)
             if video and source_path:
-                clip = os.path.join(folder, f"{sid}.mp4")
+                clip = os.path.join(folder, rel + ".mp4")
                 dur = max(0.05, (s.src_end - s.src_start))
                 try:
                     ff.cut_clip(source_path, s.src_start, dur, clip, audio_wav=wav)
@@ -643,9 +657,66 @@ class SampleBank:
         return written
 
 
+#: Sample pack folders and file names.
+PACK_FOLDERS = {"chorus": "1 Chorus", "phrase": "1 Chorus", "syllable": "1 Chorus/Syllables (chops)",
+                "pitch": "2 Pitches", "bass": "2 Pitches", "kick": "3 Percussion", "snare": "3 Percussion",
+                "hat_closed": "3 Percussion", "hat_open": "3 Percussion", "crash": "3 Percussion",
+                "quote": "4 Quotes and words", "word": "4 Quotes and words"}
+PACK_NAMES = {"chorus_a": "Chorus 1 (first part)", "chorus_b": "Chorus 2 (second part)",
+              "chorus_c": "Epicness 3 (third word)", "chorus_c_a": "DunDunDenDen 3A", "chorus_c_b": "DunDunDenDen 3B",
+              "phrase": "Main phrase", "pitch1": "Pitch 1 (main)", "pitch2": "Pitch 2", "pitch3": "Pitch 3",
+              "pitch4": "Pitch 4", "bass": "Bass pitch", "kick": "Kick", "snare": "Snare", "clap": "Clap",
+              "hat_closed": "Hi-hat closed", "hat_open": "Hi-hat open", "hat2": "Hi-hat 2", "perc": "Extra hit",
+              "crash": "Crash", "word_a": "Madness word 1", "word_b": "Madness word 2"}
+
+
+def pack_path(s: Sample) -> str:
+    """Where a sample goes in the sample pack (no extension), e.g. ``2 Pitches/Pitch 1 (main) - D4``."""
+    folder = PACK_FOLDERS.get(s.role, "5 Other")
+    if s.id.startswith("quote"):
+        name = "Quote " + s.id[5:]
+    elif s.id.startswith("syl"):
+        name = "Syllable " + s.id[3:]
+    else:
+        name = PACK_NAMES.get(s.id, s.id)
+    if s.role in ("pitch", "bass") and s.pitched:
+        name += " - " + note_name(s.root_midi)
+    return f"{folder}/{name}"
+
+
+def _cached(cache: Optional[dict], key: tuple, make: Callable):
+    """``make()``, remembered in ``cache`` (a dict the caller keeps per source) under ``key``."""
+    if cache is None:
+        return make()
+    if key not in cache:
+        cache[key] = make()
+    return cache[key]
+
+
+def _assign_voice_roles(bank: SampleBank, roles: list[str]) -> None:
+    """Deal the auto-picked second to fourth pitches out by how they take being shifted up.  The
+    Chorus's chord lines lift the second pitch to +16 and the third to +19 semitones, while the fourth
+    doubles the root an octave down: the one that loses least an octave up plays the highest line, the
+    one that loses most the low root."""
+    if len(roles) < 2:
+        return
+    smps = [bank.samples[r] for r in roles]
+    drops = [float(s.meta["_up_drop"]) if s.meta.get("_up_drop") is not None else octave_up_drop_db(s)
+             for s in smps]
+    order = sorted(range(len(smps)), key=lambda k: drops[k])
+    for role, k in zip([r for r in ("pitch3", "pitch2", "pitch4") if r in roles], order):
+        smp = smps[k]
+        smp.label = smp.label.replace(smp.id, role)
+        smp.id = role
+        bank.samples[role] = smp
+
+
 def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig] = None,
-               progress=None, shot_cuts: Optional[Callable[[float, float], list[float]]] = None) -> SampleBank:
-    """``shot_cuts(start, end)`` lists the source video's camera cuts in a range (no video: None)."""
+               progress=None, shot_cuts: Optional[Callable[[float, float], list[float]]] = None,
+               cache: Optional[dict] = None) -> SampleBank:
+    """``shot_cuts(start, end)`` lists the source video's camera cuts in a range (no video: None).
+    ``cache``: a dict kept per source across rebuilds (another pick, key or octave) so the pitch
+    candidates are grown, isolated and tuned once."""
     cfg = cfg or SampleConfig()
     x = np.asarray(x, dtype=np.float32)
     if x.ndim == 2:
@@ -658,31 +729,75 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
         if progress:
             progress(p, msg)
 
+    # ── the Chorus: the main phrase cut into two parts (first: the pitches then keep off its clips) ──
+    mains = _main_candidates(C, x, sr)
+    csel = sel.get("chorus")                  # a word candidate index, a {"start", "end"} range, or auto
+    words_c = C.get("word", [])
+    if isinstance(csel, dict) and "start" in csel and "end" in csel:
+        main_c = Candidate("word", float(csel["start"]), float(csel["end"]), 1.0, {"manual": True})
+    elif isinstance(csel, int) and 0 <= csel < len(words_c):
+        main_c = words_c[csel]
+    else:
+        main_c = mains[0] if mains else None
+    reserved: list[tuple[float, float]] = []      # clips the Chorus plays: no pitch is cut from them too
+    if main_c is not None:
+        step(0.02, "cutting the main phrase in two")
+        for smp in make_chorus_pair(x, sr, main_c, cfg):
+            bank.samples[smp.id] = smp
+        reserved.append((main_c.start, main_c.end))
+        # The Epicness's "3": another word of the same voice, from another moment of the source.
+        tsel = sel.get("chorus_c")
+        if isinstance(tsel, dict) and "start" in tsel and "end" in tsel:
+            third = Candidate("word", float(tsel["start"]), float(tsel["end"]), 1.0, {"manual": True})
+        elif isinstance(tsel, int) and 0 <= tsel < len(words_c):
+            third = words_c[tsel]
+        else:
+            around = [(main_c.start, main_c.end)]
+            third = next((c for c in mains if _clear_of(c, around, 0.3)), None)
+        if third is not None:
+            bank.samples["chorus_c"] = make_chorus_third(x, sr, third, cfg)
+            for smp in make_third_halves(x, sr, bank.samples["chorus_c"], cfg):
+                bank.samples[smp.id] = smp
+            reserved.append((third.start, third.end))
+
     # ── pitches ──
     used: list[tuple[float, float]] = []
     pitches = C.get("pitch", [])
+    tried = pitches[:PITCH_TRIES]
     if pitches:
-        step(0.02, "finding whole held notes")
-        pitches = [grow_note(x, sr, c) for c in pitches[:20]] + list(pitches[20:])    # same order and indices
+        step(0.04, "finding whole held notes")
+        tried = [_cached(cache, ("grow", c.start, c.end), lambda c=c: grow_note(x, sr, c)) for c in tried]
+        pitches = tried + list(pitches[PITCH_TRIES:])               # same order and indices
     # Auto picks go by how the note comes out once isolated and tuned: a steady note buried in the
     # band is no pitch at all.  (Explicit picks index the analysis list as shown in the app.)
     made: dict[int, Sample] = {}
     ranked = pitches
     worth: dict[int, float] = {}
     timbres: dict[int, np.ndarray] = {}
+    up_drop: dict[int, float] = {}
     if pitches:
-        step(0.03, "trying pitch candidates")
+        step(0.06, "trying pitch candidates")
         scored = []
-        for c in pitches[:20]:
-            smp = make_pitch(x, sr, c, "try", cfg)
-            made[id(c)] = smp
-            timbres[id(c)] = sample_timbre(smp)
-            # Longer held notes make better pitches (they carry 8ths and held notes without looping).
-            held = float(np.clip((c.duration - 0.08) / 0.17, 0.35, 1.0))
-            worth[id(c)] = c.score * pitch_quality(smp) * held
+        tune_key = (cfg.key, cfg.pitch_octave, float(cfg.flatten), bool(cfg.clean_pitch))
+        for k, c in enumerate(tried):
+            def attempt(c=c):
+                smp = make_pitch(x, sr, c, "try", cfg)
+                drop = octave_up_drop_db(smp)
+                return smp, sample_timbre(smp), drop, pitch_quality(smp, drop)
+            smp, tb, drop, q = _cached(cache, ("try", c.start, c.end) + tune_key, attempt)
+            made[id(c)], timbres[id(c)], up_drop[id(c)] = smp, tb, drop
+            # Longer held notes make better pitches (they carry 8ths and held notes without looping):
+            # the note as it comes out — its steady core — not the clip around it.  And the less a
+            # note has to move to reach the key, the more natural it stays.
+            held = float(np.clip((smp.duration - 0.08) / 0.17, 0.35, 1.0))
+            shift = abs(float(smp.meta.get("shift_semitones") or 0.0))
+            natural = float(np.clip(1.0 - 0.04 * max(0.0, shift - 3.0), 0.75, 1.0))
+            worth[id(c)] = c.score * q * held * natural
             scored.append((worth[id(c)], c))
+            if k % 8 == 7:
+                step(0.06 + 0.12 * k / len(tried), "trying pitch candidates")
         scored.sort(key=lambda z: -z[0])
-        ranked = [c for _, c in scored] + pitches[20:]
+        ranked = [c for _, c in scored] + pitches[PITCH_TRIES:]
     # Several pitches must sound different — another voice, vowel or instrument — not the same note
     # four times: after the main pitch, candidates far in timbre from the ones already chosen win.
     spread = _timbre_scale(list(timbres.values()))
@@ -698,15 +813,20 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             if tb is None:
                 return -0.5 * c.score
             d = min(float(np.linalg.norm((tb - o) / scale)) for o in chosen_timbres)
-            return worth.get(id(c), c.score) * float(np.clip(d / ref, 0.25, 1.6))
+            return worth.get(id(c), c.score) * float(np.clip(d / ref, 0.5, 1.3))
         return sorted(pool, key=key, reverse=True)
 
     cut_away: set[int] = set()           # auto picks the video cuts away from too soon
+    auto_roles: list[str] = []
     for i, sid in enumerate(PITCH_ROLES):
         explicit = sel.get(sid) is not None
-        cand = first = None
+        cand = first = short = None
         for _attempt in range(6):
-            pool = pitches if explicit else by_difference([c for c in ranked if id(c) not in cut_away])
+            if explicit:
+                pool = pitches
+            else:
+                left = [c for c in ranked if id(c) not in cut_away]
+                pool = by_difference([c for c in left if _clear_of(c, reserved, 0.1)] or left)
             # Second/third pitch: prefer another moment of the source (another word,
             # speaker or note) so the call & response between slots is audible.
             cand = _pick(pool, sel.get(sid), used, 2.0) if i > 0 else None
@@ -715,15 +835,17 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             if cand is None or shot_cuts is None:
                 break
             first = first or cand
-            # One shot per pitch box: cut the note where the video cuts, or pass on it.
+            # One shot per pitch box: cut the note where the video cuts, or pass on it.  An auto pick
+            # has to keep enough of the note to hold an 8th.
             trimmed = trim_to_shot(cand, shot_cuts(cand.start, cand.end))
-            if trimmed is None and not explicit:
+            if not explicit and (trimmed is None or trimmed.duration < AUTO_PITCH_MIN_S):
+                short = short or trimmed
                 cut_away.add(id(cand))
                 cand = None
                 continue
             cand = trimmed or cand
             break
-        cand = cand or first
+        cand = cand or short or first
         if cand is None:
             # No voiced material at all: fall back to the loudest word/quote so the remix still has a "pitch".
             cand = _pick(C.get("word", []) or C.get("quote", []), None, used)
@@ -731,7 +853,7 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             continue
         if i > 0 and cand in [bank.samples[k].meta.get("_cand") for k in bank.samples]:
             continue
-        step(0.05 + 0.1 * i, f"tuning {sid} to {cfg.key}")
+        step(0.2 + 0.03 * i, f"tuning {sid} to {cfg.key}")
         pre = made.get(id(cand))
         cfg_i = cfg
         if i > 0 and cfg.pitch_octave is None and "pitch1" in bank.samples:
@@ -740,39 +862,17 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             cfg_i = replace(cfg, pitch_octave=int(round(bank.samples["pitch1"].root_midi)) // 12 - 1)
             if pre is not None and int(round(pre.root_midi)) != int(round(bank.samples["pitch1"].root_midi)):
                 pre = None
-        s = make_pitch(x, sr, cand, sid, cfg_i) if pre is None else pre
+        s = replace(pre, meta=dict(pre.meta)) if pre is not None else make_pitch(x, sr, cand, sid, cfg_i)
         s.id, s.label = sid, s.label.replace("try", sid)
         s.meta["_cand"] = cand
+        if pre is not None:
+            s.meta["_up_drop"] = up_drop.get(id(cand))
         bank.samples[sid] = s
         used.append((cand.start, cand.end))
         chosen_timbres.append(timbres[id(cand)] if id(cand) in timbres else sample_timbre(s))
-    # ── the Chorus: the main phrase cut into two parts ──
-    mains = _main_candidates(C, x, sr)
-    csel = sel.get("chorus")                  # a word candidate index, a {"start", "end"} range, or auto
-    words_c = C.get("word", [])
-    if isinstance(csel, dict) and "start" in csel and "end" in csel:
-        main_c = Candidate("word", float(csel["start"]), float(csel["end"]), 1.0, {"manual": True})
-    elif isinstance(csel, int) and 0 <= csel < len(words_c):
-        main_c = words_c[csel]
-    else:
-        main_c = mains[0] if mains else None
-    if main_c is not None:
-        step(0.3, "cutting the main phrase in two")
-        for smp in make_chorus_pair(x, sr, main_c, cfg):
-            bank.samples[smp.id] = smp
-        # The Epicness's "3": another word of the same voice, from another moment of the source.
-        tsel = sel.get("chorus_c")
-        if isinstance(tsel, dict) and "start" in tsel and "end" in tsel:
-            third = Candidate("word", float(tsel["start"]), float(tsel["end"]), 1.0, {"manual": True})
-        elif isinstance(tsel, int) and 0 <= tsel < len(words_c):
-            third = words_c[tsel]
-        else:
-            around = [(main_c.start, main_c.end)]
-            third = next((c for c in mains if _clear_of(c, around, 0.3)), None)
-        if third is not None:
-            bank.samples["chorus_c"] = make_chorus_third(x, sr, third, cfg)
-            for smp in make_third_halves(x, sr, bank.samples["chorus_c"], cfg):
-                bank.samples[smp.id] = smp
+        if i > 0 and not explicit:
+            auto_roles.append(sid)
+    _assign_voice_roles(bank, auto_roles)
     pitched = [bank.samples[k] for k in PITCH_ROLES if k in bank.samples]
     if pitched:
         step(0.35, "building bass")
@@ -875,6 +975,7 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             bank.samples["word_b"] = tune_speech(make_speech(x, sr, wb, "word_b", "word", "word 2 (response)", 3.0), cfg)
     for s in bank.samples.values():
         s.meta.pop("_cand", None)
+        s.meta.pop("_up_drop", None)
     step(1.0, "sample bank ready")
     return bank
 
