@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sparta-gen"
+dynamic = ["version"]
+description = "Sparta Remix generator: cuts a source video into pitch, percussion and quote samples, tunes pitches to D, sequences the Sparta Remix Wiki patterns and renders the remix video with ffmpeg."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.22",
+]
+
+[project.optional-dependencies]
+fast = ["scipy>=1.8"]
+download = ["yt-dlp"]
+titles = ["pillow"]
+ffmpeg = ["imageio-ffmpeg"]
+window = ["pywebview"]
+all = ["scipy>=1.8", "yt-dlp", "pillow", "imageio-ffmpeg"]
+dev = ["pytest", "scipy>=1.8", "pillow"]
+
+[project.scripts]
+spartagen = "spartagen.cli:main"
+
+[project.gui-scripts]
+spartagen-gui = "spartagen.gui.launch:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "spartagen.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["spartagen*"]
+
+[tool.setuptools.package-data]
+"spartagen.gui" = ["static/*", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

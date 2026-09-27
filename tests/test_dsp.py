@@ -1,0 +1,109 @@
+import numpy as np
+import pytest
+
+from spartagen.audio import dsp, fx, psola
+from spartagen.audio.pitch import cents_deviation, hz_to_midi, midi_to_hz, yin_track
+
+from conftest import SR, harmonic_tone
+
+
+def median_f0(x):
+    tr = yin_track(x, SR, hop=256)
+    v = tr.f0[tr.voiced]
+    v = v[len(v) // 6: len(v) - len(v) // 6]
+    return float(np.median(v)), cents_deviation(v)
+
+
+@pytest.mark.parametrize("f0", [82.4, 146.83, 220.0, 440.0])
+def test_yin_is_accurate(f0):
+    x = harmonic_tone(f0, 0.8)
+    got, _ = median_f0(x)
+    assert abs(1200 * np.log2(got / f0)) < 3.0
+
+
+def test_yin_rejects_noise():
+    x = (np.random.RandomState(0).randn(SR) * 0.3).astype(np.float32)
+    assert yin_track(x, SR).voiced.mean() < 0.05
+
+
+def test_psola_hard_tunes_to_d_and_flattens_vibrato():
+    x = harmonic_tone(180.0, 0.6, vibrato_cents=30.0)
+    ts = psola.tune_to_note(x, SR, midi_to_hz(50))          # D3
+    got, dev = median_f0(ts.audio)
+    assert abs(1200 * np.log2(got / midi_to_hz(50))) < 5.0
+    assert dev < 5.0
+    assert ts.audio.shape == x.shape
+
+
+@pytest.mark.parametrize("semis", [-12, -2, 1, 7, 12])
+def test_psola_shift_hits_the_interval(semis):
+    ts = psola.tune_to_note(harmonic_tone(150.0, 0.6), SR, midi_to_hz(50))
+    got, _ = median_f0(psola.shift(ts, semis))
+    want = midi_to_hz(50 + semis)
+    assert abs(1200 * np.log2(got / want)) < 10.0
+
+
+def test_psola_sustain_stretch_keeps_pitch():
+    ts = psola.tune_to_note(harmonic_tone(150.0, 0.3), SR, midi_to_hz(50))
+    y = psola.shift(ts, 0, out_len=int(1.2 * SR))
+    assert y.shape[0] == int(1.2 * SR)
+    got, _ = median_f0(y)
+    assert abs(1200 * np.log2(got / midi_to_hz(50))) < 10.0
+
+
+def test_resample_and_varispeed():
+    x = np.sin(2 * np.pi * 440 * np.arange(SR) / SR).astype(np.float32)
+    assert dsp.resample_ratio(x, 2.0).shape[0] == 2 * SR
+    y = dsp.varispeed(x, 12)
+    assert abs(y.shape[0] - SR // 2) <= 1
+
+
+def test_filters_match_without_scipy(monkeypatch):
+    x = np.random.RandomState(1).randn(SR).astype(np.float32)
+    sos = dsp.butter_sos("highpass", 150.0, SR, 4)
+    ref = dsp.sosfilt(sos, x, SR)
+    monkeypatch.setattr(dsp, "_sps", None)
+    alt = dsp.sosfilt(sos, x, SR)
+    assert np.max(np.abs(ref - alt)) < 1e-3
+
+
+def test_loudness_reference():
+    t = np.arange(SR * 3) / SR
+    x = 0.1 * np.sin(2 * np.pi * 997 * t)
+    assert abs(dsp.loudness_lufs(np.stack([x, x], 1), SR) + 20.0) < 0.2
+
+
+def test_running_max():
+    x = np.random.RandomState(3).rand(5000)
+    for w in (1, 7, 64):
+        ref = np.array([x[i:i + w].max() for i in range(len(x))])
+        assert np.allclose(dsp.running_max(x, w), ref)
+
+
+def test_limiter_respects_ceiling():
+    x = (np.random.RandomState(2).randn(SR, 2) * 0.8).astype(np.float32)
+    y = fx.limiter(x, SR, ceiling_db=-1.0)
+    assert dsp.peak(y) <= dsp.db_to_gain(-1.0) + 1e-6
+
+
+def test_ott_is_transparent_at_zero_depth():
+    x = harmonic_tone(220.0, 1.0)
+    y = fx.ott(x, SR, depth=0.0)
+    # The LR4 split/recombine is an allpass: same magnitude spectrum, same energy.
+    assert abs(dsp.rms(y) - dsp.rms(x)) / dsp.rms(x) < 0.02
+
+
+@pytest.mark.parametrize("name", ["chorus", "flanger", "phaser", "transient", "saturate", "bitcrush", "reverb", "delay",
+                                  "compressor", "tape_stop", "filter_sweep"])
+def test_fx_rack_runs(name):
+    x = harmonic_tone(220.0, 0.8)
+    y = fx.apply_chain(x, SR, [{"fx": name}])
+    assert np.all(np.isfinite(y)) and y.shape[0] == x.shape[0]
+
+
+def test_wav_roundtrip(tmp_path):
+    x = (np.random.RandomState(4).rand(1000, 2) * 1.6 - 0.8).astype(np.float32)
+    p = str(tmp_path / "a.wav")
+    dsp.write_wav(p, x, SR, bits=32)
+    y, sr = dsp.read_wav(p)
+    assert sr == SR and np.allclose(x, y)

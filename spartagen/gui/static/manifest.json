@@ -1,0 +1,9 @@
+{
+  "name": "Sparta Gen",
+  "short_name": "SpartaGen",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e0909",
+  "theme_color": "#c8102e",
+  "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}

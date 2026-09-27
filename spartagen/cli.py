@@ -1,0 +1,219 @@
+"""Command line: `spartagen gui`, `spartagen make`, `spartagen analyze`, `spartagen pack`, `spartagen patterns`."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+
+from . import __version__
+
+
+def _progress_printer(quiet: bool = False):
+    last = {"t": 0.0, "msg": ""}
+
+    def cb(p: float, msg: str) -> None:
+        if quiet:
+            return
+        now = time.time()
+        if msg != last["msg"] or now - last["t"] > 0.5 or p >= 1.0:
+            last["t"], last["msg"] = now, msg
+            bar = "#" * int(p * 30)
+            sys.stderr.write(f"\r[{bar:<30}] {int(p * 100):3d}%  {msg:<34}")
+            sys.stderr.flush()
+            if p >= 1.0:
+                sys.stderr.write("\n")
+    return cb
+
+
+def _session_for(source: str, workspace: str | None, quiet: bool):
+    from .project import Session
+    from . import download
+    s = Session(workspace=workspace)
+    if download.is_url(source):
+        path = download.download(source, s.path("source"), _progress_printer(quiet))
+    else:
+        path = source
+    s.set_source(path)
+    return s
+
+
+def cmd_analyze(a: argparse.Namespace) -> int:
+    s = _session_for(a.source, a.workspace, a.quiet)
+    an = s.analysis(_progress_printer(a.quiet))
+    if a.json:
+        with open(a.json, "w", encoding="utf-8") as fh:
+            json.dump(an.to_dict(), fh, indent=1)
+        print(f"analysis written to {a.json}")
+    print(f"source: {s.project.source_path}  ({an.duration:.1f}s)")
+    for kind in ("pitch", "kick", "snare", "hat", "crash", "quote", "word"):
+        lst = an.candidates.get(kind, [])
+        print(f"\n{kind.upper()}: {len(lst)} candidates")
+        for c in lst[: a.top]:
+            extra = ""
+            if kind == "pitch":
+                extra = f"{c.info.get('note')} ({c.info.get('cents', 0):+.0f}c) → tune to {c.info.get('d_note')}, " \
+                        f"steady ±{c.info.get('stability_cents', 0):.0f}c"
+            print(f"  {c.start:8.3f}s – {c.end:8.3f}s  ({c.duration:.2f}s)  score {c.score:.3f}  {extra}")
+    return 0
+
+
+def cmd_make(a: argparse.Namespace) -> int:
+    s = _session_for(a.source, a.workspace, a.quiet)
+    opts = {k: v for k, v in {
+        "bpm": a.bpm, "key": a.key, "progression": a.progression, "pitching": a.pitching, "polish": a.polish,
+        "minor": True if a.minor else None, "title": a.title, "chorus_pattern": a.chorus_pattern,
+        "intro_pattern": a.intro_pattern,
+    }.items() if v is not None}
+    s.project.samples["key"] = a.key
+    if a.pitch_octave:
+        s.project.samples["pitch_octave"] = a.pitch_octave
+    s.set_variant(a.variant, opts)
+    if a.base:
+        s.project.mix.update({"base_path": os.path.abspath(a.base), "base_offset": a.base_offset,
+                              "base_mode": a.base_mode})
+    out = a.output
+    quality = "audio" if a.audio_only else a.quality
+    if out is None:
+        ext = ".wav" if quality == "audio" else ".mp4"
+        out = os.path.join(os.getcwd(), f"{s.project.name[:40]} - {a.variant}{ext}".replace("/", "_"))
+    res = s.render(quality, _progress_printer(a.quiet), out_path=out, stems=a.stems)
+    if a.pack:
+        s.export_pack(a.pack, progress=_progress_printer(a.quiet))
+        print(f"sample pack: {a.pack}")
+    if a.project:
+        s.project.save(a.project)
+    print(f"\n{res['title']}\n  file: {res['file']}\n  length: {res['duration']:.1f}s   loudness: {res['lufs']} LUFS"
+          f"   peak: {res['peak_db']} dBFS   notes: {res['events']}")
+    return 0
+
+
+def cmd_pack(a: argparse.Namespace) -> int:
+    s = _session_for(a.source, a.workspace, a.quiet)
+    s.project.samples["key"] = a.key
+    res = s.export_pack(a.output, video=not a.no_video, progress=_progress_printer(a.quiet))
+    print(f"{len(res['files'])} files written to {res['folder']}")
+    return 0
+
+
+def cmd_patterns(a: argparse.Namespace) -> int:
+    from .patterns import library as lib
+    from .patterns.notation import parse
+    if a.parse:
+        p = parse(a.parse, a.mode)
+        print(f"mode: {p.mode}   length: {p.length} steps ({p.bars:.2f} bars)   voices: {p.voices}")
+        for n in p.notes:
+            print(f"  step {n.start:6.2f}  dur {n.dur:5.2f}  value {n.value:+d}" + (f"  voice {n.voice}" if p.voices > 1 else ""))
+        for w in p.warnings:
+            print("  warning:", w)
+        return 0
+    for section, title in lib.SECTION_TITLES.items():
+        if a.section and a.section != section:
+            continue
+        print(f"\n== {title} ==")
+        for d in lib.by_section(section):
+            pp = d.parsed()
+            print(f"  {d.id:30s} {d.name[:44]:44s} {pp.mode:8s} {pp.length / 16:5.2f} bars")
+    return 0
+
+
+def cmd_variants(a: argparse.Namespace) -> int:
+    from .arrangement import VARIANTS, build_arrangement
+    for k, v in VARIANTS.items():
+        arr = build_arrangement(k)
+        print(f"{k:14s} {v['title']:32s} {arr.bpm:.0f} BPM  {arr.total_bars} bars  {arr.duration:6.1f}s")
+        print(f"               {v['description']}")
+    return 0
+
+
+def cmd_gui(a: argparse.Namespace) -> int:
+    from .gui.server import serve
+    serve(host=a.host, port=a.port, open_browser=not a.no_browser, window=a.window, workspace=a.workspace)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="spartagen", description="Sparta Remix generator — cuts a source video into "
+                                 "pitch/percussion/quote samples and builds a Sparta Remix with ffmpeg.")
+    ap.add_argument("--version", action="version", version=f"spartagen {__version__}")
+    sub = ap.add_subparsers(dest="cmd")
+
+    g = sub.add_parser("gui", help="open the graphical app (default)")
+    g.add_argument("--host", default="127.0.0.1")
+    g.add_argument("--port", type=int, default=0, help="0 = pick a free port")
+    g.add_argument("--no-browser", action="store_true")
+    g.add_argument("--window", action="store_true", help="open in a native window (needs pywebview)")
+    g.add_argument("--workspace", default=None)
+    g.set_defaults(fn=cmd_gui)
+
+    m = sub.add_parser("make", help="build a remix from a video file or URL")
+    m.add_argument("source", help="video/audio file or URL")
+    m.add_argument("-o", "--output")
+    m.add_argument("--variant", default="unextended",
+                   choices=["unextended", "semi_extended", "extended", "hyper", "minor", "classic"])
+    m.add_argument("--quality", default="720p", choices=["preview", "720p", "1080p"])
+    m.add_argument("--audio-only", action="store_true")
+    m.add_argument("--bpm", type=float)
+    m.add_argument("--key", default="D", help="note the pitch samples are tuned to (default D)")
+    m.add_argument("--pitch-octave", type=int, help="force the pitch octave (3, 4 or 5)")
+    m.add_argument("--progression", help='chord roots, e.g. "0 1 -2 1" or "0 1 3 1 | -2"')
+    m.add_argument("--pitching", choices=["classic", "normal", "hard"])
+    m.add_argument("--polish", choices=["light", "normal", "hard"])
+    m.add_argument("--minor", action="store_true")
+    m.add_argument("--chorus-pattern", help="library id for the chorus (see `spartagen patterns`)")
+    m.add_argument("--intro-pattern", help="library id for the intro hits")
+    m.add_argument("--title")
+    m.add_argument("--base", help="a Sparta base (backing track) to put under the remix")
+    m.add_argument("--base-offset", type=float, default=0.0, help="seconds into the base where bar 1 starts")
+    m.add_argument("--base-mode", default="replace", choices=["replace", "layer"])
+    m.add_argument("--stems", action="store_true", help="also write the stems")
+    m.add_argument("--pack", help="also export the sample pack to this folder")
+    m.add_argument("--project", help="save the project JSON here")
+    m.add_argument("--workspace")
+    m.add_argument("-q", "--quiet", action="store_true")
+    m.set_defaults(fn=cmd_make)
+
+    an = sub.add_parser("analyze", help="show what would be cut into samples")
+    an.add_argument("source")
+    an.add_argument("--json")
+    an.add_argument("--top", type=int, default=5)
+    an.add_argument("--workspace")
+    an.add_argument("-q", "--quiet", action="store_true")
+    an.set_defaults(fn=cmd_analyze)
+
+    pk = sub.add_parser("pack", help="export the sample pack (tuned pitches, percussion, quotes; wav + mp4)")
+    pk.add_argument("source")
+    pk.add_argument("-o", "--output", required=True)
+    pk.add_argument("--key", default="D")
+    pk.add_argument("--no-video", action="store_true")
+    pk.add_argument("--workspace")
+    pk.add_argument("-q", "--quiet", action="store_true")
+    pk.set_defaults(fn=cmd_pack)
+
+    pt = sub.add_parser("patterns", help="list the pattern library or parse a pattern")
+    pt.add_argument("--section")
+    pt.add_argument("--parse", help='e.g. "11_11_111_1_1_11222_2_222_222_2_"')
+    pt.add_argument("--mode", default="auto", choices=["auto", "semitone", "compact", "index"])
+    pt.set_defaults(fn=cmd_patterns)
+
+    vv = sub.add_parser("variants", help="list the base variants")
+    vv.set_defaults(fn=cmd_variants)
+
+    a = ap.parse_args(argv)
+    if not getattr(a, "cmd", None):
+        a = ap.parse_args(["gui"] + (argv or []))
+    try:
+        return a.fn(a)
+    except KeyboardInterrupt:
+        return 130
+    except Exception as exc:  # show a clean message instead of a traceback
+        if os.environ.get("SPARTAGEN_DEBUG"):
+            raise
+        sys.stderr.write(f"\nerror: {exc}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

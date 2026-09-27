@@ -1,0 +1,65 @@
+name: test & build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Tests (with scipy)
+        run: pytest -q
+      - name: Tests (numpy only, like minimal Android installs)
+        run: |
+          pip uninstall -y scipy
+          pytest -q
+
+  desktop:
+    # Self-contained apps (ffmpeg bundled) — built for tags and on demand.
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, macos-13, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build deps
+        run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
+      - name: Build
+        run: python scripts/build_desktop.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpartaGen-${{ runner.os }}-${{ runner.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: desktop
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip

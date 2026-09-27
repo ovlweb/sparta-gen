@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#c8102e">
+<title>Sparta Gen</title>
+<link rel="icon" href="/static/icon.svg">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img src="/static/icon.svg" alt=""><span>SPARTA<b>GEN</b></span></div>
+  <nav class="steps" id="steps">
+    <button data-step="source" class="active"><i>1</i><span>Source</span></button>
+    <button data-step="samples"><i>2</i><span>Samples</span></button>
+    <button data-step="remix"><i>3</i><span>Remix</span></button>
+    <button data-step="render"><i>4</i><span>Preview</span></button>
+  </nav>
+  <div class="status" id="status"></div>
+  <button class="ghost small" id="btn-quit" title="Stop the Sparta Gen engine">Quit</button>
+</header>
+
+<main>
+  <!-- 1 · SOURCE ─────────────────────────────────────────────────────────── -->
+  <section class="step active" id="step-source">
+    <div class="cols">
+      <div class="card">
+        <h2>Source video</h2>
+        <p class="hint">Any video or audio file ffmpeg can read. Everything in the remix is cut from it —
+          pitches, percussion, quotes — no generated sounds.</p>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept="video/*,audio/*">
+          <strong>Drop a video here</strong><span>or click to choose a file</span>
+          <div class="bar"><div id="upbar"></div></div>
+        </label>
+        <div class="row">
+          <input type="url" id="url" placeholder="…or paste a YouTube / video link">
+          <button id="btn-url">Download</button>
+        </div>
+        <details class="more">
+          <summary>Use a file already on this computer (path)</summary>
+          <div class="row"><input type="text" id="path" placeholder="/home/me/Videos/source.mp4"><button id="btn-path">Load</button></div>
+        </details>
+        <div class="row gap">
+          <input type="text" id="proj-name" placeholder="Project / source name">
+          <button class="ghost" id="btn-projects">Open project…</button>
+          <button class="ghost" id="btn-new">New</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Loaded</h2>
+        <div id="source-info" class="muted">Nothing loaded yet.</div>
+        <video id="source-video" controls playsinline preload="metadata" class="hidden"></video>
+        <button class="primary big" id="btn-analyze" disabled>Detect samples</button>
+        <p class="hint">Finds held vowels/notes for pitches (tuned to D), kick/snare/hi-hat/crash hits and
+          speech quotes for the Madness &amp; DunDunDenDen.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · SAMPLES ─────────────────────────────────────────────────────────── -->
+  <section class="step" id="step-samples">
+    <div class="card">
+      <div class="toolbar">
+        <h2>Samples</h2>
+        <label>Tune pitches to
+          <select id="cfg-key"></select></label>
+        <label>Octave
+          <select id="cfg-oct"><option value="">auto</option><option>3</option><option>4</option><option>5</option></select></label>
+        <label>Flatten <input type="range" id="cfg-flat" min="0" max="1" step="0.05" value="1"><output id="cfg-flat-v">1.00</output></label>
+        <button class="ghost" id="btn-reanalyze">Re-detect</button>
+      </div>
+      <p class="hint">▶ plays the processed sample (tuned / designed), ◇ the original cut. Pick another candidate or type
+        a time range to swap a sample.</p>
+    </div>
+    <div id="sample-groups"></div>
+  </section>
+
+  <!-- 3 · REMIX ───────────────────────────────────────────────────────────── -->
+  <section class="step" id="step-remix">
+    <div class="card">
+      <h2>Base variant</h2>
+      <div class="variants" id="variants"></div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <h2>Options</h2>
+      </div>
+      <div class="grid-form">
+        <label>Title <input type="text" id="opt-title" placeholder="auto: “&lt;source&gt; has a Sparta … Remix”"></label>
+        <label>BPM <input type="number" id="opt-bpm" min="60" max="220" step="1"></label>
+        <label>Progression twist <select id="opt-prog"></select></label>
+        <label>Pitching <select id="opt-pitching"><option value="classic">classic (sampler)</option><option value="normal">normal</option><option value="hard">hard (layers)</option></select></label>
+        <label>FX polish <select id="opt-polish"><option value="light">light</option><option value="normal">normal</option><option value="hard">hard (OTT, pump)</option></select></label>
+        <label class="check"><input type="checkbox" id="opt-minor"> minor patterns</label>
+      </div>
+      <div class="row gap"><button class="primary" id="btn-apply-variant">Rebuild arrangement</button>
+        <span class="hint">Rebuilding resets section edits.</span></div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <h2>Arrangement</h2>
+        <span id="arr-summary" class="muted"></span>
+        <span class="spacer"></span>
+        <select id="add-kind"></select>
+        <input type="number" id="add-bars" value="8" min="1" max="32" style="width:4.5em">
+        <button class="ghost" id="btn-add-section">+ Section</button>
+      </div>
+      <div class="timeline" id="timeline"></div>
+      <div id="sections"></div>
+      <div class="row gap"><button class="primary" id="btn-save-arr">Save changes</button><span id="arr-dirty" class="warn hidden">unsaved edits</span></div>
+    </div>
+    <div class="card">
+      <h2>Pattern lab</h2>
+      <p class="hint">Paste any pattern from the Sparta Remix Wiki. Symbols: <code>***</code> 4th, <code>**</code> 6th,
+        <code>*</code> 8th, bare number 16th, <code>'</code> 32nd, <code>"</code> 64th, <code>_</code> 16th rest,
+        <code>/</code> 32nd rest, <code>\</code> 64th rest, <code>+#/-#</code> semitones; index style
+        <code>11_11_111…</code> uses 1/2 = main/second pitch.</p>
+      <div class="row"><textarea id="lab-text" rows="3" placeholder="0* 12* 0* 12* 1* 13* 1* 13* -2* 10* -2* 10* 1* 13* 1* 13*"></textarea></div>
+      <div class="row gap">
+        <select id="lab-mode"><option value="auto">auto-detect</option><option value="semitone">semitone</option><option value="compact">compact semitone</option><option value="index">index (slots)</option></select>
+        <input type="text" id="lab-name" placeholder="name">
+        <select id="lab-section"></select>
+        <button class="ghost" id="btn-lab-add">Add to library</button>
+      </div>
+      <div id="lab-out" class="lab-out"></div>
+    </div>
+    <div class="card">
+      <h2>Sparta base (optional)</h2>
+      <p class="hint">Remixes normally sit on a Sparta base. Drop one here to put the source samples on top of it
+        (our own drums/bass/pads are muted in “replace” mode).</p>
+      <div class="row gap">
+        <input type="file" id="base-file" accept="audio/*,video/*">
+        <label>Bar 1 starts at <input type="number" id="base-offset" step="0.01" value="0" style="width:6em"> s</label>
+        <label>Gain <input type="number" id="base-gain" step="0.5" value="-3" style="width:5em"> dB</label>
+        <select id="base-mode"><option value="replace">replace backing</option><option value="layer">layer</option></select>
+        <button class="ghost" id="btn-base-clear">Remove base</button>
+      </div>
+      <div id="base-info" class="muted"></div>
+    </div>
+  </section>
+
+  <!-- 4 · PREVIEW & SAVE ──────────────────────────────────────────────────── -->
+  <section class="step" id="step-render">
+    <div class="cols">
+      <div class="card">
+        <h2>Preview</h2>
+        <p class="hint">A fast low-resolution render to check the remix before saving.</p>
+        <div class="row gap">
+          <button class="primary big" id="btn-preview">Render preview</button>
+          <button class="ghost" id="btn-preview-audio">Audio only</button>
+        </div>
+        <video id="preview-video" controls playsinline class="hidden"></video>
+        <audio id="preview-audio" controls class="hidden"></audio>
+        <div id="preview-info" class="muted"></div>
+      </div>
+      <div class="card">
+        <h2>Save</h2>
+        <div class="row gap">
+          <select id="final-quality"><option value="720p">720p (1280×720)</option><option value="1080p">1080p (1920×1080)</option></select>
+          <button class="primary" id="btn-final">Render final video</button>
+        </div>
+        <div id="final-out" class="downloads"></div>
+        <hr>
+        <div class="row gap">
+          <button class="ghost" id="btn-pack">Export sample pack (.zip)</button>
+          <button class="ghost" id="btn-save-proj">Save project</button>
+        </div>
+        <div id="pack-out" class="downloads"></div>
+        <details class="more">
+          <summary>Copy the final file to a folder on this computer</summary>
+          <div class="row"><input type="text" id="saveas-path" placeholder="~/Videos"><button id="btn-saveas">Copy</button></div>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="jobbar hidden" id="jobbar">
+  <div class="jobtext"><b id="job-kind"></b> <span id="job-msg"></span></div>
+  <div class="bar"><div id="job-progress"></div></div>
+</div>
+<div id="toast"></div>
+<audio id="player"></audio>
+
+<dialog id="dlg-projects">
+  <h3>Open project</h3>
+  <div id="project-list"></div>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
