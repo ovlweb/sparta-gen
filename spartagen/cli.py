@@ -100,6 +100,13 @@ def cmd_make(a: argparse.Namespace) -> int:
         if not a.quiet:
             _print_midi(s.midi_song(), s.project.midi["mapping"])
     s.set_variant(variant, opts)
+    if a.fx:
+        s.project.mix["fx_preset"] = a.fx
+    for item in a.sound or []:
+        k, _, v = item.partition("=")
+        v = v.strip()
+        s.project.mix[k.strip()] = (float(v) if v.replace(".", "", 1).isdigit() else
+                                    {"on": True, "off": False, "true": True, "false": False}.get(v.lower(), v))
     if a.style:
         s.project.video["style"] = a.style
     for item in a.look or []:
@@ -272,6 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--no-auto-phrase", action="store_true",
                    help="do not put the main phrase on the Chorus pattern when no MIDI part plays it")
     m.add_argument("--export-midi", help="also write the remix's notes as a MIDI file")
+    m.add_argument("--fx", help="sound FX preset: xleth, clean, loud, lofi, big_room, retro")
+    m.add_argument("--sound", action="append", metavar="OPTION=VALUE",
+                   help="a sound FX amount on top of the preset, e.g. --sound reverb=1.5 --sound risers=on "
+                        "(reverb, delay, ott, pump, drive, width, lofi, tape_stop_end, risers, stutter_fills)")
     m.add_argument("--style", help="visual style: classic, clean, xleth, retro, neon, cinematic, mirror")
     m.add_argument("--look", action="append", metavar="OPTION=VALUE",
                    help="a visual option on top of the style, e.g. --look border=glow --look shake=0.5 "

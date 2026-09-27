@@ -36,6 +36,23 @@ REMIX_DRUMS_DB = 0.0      # source percussion on top of a base's own drums (hear
 REMIX_BASS_DB = 3.0       # the bass pitch (a pitch like the others) heard over a base's own bass
 
 
+#: Sound FX presets: what each sets (amounts are multipliers of the usual polish; anything chosen by hand wins).
+FX_PRESETS: dict[str, dict] = {
+    "xleth": {},
+    "clean": {"ott": 0.0, "drive": 0.3, "pump": 0.3, "reverb": 0.6, "delay": 0.5},
+    "loud": {"ott": 1.6, "drive": 1.6, "pump": 1.3, "width": 1.2},
+    "lofi": {"lofi": 0.6, "reverb": 0.7, "ott": 0.6, "width": 0.8, "tape_stop_end": True},
+    "big_room": {"reverb": 2.0, "delay": 1.5, "width": 1.3, "risers": True, "pump": 1.3},
+    "retro": {"ott": 0.0, "drive": 0.5, "pump": 0.0, "reverb": 0.5, "delay": 0.0, "lofi": 0.25},
+}
+FX_PRESET_NAMES = {"xleth": "Xleth polish", "clean": "Clean", "loud": "Loud & crisp", "lofi": "Lo-fi",
+                   "big_room": "Big room", "retro": "Retro 2010"}
+#: Every FX amount, its default and its range.
+FX_AMOUNTS = {"reverb": (1.0, 0.0, 2.5), "delay": (1.0, 0.0, 2.5), "ott": (1.0, 0.0, 2.0), "pump": (1.0, 0.0, 2.0),
+              "drive": (1.0, 0.0, 2.0), "width": (1.0, 0.5, 1.8), "lofi": (0.0, 0.0, 1.0)}
+FX_SWITCHES = {"tape_stop_end": False, "risers": False, "stutter_fills": False}
+
+
 @dataclass
 class MixConfig:
     sr: int = 44100
@@ -49,13 +66,37 @@ class MixConfig:
     stem_gains: dict = field(default_factory=dict)
     mute: list = field(default_factory=list)
     tail_s: float = 2.5
+    # ── sound FX (see FX_PRESETS) ──
+    fx_preset: str = "xleth"
+    reverb: float = 1.0               # reverb sends ×
+    delay: float = 1.0                # delay sends ×
+    ott: float = 1.0                  # OTT depth ×
+    pump: float = 1.0                 # sidechain pump depth ×
+    drive: float = 1.0                # saturation ×
+    width: float = 1.0                # master stereo width
+    lofi: float = 0.0                 # 0-1: bit crush on the master
+    tape_stop_end: bool = False       # the remix ends on a tape stop (a base's ending too)
+    risers: bool = False              # a rising filter over the bar before each Chorus
+    stutter_fills: bool = False       # the last beat before each part stutters
 
     @staticmethod
     def from_dict(d: dict) -> "MixConfig":
+        """Defaults, then the FX preset's settings, then what was chosen by hand."""
+        d = d or {}
         c = MixConfig()
-        for k, v in (d or {}).items():
+        preset = d.get("fx_preset") or "xleth"
+        if preset not in FX_PRESETS:
+            raise ValueError(f"unknown FX preset {preset!r} (presets: {', '.join(FX_PRESETS)})")
+        for k, v in FX_PRESETS[preset].items():
+            setattr(c, k, v)
+        for k, v in d.items():
             if hasattr(c, k):
                 setattr(c, k, v)
+        c.fx_preset = preset
+        for k, (_d, lo, hi) in FX_AMOUNTS.items():
+            setattr(c, k, float(min(hi, max(lo, float(getattr(c, k))))))
+        for k in FX_SWITCHES:
+            setattr(c, k, bool(getattr(c, k)))
         return c
 
 
@@ -184,6 +225,23 @@ def audible_length(e: NoteEvent, s: Optional[Sample]) -> float:
 # ── stems & chains ───────────────────────────────────────────────────────────
 
 
+def scaled_chain(chain: list[dict], cfg: "MixConfig") -> list[dict]:
+    """A stem chain with the FX amounts applied: drive scales saturation, ott the OTT depth (0: left out)."""
+    out = []
+    for step in chain:
+        step = dict(step)
+        if step["fx"] == "saturate":
+            if cfg.drive <= 0:
+                continue
+            step["drive_db"] = step.get("drive_db", 6.0) * cfg.drive
+        elif step["fx"] == "ott":
+            if cfg.ott <= 0:
+                continue
+            step["depth"] = min(1.0, step.get("depth", 0.5) * cfg.ott)
+        out.append(step)
+    return out
+
+
 def stem_chain(stem: str, polish: str, sr: int) -> list[dict]:
     hard = polish == "hard"
     light = polish == "light"
@@ -302,8 +360,8 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
             bus_fx.append((target, int(t0 * sr), min(total, int(t1 * sr)), dict(fx=name, **spec)))
 
     sidechain = None
-    if kick_times and cfg.polish != "light":
-        depth = 7.0 if cfg.polish == "hard" else 3.5
+    if kick_times and cfg.polish != "light" and cfg.pump > 0:
+        depth = (7.0 if cfg.polish == "hard" else 3.5) * cfg.pump
         sidechain = fx.sidechain_env(total, sr, kick_times, depth_db=depth, release_ms=150.0)
     rev_bus = np.zeros((total, 2), dtype=np.float32)
     dly_bus = np.zeros((total, 2), dtype=np.float32)
@@ -345,7 +403,8 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
         a = max(0, rng[0] - int(0.25 * sr))
         b = min(total, rng[1] + int(1.5 * sr))
         y = np.zeros_like(buf)
-        y[a:b] = dsp.fit_length(fx.apply_chain(buf[a:b], sr, stem_chain(name, cfg.polish, sr)), b - a)
+        y[a:b] = dsp.fit_length(fx.apply_chain(buf[a:b], sr, scaled_chain(stem_chain(name, cfg.polish, sr), cfg)),
+                                b - a)
         del buf
         if sidechain is not None and name in SIDECHAINED:
             amt = SIDECHAINED[name]
@@ -358,6 +417,8 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
         if cfg.polish == "light":
             rv *= 0.6
             dl = 0.0
+        rv *= cfg.reverb
+        dl *= cfg.delay
         if rv:
             rev_bus += y * rv
         if dl:
@@ -396,6 +457,11 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
         base = dsp.fit_length(base, total) * dsp.db_to_gain(cfg.base_gain_db)
         mix += base
 
+    if cfg.tape_stop_end and arr.sections and not any(t1 >= arr.duration - 1e-6 for _t0, t1, _s in tape_ranges):
+        tape_ranges.append((starts[-1], arr.duration, {"duration_s": min(0.9, arr.sections[-1].bars * arr.bar_s)}))
+    if cfg.risers or cfg.stutter_fills:
+        say(0.78, "risers & fills")
+        transitions(mix, sr, arr, starts, risers=cfg.risers, stutters=cfg.stutter_fills)
     for t0, t1, spec in tape_ranges:
         a = int(max(t0, t1 - float(spec.get("duration_s", 0.8)) - 0.05) * sr)
         b = min(total, int(t1 * sr))
@@ -404,25 +470,52 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
             mix[b:] *= 0.0 if spec.get("silence_after", True) and t1 >= arr.duration - 1e-6 else 1.0
 
     say(0.8, "mastering")
-    mix = master(mix, sr, cfg.polish, cfg.target_lufs)
+    mix = master(mix, sr, cfg.polish, cfg.target_lufs, cfg)
     info = {"lufs": round(dsp.loudness_lufs(mix, sr), 2), "peak_db": round(float(dsp.gain_to_db(dsp.peak(mix))), 2),
             "duration": round(mix.shape[0] / sr, 3), "stems": stem_names}
     say(1.0, "mix done")
     return mix.astype(np.float32), info
 
 
-def master(mix: np.ndarray, sr: int, polish: str = "normal", target_lufs: Optional[float] = None) -> np.ndarray:
+def transitions(mix: np.ndarray, sr: int, arr: Arrangement, starts: list, risers: bool = False,
+                stutters: bool = False) -> None:
+    """Build-ups at the part boundaries: a rising high-pass over the bar before each Chorus (risers), the
+    last beat before a new part stuttered in 16ths (fills).  In place."""
+    bar = int(arr.bar_s * sr)
+    beat = bar // 4
+    for i, sec in enumerate(arr.sections):
+        if i == 0:
+            continue
+        t = int(starts[i] * sr)
+        if risers and sec.kind in ("chorus", "epicness") and t - bar > 0:
+            a = t - bar
+            mix[a:t] = dsp.fit_length(fx.filter_sweep(mix[a:t], sr, kind="highpass", f_start=60.0, f_end=1400.0),
+                                      t - a)
+        if stutters and t - beat > 0 and arr.sections[i - 1].kind not in ("intro", "ending"):
+            a = t - beat
+            piece = fx.stutter(mix[a:t], sr, slice_s=arr.step_s, repeats=4, decay=0.9)
+            mix[a:t] = dsp.fit_length(piece, t - a)
+
+
+def master(mix: np.ndarray, sr: int, polish: str = "normal", target_lufs: Optional[float] = None,
+           cfg: Optional[MixConfig] = None) -> np.ndarray:
+    cfg = cfg or MixConfig(polish=polish)
     target = POLISH_TARGET_LUFS.get(polish, -10.0) if target_lufs is None else float(target_lufs)
     y = fx.eq(mix, sr, [{"type": "highpass", "freq": 25.0, "q": 0.7},
                         {"type": "lowshelf", "freq": 90.0, "q": 0.7, "gain": 1.0},
                         {"type": "highshelf", "freq": 9000.0, "q": 0.7, "gain": 1.5 if polish != "light" else 0.5}])
-    if polish == "hard":
-        y = fx.ott(y, sr, depth=0.45, time=0.45)
-        y = fx.saturate(y, 3.0, "tanh", mix_amount=0.5)
-        y = fx.stereo_width(y, 1.15)
-    elif polish == "normal":
-        y = fx.ott(y, sr, depth=0.22, time=0.5)
-        y = fx.saturate(y, 1.5, "tanh", mix_amount=0.35)
+    ott_depth, drive_db, sat_mix, width = {"hard": (0.45, 3.0, 0.5, 1.15), "normal": (0.22, 1.5, 0.35, 1.0)}.get(
+        polish, (0.0, 0.0, 0.0, 1.0))
+    if ott_depth * cfg.ott > 0:
+        y = fx.ott(y, sr, depth=min(0.9, ott_depth * cfg.ott), time=0.45 if polish == "hard" else 0.5)
+    if drive_db * cfg.drive > 0:
+        y = fx.saturate(y, drive_db * cfg.drive, "tanh", mix_amount=sat_mix)
+    if abs(width * cfg.width - 1.0) > 1e-3:
+        y = fx.stereo_width(y, width * cfg.width)
+    if cfg.lofi > 0:
+        y = fx.bitcrush(y, sr, bits=int(round(14 - 8 * cfg.lofi)), downsample=1 + int(round(4 * cfg.lofi)),
+                        mix_amount=0.35 + 0.5 * cfg.lofi)
+        y = fx.eq(y, sr, [{"type": "lowpass", "freq": 12000.0 - 7000.0 * cfg.lofi, "q": 0.7}])
     y = fx.compressor(y, sr, threshold_db=-16.0, ratio=2.0, attack_ms=20.0, release_ms=150.0, knee_db=6.0)
     # Loudness: bring the mix to the target, then let the limiter catch the peaks.
     for _ in range(2):
