@@ -164,11 +164,21 @@ class Session:
             if self._bank is not None and self._bank_key == key:
                 return self._bank
         an = self.analysis(progress)
-        bank = build_bank(self.audio(), SAMPLE_RATE, an, SampleConfig.from_dict(self.project.samples), progress)
+        bank = build_bank(self.audio(), SAMPLE_RATE, an, SampleConfig.from_dict(self.project.samples), progress,
+                          shot_cuts=self._shot_cuts())
         with self.lock:
             self._bank = bank
             self._bank_key = key
         return bank
+
+    def _shot_cuts(self):
+        """Camera cuts of the source video in a time range (None for audio-only sources)."""
+        info = self.project.source_info or {}
+        src = self.project.source_path
+        if not src or not info.get("has_video"):
+            return None
+        fps = min(max(float(info.get("fps") or 25.0), 10.0), 60.0)
+        return lambda a, b: ff.shot_cuts(src, a, b, fps=fps)
 
     def sample_wav(self, sid: str) -> str:
         """Processed sample as a WAV file (for auditioning in the GUI)."""
@@ -228,7 +238,8 @@ class Session:
             o = self.project.options
             if self.project.variant == "base" and self.project.base:
                 arr = build_from_base(self.project.base, pitching=o.get("pitching") or "normal",
-                                      polish=o.get("polish") or "normal", minor=bool(o.get("minor")),
+                                      polish=o.get("polish") or "normal",
+                                      minor=None if o.get("minor") is None else bool(o.get("minor")),
                                       title=o.get("title") or None, chorus_pattern=o.get("chorus_pattern"),
                                       progression=o.get("progression"),
                                       chorus_pitch=bool(o.get("chorus_pitch")))

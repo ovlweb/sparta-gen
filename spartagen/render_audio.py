@@ -27,12 +27,13 @@ POLISH_TARGET_LUFS = {"light": -12.0, "normal": -10.0, "hard": -8.5}
 # Gain staging: the source pitches lead (they ARE the remix), drums punch just
 # under them, the bass supports.  Measured on chorus sections after the stem chains.
 STEM_LEVEL_DB = {
-    "pitch": 5.5, "chorus": 3.5, "pitch_layers": 7.0, "pitch_soft": 3.0, "pad": -1.0, "bass": -4.0,
+    "pitch": 5.5, "chorus": 4.5, "pitch_layers": 7.0, "pitch_soft": 3.0, "pad": -1.0, "bass": -4.0,
     "drums": -3.5, "chop": 4.0, "quotes": 2.0, "misc": 0.0,
 }
 
 BACKING_STEMS = {"drums", "bass", "pad"}
 REMIX_DRUMS_DB = -4.0     # source percussion on top of a base's own drums
+REMIX_BASS_DB = -4.0      # the source bass (a pitch like the others) on top of a base's own bass
 
 
 @dataclass
@@ -60,14 +61,14 @@ class MixConfig:
 
 def muted_stems(cfg: MixConfig) -> set:
     """Stems left out of the mix (and so out of the picture): the user's mutes, plus what a base
-    replaces — on a base the remix keeps its source-made percussion ("remix") or not ("replace"),
-    and leaves bass and chords to the base."""
+    replaces — on a base the remix keeps its source-made percussion and bass ("remix") or not
+    ("replace"), and leaves the held chords to the base."""
     muted = set(cfg.mute)
     if cfg.base_path and os.path.isfile(cfg.base_path):
         if cfg.base_mode == "replace":
             muted |= BACKING_STEMS
         elif cfg.base_mode == "remix":
-            muted |= {"bass", "pad"}
+            muted |= {"pad"}
     return muted
 
 
@@ -256,6 +257,7 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
     muted |= muted_stems(cfg) - set(cfg.mute)
     if use_base and cfg.base_mode == "remix":
         stem_gains.setdefault("drums", REMIX_DRUMS_DB)
+        stem_gains.setdefault("bass", REMIX_BASS_DB)
     kick_times: list[float] = []
 
     def say(p: float, m: str) -> None:

@@ -5,12 +5,14 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
 1. **Cuts the source video into samples** with ffmpeg — held vowels/notes become *pitches*, thumps/bangs/hisses become
    *kick, snare/clap, hi-hats and crash*, and speech becomes *quotes*, *Madness words* and *DunDunDenDen syllables*.
 2. **Fixes every pitch sample into a D note** (the key of the classic bases) with TD-PSOLA hard-tuning — the
-   "Melodyne pitch drift 100 %" treatment — and derives the **bass** (D2), **main**, **second** and **third** pitches.
-   The **Chorus plays two layers on the same pattern**: the **main phrase** — cut into two parts at the gap between
-   its syllables (on a zero crossing) and played as it is, `1` the first part, `2` the second ("the chorus always
-   contains the main phrase", Sparta Remix Wiki) — and the **pitch** under it, playing a Chorus pitch pattern on the
-   chords: the tutorial's basic one first (`D***D***D#***D#***C***C***D#***D#***`), then `0*, 12*`, the root/octave
-   pattern "commonly used in the chorus section". The DunDunDenDen chops the same phrase.
+   "Melodyne pitch drift 100 %" treatment — and derives the **bass** (D2), **main**, **second**, **third** and
+   **fourth** pitches.
+   The **Chorus plays two layers**: the **main phrase** — cut into two parts at the gap between its syllables (on a
+   zero crossing) and played as it is on the Chorus pattern, `1` the first part, `2` the second ("the chorus always
+   contains the main phrase", Sparta Remix Wiki) — and **several pitches** under it, playing together: the wiki's
+   *1\*, 12\*, Chords* lines — root, third and fifth (the seventh joins in the Final Chorus), each line on its own
+   pitch sample, bouncing root/octave in 8ths on the chords. The Epicness and Awesomeness hold the chords on the
+   second to fourth pitch under their patterns. The DunDunDenDen chops the main phrase.
    Pitch samples cut from songs are **isolated first** (only the held note's harmonics are kept, the band under it
    is pushed down ~30 dB) so they still sound like clean notes once tuned.
 3. **Sequences the patterns from the Sparta Remix Wiki** (standard Chorus `11_11_111_1_1_11222_2_222_222_2_…`,
@@ -106,11 +108,12 @@ Sections and what plays in them:
 
 - **Chorus** — the main phrase on the standard 8-bar Chorus pattern (3 lines: main line ×2, swapped line, 32nd-note
   ending; `1` = first part, `2` = second part, as they are — tick *pitched chorus* / `--chorus-pitch` to tune it to
-  the chords too) over the main pitch playing a Chorus pitch pattern: *Original* (quarter notes on the roots) in
-  the first Chorus, `0*, 12*` in the others (pick any other with the pattern list); with hard pitching and in the
-  final Chorus the second pitch adds fifths (`0*, 7*`) and the main pitch doubles an octave up; ChorusCrisp pluck; offbeat bass; four-on-the-floor
-  source kick, clap paralleled with the kick, hats; crash; fill in the last bar. The main phrase big in the
-  middle, pitches along the top, drums along the bottom.
+  the chords too) over several pitches playing the *1\*, 12\*, Chords* lines together: the main pitch on the
+  roots, the second pitch on the thirds, the third pitch on the fifths (`0* 12*`, `4* 16*`, `7* 19*` …, the minor
+  lines on a minor base), the fourth pitch on the sevenths (`11* 18*` …) in the Final Chorus and with hard pitching,
+  where the main pitch also doubles an octave up (pick any other pitch pattern with the pattern list); ChorusCrisp
+  pluck; offbeat bass; source kick, clap paralleled with the kick, hats; crash; fill in the last bar. The main
+  phrase big in the middle, a box per pitch (and the bass) along the top, drums along the bottom.
 - **DunDunDenDen** — `0*__0*__1*__1*__-2*__-2*__1*__1*__`: loud quarter notes with silence in between, each hit a
   syllable of the **main phrase** pitched to the note, all drums hitting with it. Fullscreen, black between hits.
 - **Madness** — the call & response (the Madness article's *Original Pattern*: `1` = first person's word, `2` = the
@@ -120,10 +123,12 @@ Sections and what plays in them:
 - **Epicness** — after the Chorus that follows the DunDunDenDen and after the Chorus that follows the Madness.
   The "OMG Teh Epicness!" pattern: its `1*` lead-in lands two 16ths before the section, the four bars
   end on a roll of 16ths and the second line layers slot 3; long Epicness parts alternate the ORIGINAL with an edit
-  (CatmanTeam, TheInfySpartan, majugarzett… all 14 are in the library). 4×4 grid with the spinning title.
+  (CatmanTeam, TheInfySpartan, majugarzett… all 14 are in the library), with the chords held under it on the
+  second, third and fourth pitch — one box each in the middle of the 4×4 grid, with the spinning title.
 - **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
-- **Awesomeness 1 / 2**, **Execution**, **Intro** (quotes, then the 3-hit intro pattern), **Ending** (final hit,
-  main phrase, tape stop).
+- **Awesomeness 1 / 2** (the pattern on the main pitch, an octave below on the second, the chords on the second to
+  fourth pitch), **Execution**, **Intro** (quotes, then the 3-hit intro pattern), **Ending** (final hit, main
+  phrase, tape stop).
 
 ## Pattern notation
 
@@ -146,7 +151,9 @@ Three styles are recognised automatically (you can also force one):
   speaker, 2 = second pitch / second speaker… — and each hit plays the root of the current chord.
 
 Picking a **Progression Twist** re-targets every semitone pattern written for `0 1 -2 1` (e.g. under `0 1 2 1` a
-note on C moves to E). Multi-line patterns (Chords) play their lines together.
+note on C moves to E). Multi-line patterns (Chords) play their lines together — in the remix templates each line on
+its own pitch sample (root on the main pitch, third on the second, fifth on the third, seventh on the fourth), so
+several pitches are heard, and seen, at once.
 
 Index patterns may use `B` (slots 1 and 2 together, from the Madness freestyles).
 Percussion patterns are index patterns too: `1` kick, `2` clap/snare (with the kick paralleled, as the Percussion
@@ -178,7 +185,11 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
   time-varying harmonic mask on the short-time spectrum keeps the bins around every harmonic of the tracked note
   (the detected pitch stands in where the band hides it from the tracker) and pushes everything between them
   ~30 dB down — the source's own audio, filtered, like Melodyne's note separation. Pitch candidates are ranked by
-  how clearly they read as a note once isolated and tuned, and longer held notes win.
+  how clearly they read as a note once isolated and tuned — voiced, harmonic, and sitting on the note (a singer
+  bending into a note from its neighbour keeps some of the bend through the tuning) — and longer held notes win.
+- **One shot per pitch** (music videos): a note the video cuts away from is shortened at the camera cut (colour
+  histogram / picture jump), audio with the picture, so each pitch's box shows one shot; an automatic pick that the
+  video cuts too short is passed over.
 - **Tuning to D** (`spartagen/audio/psola.py`): pitch marks every period, TD-PSOLA re-synthesis with every period at
   the target note (formants kept). Transpositions reuse the synthesis marks; long notes are sustained by PSOLA
   stretching or ping-pong looping of the steady part.
@@ -209,7 +220,8 @@ Remixes normally sit on a Sparta base. Add one in the *Remix* tab (or `--base`) 
 
 - **tempo and bar 1** from the base's own drums on a 16th grid (e.g. `140 BPM, bar 1 at 0.139 s`);
 - **key and progression** from the chords of every half bar (triads above the bass — a base's kick is often tuned
-  and would fool a bass reading), e.g. `key D, progression 0 1 -2 1`;
+  and would fool a bass reading), e.g. `key D, progression 0 1 -2 1`, and whether the key chord is **minor** (the
+  pitch chords follow it: major or minor thirds);
 - **sections**: the Chorus is the loud texture that keeps coming back; the Madness is the soft breakdown; the
   rest follow from their places as the wiki describes the structure — the DunDunDenDen after the first Chorus, an
   Epicness after the Chorus that follows it and after the Chorus that follows the Madness, Awesomeness 1 as the
@@ -230,8 +242,9 @@ Remixes normally sit on a Sparta base. Add one in the *Remix* tab (or `--base`) 
 ```
 
 The **Follow my base** structure then gives every base section its part, lined up with bar 1. Mix modes:
-*remix* (default) keeps the source-made percussion (the wiki's percussion patterns) on top of the base and leaves
-bass and chords to it; *replace* also mutes the source percussion; *layer* keeps everything. The video only shows
+*remix* (default) keeps the source-made percussion (the wiki's percussion patterns) and the source bass on top of
+the base and leaves the held pad chords to it; *replace* also mutes the source percussion and bass; *layer* keeps
+everything. The video only shows
 what is heard. Labels are a best guess from the signal — every section stays editable in the arrangement.
 
 ## Sample pack export
@@ -244,7 +257,7 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 179 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 183 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 

@@ -299,6 +299,26 @@ def read_frames(
     return frames
 
 
+def shot_cuts(path: str, start: float, end: float, fps: float = 25.0, threshold: float = 30.0,
+              hist_threshold: float = 0.4) -> list[float]:
+    """Camera cuts between ``start`` and ``end``: the times where a new shot begins — the colours
+    change at once (motion, even a busy background, moves them far less), or the picture jumps far
+    more than the motion around it."""
+    if end - start < 2.0 / fps:
+        return []
+    fr = read_frames(path, start, end - start, fps, 32, 18, "cover")
+    if fr.shape[0] < 2:
+        return []
+    jump = np.abs(np.diff(fr.astype(np.float32), axis=0)).mean(axis=(1, 2, 3))
+    q = (fr // 64).astype(np.int64)                       # 4 levels per channel → 64 colour bins
+    bins = (q[..., 0] * 16 + q[..., 1] * 4 + q[..., 2]).reshape(fr.shape[0], -1)
+    hist = np.stack([np.bincount(b, minlength=64) for b in bins]).astype(np.float32) / bins.shape[1]
+    colour = 0.5 * np.abs(np.diff(hist, axis=0)).sum(axis=1)
+    level = max(threshold, 4.0 * float(np.median(jump)))
+    return [round(start + (i + 1) / fps, 4) for i in range(jump.shape[0])
+            if colour[i] > hist_threshold or jump[i] > level]
+
+
 def still_frame(path: str, t: float, width: int, height: int, fit: str = "cover") -> np.ndarray:
     return read_frames(path, t, 1.0 / 25.0, 25.0, width, height, fit)[0]
 

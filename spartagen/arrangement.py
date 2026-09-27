@@ -52,6 +52,7 @@ class TrackSpec:
     flip: str = "alternate"                     # none | alternate | rotate
     stem: str = ""
     muted: bool = False
+    voice_samples: list = field(default_factory=list)  # one sample per line of a multi-line pattern
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -138,7 +139,9 @@ class Arrangement:
 
 # ── Section templates ────────────────────────────────────────────────────────
 
-SLOTS_12 = {"1": "pitch1", "2": "pitch2", "3": "pitch3", "4": "pitch1"}
+SLOTS_12 = {"1": "pitch1", "2": "pitch2", "3": "pitch3", "4": "pitch4"}
+#: The pitch samples that play chord lines together (main, second, third, fourth pitch).
+PITCH_VOICES = ("pitch1", "pitch2", "pitch3", "pitch4")
 #: The Chorus plays the main source clip cut in two: 1 = first part, 2 = second part.
 SLOTS_CHORUS = {"1": "chorus_a", "2": "chorus_b", "3": "pitch3", "4": "pitch1"}
 
@@ -244,26 +247,30 @@ def sec_chorus(bars: int, opts: dict, final: bool = False, name: str = "Chorus")
     tune_main = bool(opts.get("chorus_pitch", False))
     main_slots = dict(SLOTS_CHORUS if opts.get("chorus_split", True) else SLOTS_12)
     minor = opts.get("minor", False)
-    pitch_pat = opts.get("chorus_pitch_pattern") or (
-        "chorus.original" if opts.get("first_chorus") else ("chorus.0_3_minor" if minor else "chorus.0_12"))
+    # Several pitches: the "1*, 12*, Chords" lines (Pitch Patterns) — root, third, fifth (and the
+    # seventh line in the final Chorus), each played by its own pitch sample.
+    pitch_pat = opts.get("chorus_pitch_pattern") or ("chords.arp_minor" if minor else "chords.arp_major")
+    n_voices = 4 if (final or hard) else 3
+    voices = list(PITCH_VOICES[:n_voices])
     tracks = [
         TrackSpec("main", "pitch", pattern, mode="index", slots=main_slots,
                   follow="progression" if tune_main else "", pitched=tune_main, crisp=True, gain_db=0.0,
                   visual="main", flip="alternate", stem="chorus"),
-        TrackSpec("pitch", "pitch", pitch_pat, sample="pitch1", crisp=True, sustain=True, gain_db=-0.5,
-                  visual="pitch_cycle", flip="alternate"),
+        # The voices sum up: each sits a little lower so the main phrase still leads the Chorus.
+        TrackSpec("pitch", "pitch", pitch_pat, sample="pitch1", voice_samples=voices, crisp=True, sustain=True,
+                  gain_db=-6.0, visual="pitch_cycle", flip="alternate"),
         _bass("offbeat"),
         _crash(0.0),
     ]
-    if hard or final:
-        # A second pitch in fifths under the main one, and the main one an octave up.
-        tracks.append(TrackSpec("pitch_b", "pitch", "chorus.0_7", sample="pitch2", crisp=True, sustain=True,
-                                gain_db=-6.0, visual="pitch_cycle", flip="alternate", stem="pitch_layers"))
-        tracks.append(TrackSpec("pitch_oct", "pitch", pitch_pat, sample="pitch1", octave=1, crisp=True,
-                                sustain=True, gain_db=-9.0, visual="none", stem="pitch_layers"))
+    if final:
+        # The main pitch doubles the root line an octave up.
+        tracks.append(TrackSpec("pitch_oct", "pitch", pitch_pat, sample="pitch1", voice_samples=["pitch1"],
+                                octave=1, crisp=True, sustain=True, gain_db=-10.0, visual="none",
+                                stem="pitch_layers"))
     if hard:
         tracks.append(TrackSpec("chords", "pitch", "chords.minor" if minor else "chords.major",
-                                sample="pitch3", gain_db=-15.0, sustain=True, visual="none", stem="pad"))
+                                sample="pitch3", voice_samples=list(PITCH_VOICES[:3]), gain_db=-16.0, sustain=True,
+                                visual="none", stem="pad"))
     if opts.get("wiki_perc", False):
         tracks.append(_perc("perc.vitro" if hard else "perc.normal", end_bar=bars - 1))
     else:
@@ -320,10 +327,9 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
                                 slots=dict(SLOTS_12), follow="progression", crisp=True, sustain=True,
                                 visual="pitch_cycle", flip="rotate", start_bar=b0, end_bar=end))
     tracks += [
-        TrackSpec("chords", "pitch", "chords.minor" if opts.get("minor") else "chords.major", sample="pitch3",
-                  gain_db=-14.0, sustain=True, visual="none", stem="pad"),
-        TrackSpec("arp", "pitch", "chords.arp_minor" if opts.get("minor") else "chords.arp_major", sample="pitch2",
-                  gain_db=-16.0, crisp=True, visual="none", stem="pitch_layers"),
+        TrackSpec("chords", "pitch", "chords.minor" if opts.get("minor") else "chords.major", sample="pitch2",
+                  voice_samples=["pitch2", "pitch3", "pitch4"], gain_db=-12.0, sustain=True, visual="voices",
+                  flip="alternate", stem="pitch_layers"),
         _bass("rolling"),
         _crash(0.0),
     ]
@@ -364,6 +370,9 @@ def sec_awesomeness(which: int, opts: dict, bars: int = 4) -> SectionSpec:
                   flip="rotate"),
         TrackSpec("pitch_low", "pitch", pid, sample="pitch2", octave=-1, gain_db=-9.0, sustain=True, visual="none",
                   stem="pitch_layers"),
+        TrackSpec("chords", "pitch", "chords.minor" if minor else "chords.major", sample="pitch2",
+                  voice_samples=["pitch2", "pitch3", "pitch4"], gain_db=-14.0, sustain=True, visual="voices",
+                  flip="alternate", stem="pitch_layers"),
         _bass("offbeat"),
         _crash(0.0),
     ]
@@ -591,14 +600,17 @@ BASE_SECTION_NAMES = {
 }
 
 
-def build_from_base(base_map, pitching: str = "normal", polish: str = "normal", minor: bool = False,
+def build_from_base(base_map, pitching: str = "normal", polish: str = "normal", minor: Optional[bool] = None,
                     title: Optional[str] = None, chorus_pattern: Optional[str] = None,
                     progression: Optional[str] = None, chorus_pitch: bool = False,
                     extra: Optional[dict] = None) -> Arrangement:
     """An arrangement that follows a base's own bars: each section of the base gets its remix part
-    (see ``spartagen.audio.base``).  ``base_map`` is a BaseMap or its dict."""
+    (see ``spartagen.audio.base``).  ``base_map`` is a BaseMap or its dict.  ``minor`` defaults to the
+    base's own key chord, so the pitch chords match it."""
     from .audio.base import BaseMap
     bm = base_map if isinstance(base_map, BaseMap) else BaseMap.from_dict(base_map)
+    if minor is None:
+        minor = bool(getattr(bm, "minor", False))
     opts = {"hard": pitching == "hard", "minor": minor, "base": True, "wiki_perc": True,
             "chorus_pitch": bool(chorus_pitch)}
     if chorus_pattern:
@@ -699,6 +711,7 @@ class NoteEvent:
 #: When a bank lacks a sample, these stand in (chorus halves → the main pitches …).
 FALLBACKS = {
     "chorus_a": ("pitch1",), "chorus_b": ("pitch2", "pitch1"), "pitch2": ("pitch1",), "pitch3": ("pitch2", "pitch1"),
+    "pitch4": ("pitch3", "pitch2", "pitch1"),
     "clap": ("snare",), "snare": ("clap",), "hat_open": ("hat_closed",), "word_b": ("word_a",),
 }
 
@@ -823,6 +836,7 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
             notes.sort(key=lambda z: (z[0], z[4]))
             onsets_by_track[tr.id] = [(st, du, v) for st, du, v, _s, _vo in notes]
             count = 0
+            voice_count: dict[int, int] = {}
             written_prog = parse_progression(written) if written else None
             for st, du, value, sharp, voice in notes:
                 # Which sample(s), and how many semitones from its D?
@@ -832,7 +846,13 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                     if tr.follow.startswith("@"):
                         root = 0
                 else:
-                    entries = [{"sample": tr.sample}]
+                    if tr.voice_samples:
+                        # Several pitches: each line of the pattern (chord voice) has its own sample.
+                        if voice >= len(tr.voice_samples):
+                            continue
+                        entries = [{"sample": tr.voice_samples[voice]}]
+                    else:
+                        entries = [{"sample": tr.sample}]
                     root = value
                     # "Progression Twist": move notes written over another progression.
                     if written_prog is not None and written_prog.roots != sec_prog.roots:
@@ -855,11 +875,13 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                         crisp=tr.crisp, sustain=tr.sustain, oneshot=tr.oneshot,
                         pitched=tr.pitched and tr.kind in ("pitch", "bass", "chop", "words"),
                         choke=tr.choke, section=si, section_kind=sec.kind,
-                        visual=ent.get("visual", tr.visual if k == 0 else "none"), flip=tr.flip, index=count,
+                        visual=ent.get("visual", tr.visual if k == 0 else "none"), flip=tr.flip,
+                        index=voice_count.get(voice, 0) if tr.voice_samples else count,
                     ))
                     emitted = True
                 if emitted:
                     count += 1
+                    voice_count[voice] = voice_count.get(voice, 0) + 1
     events.sort(key=lambda e: (e.t, e.track))
     _resolve_chokes(events, arr.duration)
     return events

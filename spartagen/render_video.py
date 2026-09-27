@@ -88,13 +88,17 @@ LAYOUT_CELLS["main"] = {
     **{f"b{i}": (0.2 * i, 0.8, 0.2, 0.2) for i in range(5)},
     "l": (0.0, 0.2, 0.2, 0.6), "r": (0.8, 0.2, 0.2, 0.6),
 }
-MAIN_PITCH = {"pitch1": "t0", "pitch2": "t1", "pitch3": "t2"}
-MAIN_FIXED = {"corner": "t3", "crash": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "bass": "b3", "quote": "b4",
+# Every pitch has its own box along the top — the several pitches are seen playing together — with the
+# bass at the end of the row; drums and quotes along the bottom.
+MAIN_PITCH = {"pitch1": "t0", "pitch2": "t1", "pitch3": "t2", "pitch4": "t3"}
+MAIN_FIXED = {"bass": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "crash": "b3", "corner": "b3", "quote": "b4",
               "side": "l"}
 
 # Snake order around the 4x4 border then the centre, for cycling pitch clips.
 GRID4_CYCLE = ["c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10"]
-GRID3_PITCH = {"pitch1": "mc", "pitch2": "ml", "pitch3": "mr"}
+GRID3_PITCH = {"pitch1": "mc", "pitch2": "ml", "pitch3": "mr", "pitch4": "tc"}
+# Chord voices (one pitch sample per line) in the 4x4 grid's middle, one box each.
+GRID4_VOICES = {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21", "pitch1": "c22"}
 GRID3_FIXED = {"kick": "bl", "snare": "br", "hat": "tl", "crash": "tr", "bass": "bc", "corner": "tr",
                "quote": "tc", "center": "mc"}
 
@@ -104,7 +108,7 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
     if v == "none":
         return None
     if layout == "full":
-        if v in ("kick", "snare", "hat", "crash", "bass", "corner", "side"):
+        if v in ("kick", "snare", "hat", "crash", "bass", "corner", "side", "voices"):
             return None
         return "main"
     if layout == "split2":
@@ -118,7 +122,7 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
     if layout == "grid3":
         if v == "main":
             return "mc"
-        if v == "pitch_cycle":
+        if v in ("pitch_cycle", "voices"):
             return GRID3_PITCH.get(e.sample, "mc")
         if v in ("full_flash", "center_late"):
             return "mc"
@@ -128,12 +132,14 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
     if layout == "main":
         if v in ("main", "center", "center_late", "full_flash", "madness"):
             return "main"
-        if v == "pitch_cycle":
+        if v in ("pitch_cycle", "voices"):
             return MAIN_PITCH.get(e.sample, "main" if e.sample.startswith("chorus") else "t2")
         return MAIN_FIXED.get(v)
     if layout == "grid4":
         if v == "pitch_cycle":
             return GRID4_CYCLE[e.index % len(GRID4_CYCLE)]
+        if v == "voices":
+            return GRID4_VOICES.get(e.sample)
         if v in ("main", "center", "full_flash", "center_late", "madness"):
             return "center"
         return {"kick": "c30", "snare": "c33", "hat": "c00", "crash": "c03", "bass": "c31", "corner": "c03"}.get(v)

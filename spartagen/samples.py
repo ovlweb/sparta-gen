@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -31,7 +31,8 @@ from .audio.harmonic import harmonic_filter
 from .audio.pitch import midi_to_hz, hz_to_midi, pitch_class, note_name, yin_track
 from .audio.psola import TunedSample, tune_to_note, find_marks
 
-PITCH_ROLES = ("pitch1", "pitch2", "pitch3")
+#: Main, second, third and fourth pitch — several pitches play the chord lines together.
+PITCH_ROLES = ("pitch1", "pitch2", "pitch3", "pitch4")
 
 
 @dataclass
@@ -64,7 +65,8 @@ class Sample:
             "root_midi": None if not self.pitched else round(float(self.root_midi), 3),
             "root_note": None if not self.pitched else note_name(self.root_midi),
             "video_rate": round(self.video_rate, 4),
-            "meta": {k: v for k, v in self.meta.items() if isinstance(v, (int, float, str, bool, type(None)))},
+            "meta": {k: v for k, v in self.meta.items() if isinstance(v, (int, float, str, bool, type(None)))
+                     or isinstance(v, list) and all(isinstance(z, (int, float)) for z in v)},
         }
 
 
@@ -130,6 +132,22 @@ def _clear_of(c: Candidate, used: list[tuple[float, float]], gap: float) -> bool
     return all(c.end + gap <= a or c.start >= b + gap for a, b in used)
 
 
+def trim_to_shot(c: Candidate, cuts: list[float], min_len: float = 0.12, margin: float = 0.04) -> Optional[Candidate]:
+    """The longest part of a note between camera cuts.  A pitch's box shows one shot, so a note the
+    video cuts away from is shortened with it — audio and picture from the same moment.  ``margin``
+    (a frame) keeps clear of the cut.  None when no part is long enough to be a pitch."""
+    inside = sorted(t for t in cuts if c.start + margin < t < c.end - margin)
+    if not inside:
+        return c
+    edges = [c.start] + inside + [c.end]
+    parts = [(a + (margin if k else 0.0), b - (margin if k < len(inside) else 0.0))
+             for k, (a, b) in enumerate(zip(edges[:-1], edges[1:]))]
+    a, b = max(parts, key=lambda ab: ab[1] - ab[0])
+    if b - a < min_len:
+        return None
+    return Candidate(c.kind, a, b, c.score, dict(c.info, shot_trimmed=[round(c.start, 4), round(c.end, 4)]))
+
+
 def _target_midi(f0: float, key_pc: int, octave: Optional[int]) -> int:
     if octave is not None:
         return 12 * (octave + 1) + key_pc
@@ -166,6 +184,8 @@ def make_pitch(x: np.ndarray, sr: int, cand: Candidate, sid: str, cfg: SampleCon
             "source_note": note_name(hz_to_midi(f0)) if np.isfinite(f0) else None,
             "shift_semitones": round(target - hz_to_midi(f0), 2) if np.isfinite(f0) else None,
             "score": round(float(cand.score), 4), "gain": round(float(scale), 4), "isolated": cleaned}
+    if cand.info.get("shot_trimmed"):
+        meta["shot_trimmed"] = cand.info["shot_trimmed"]      # the note as detected, before the camera cut
     return Sample(sid, "pitch", f"{sid} ({note_name(target)})", cand.start, cand.end, y, sr,
                   float(target), ts, 1.0, meta)
 
@@ -269,20 +289,28 @@ def _main_candidates(C: dict, x: Optional[np.ndarray] = None, sr: int = 44100, t
 
 
 def pitch_quality(s: Sample) -> float:
-    """How clearly a tuned sample reads as a note: voiced share × harmonic purity (0..1)."""
+    """How clearly a tuned sample reads as a note: voiced share × harmonic purity × the share of it
+    that sits on the note (a singer bending into the note from a neighbour keeps some of the bend
+    through the tuning) (0..1)."""
     y = s.audio
     if y.shape[0] < 1024 or not s.pitched:
         return 0.05
     tr = yin_track(y, s.sr, fmin=60.0, fmax=1200.0, frame=2048, hop=256)
     voiced = float(tr.voiced.mean()) if tr.voiced.size else 0.0
     f = float(midi_to_hz(s.root_midi))
+    ok = tr.voiced & np.isfinite(tr.f0)
+    on_note = 1.0
+    if ok.sum() >= 3:
+        cents = 1200.0 * np.log2(tr.f0[ok] / f)
+        on_note = float(np.mean(np.abs((cents + 600.0) % 1200.0 - 600.0) < 35.0))   # octave slips aside
     S = np.abs(np.fft.rfft(y * np.hanning(y.shape[0]))) ** 2
     fr = np.fft.rfftfreq(y.shape[0], 1.0 / s.sr)
     band = (fr > 80.0) & (fr < 8000.0)
     k = np.round(fr / f)
     harm = (k >= 1) & (np.abs(fr - k * f) < np.maximum(15.0, 0.03 * k * f))
     purity_db = 10.0 * math.log10(float(S[harm & band].sum()) / max(float(S[~harm & band].sum()), 1e-12))
-    return max(0.05, voiced) * float(np.clip((purity_db - 3.0) / 15.0, 0.1, 1.0))
+    return (max(0.05, voiced) * float(np.clip((purity_db - 3.0) / 15.0, 0.1, 1.0))
+            * float(np.clip((on_note - 0.5) / 0.45, 0.1, 1.0)))
 
 
 def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
@@ -451,7 +479,8 @@ class SampleBank:
 
 
 def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig] = None,
-               progress=None) -> SampleBank:
+               progress=None, shot_cuts: Optional[Callable[[float, float], list[float]]] = None) -> SampleBank:
+    """``shot_cuts(start, end)`` lists the source video's camera cuts in a range (no video: None)."""
     cfg = cfg or SampleConfig()
     x = np.asarray(x, dtype=np.float32)
     if x.ndim == 2:
@@ -482,14 +511,29 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             scored.append((c.score * pitch_quality(smp) * held, c))
         scored.sort(key=lambda z: -z[0])
         ranked = [c for _, c in scored] + pitches[12:]
+    cut_away: set[int] = set()           # auto picks the video cuts away from too soon
     for i, sid in enumerate(PITCH_ROLES):
         explicit = sel.get(sid) is not None
-        pool = pitches if explicit else ranked
-        # Second/third pitch: prefer another moment of the source (another word,
-        # speaker or note) so the call & response between slots is audible.
-        cand = _pick(pool, sel.get(sid), used, 2.0) if i > 0 else None
-        if cand is None or (i > 0 and not explicit and not _clear_of(cand, used, 2.0)):
-            cand = _pick(pool, sel.get(sid), used, 0.3)
+        cand = first = None
+        for _attempt in range(6):
+            pool = pitches if explicit else [c for c in ranked if id(c) not in cut_away]
+            # Second/third pitch: prefer another moment of the source (another word,
+            # speaker or note) so the call & response between slots is audible.
+            cand = _pick(pool, sel.get(sid), used, 2.0) if i > 0 else None
+            if cand is None or (i > 0 and not explicit and not _clear_of(cand, used, 2.0)):
+                cand = _pick(pool, sel.get(sid), used, 0.3)
+            if cand is None or shot_cuts is None:
+                break
+            first = first or cand
+            # One shot per pitch box: cut the note where the video cuts, or pass on it.
+            trimmed = trim_to_shot(cand, shot_cuts(cand.start, cand.end))
+            if trimmed is None and not explicit:
+                cut_away.add(id(cand))
+                cand = None
+                continue
+            cand = trimmed or cand
+            break
+        cand = cand or first
         if cand is None:
             # No voiced material at all: fall back to the loudest word/quote so the remix still has a "pitch".
             cand = _pick(C.get("word", []) or C.get("quote", []), None, used)

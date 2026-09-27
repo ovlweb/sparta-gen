@@ -109,7 +109,8 @@ function renderProject() {
   S.variant = p.variant || "unextended";
   const o = p.options || {};
   $("#opt-title").value = o.title || "";
-  $("#opt-minor").checked = !!o.minor;
+  // On a base, "minor" follows the base's own key chord unless the user set it.
+  $("#opt-minor").checked = o.minor ?? !!(p.base && p.base.minor);
   $("#opt-chorus-pitch").checked = !!o.chorus_pitch;
   const cfg = p.samples_config || {};
   $("#cfg-key").value = cfg.key || "D";
@@ -217,17 +218,17 @@ $("#btn-analyze").addEventListener("click", async () => {
 // ── 2 · samples ──────────────────────────────────────────────────────────────
 const GROUPS = [
   ["Chorus — the main phrase cut in two (plays as is)", ["chorus_a", "chorus_b"]],
-  ["Pitches (tuned)", ["pitch1", "pitch2", "pitch3", "bass"]],
+  ["Pitches (tuned) — several play the chord lines together", ["pitch1", "pitch2", "pitch3", "pitch4", "bass"]],
   ["Percussion", ["kick", "snare", "clap", "hat_closed", "hat_open", "crash"]],
   ["Quotes & Madness words", ["quote1", "quote2", "quote3", "phrase", "word_a", "word_b"]],
   ["Main phrase syllables (DunDunDenDen chops)", null],
 ];
-const ROLE_KIND = { chorus_a: "word", chorus_b: "word", pitch1: "pitch", pitch2: "pitch", pitch3: "pitch", kick: "kick", snare: "snare", clap: "snare",
+const ROLE_KIND = { chorus_a: "word", chorus_b: "word", pitch1: "pitch", pitch2: "pitch", pitch3: "pitch", pitch4: "pitch", kick: "kick", snare: "snare", clap: "snare",
   hat_closed: "hat", hat_open: "hat", crash: "crash", quote1: "quote", quote2: "quote", quote3: "quote",
   phrase: "quote", word_a: "word", word_b: "word" };
 // Both chorus parts come from one pick: the main phrase.
 const SELECT_KEY = { chorus_a: "chorus", chorus_b: "chorus" };
-const ROLE_NAME = { chorus_a: "Chorus 1 — part 1", chorus_b: "Chorus 2 — part 2", pitch1: "Main pitch", pitch2: "Second pitch", pitch3: "Third pitch", bass: "Bass",
+const ROLE_NAME = { chorus_a: "Chorus 1 — part 1", chorus_b: "Chorus 2 — part 2", pitch1: "Main pitch", pitch2: "Second pitch", pitch3: "Third pitch", pitch4: "Fourth pitch", bass: "Bass",
   kick: "Kick", snare: "Snare", clap: "Clap", hat_closed: "Closed hat", hat_open: "Open hat", crash: "Crash",
   quote1: "Quote 1", quote2: "Quote 2", quote3: "Quote 3", phrase: "Main phrase", word_a: "Madness word 1",
   word_b: "Madness word 2" };
@@ -346,7 +347,7 @@ $("#btn-reanalyze").addEventListener("click", async () => {
 // ── 3 · remix ────────────────────────────────────────────────────────────────
 function baseSummary(b) {
   const secs = (b.sections || []).map((s) => `${s.kind} ${s.bars}`).join(" · ");
-  return `${b.bpm} BPM · bar 1 at ${(+b.offset).toFixed(3)} s · ${b.bars} bars · key ${b.key} · chords ${b.progression}` + (secs ? ` — ${secs}` : "");
+  return `${b.bpm} BPM · bar 1 at ${(+b.offset).toFixed(3)} s · ${b.bars} bars · key ${b.key}${b.minor ? " minor" : ""} · chords ${b.progression}` + (secs ? ` — ${secs}` : "");
 }
 
 function renderVariants() {
@@ -378,7 +379,8 @@ function optionsFromForm() {
   o.progression = $("#opt-prog").value;
   o.pitching = $("#opt-pitching").value;
   o.polish = $("#opt-polish").value;
-  if ($("#opt-minor").checked) o.minor = true;
+  if (S.project && S.project.base) o.minor = $("#opt-minor").checked;
+  else if ($("#opt-minor").checked) o.minor = true;
   if ($("#opt-chorus-pitch").checked) o.chorus_pitch = true;
   o.key = $("#cfg-key").value || "D";
   return o;
@@ -450,7 +452,7 @@ function patternOptions(track) {
 }
 
 function sampleOptions(cur) {
-  const ids = S.bank ? S.bank.samples.map((s) => s.id) : ["pitch1", "pitch2", "pitch3", "bass", "kick", "snare", "clap", "hat_closed", "hat_open", "crash", "quote1", "phrase", "word_a", "word_b"];
+  const ids = S.bank ? S.bank.samples.map((s) => s.id) : ["pitch1", "pitch2", "pitch3", "pitch4", "bass", "kick", "snare", "clap", "hat_closed", "hat_open", "crash", "quote1", "phrase", "word_a", "word_b"];
   return ids.map((id) => `<option ${id === cur ? "selected" : ""}>${esc(id)}</option>`).join("");
 }
 
@@ -509,10 +511,12 @@ function renderTracks(sec, box) {
     el.className = "track" + (t.muted ? " muted" : "");
     const isText = (t.pattern || "").startsWith("text:");
     const slotTxt = t.slots && Object.keys(t.slots).length ? Object.entries(t.slots).map(([k, v]) => `${k}→${typeof v === "string" ? v : v.sample}`).join(", ") : "";
+    // Several pitches: one sample per line of the pattern (picking one sample plays every line with it).
+    const voiceTxt = (t.voice_samples || []).length ? `<span class="pv voices" title="one pitch sample per line of the pattern">voices ${esc(t.voice_samples.join(" · "))}</span>` : "";
     el.innerHTML = `
       <div class="tline"><span class="tid">${esc(t.id)}</span><span class="tkind">${esc(t.kind)}${t.follow ? " · follows " + esc(t.follow) : ""}</span>
         ${t.pattern !== "" || t.kind !== "drum" ? `<select class="pat">${patternOptions(t)}</select>` : ""}
-        ${t.slots && Object.keys(t.slots).length ? `<span class="pv">slots ${esc(slotTxt)}</span>` : `<label>sample <select class="smp">${sampleOptions(t.sample)}</select></label>`}
+        ${t.slots && Object.keys(t.slots).length ? `<span class="pv">slots ${esc(slotTxt)}</span>` : `${voiceTxt}<label>sample <select class="smp">${sampleOptions(t.sample)}</select></label>`}
       </div>
       <textarea class="ptext ${isText ? "" : "hidden"}" rows="2" placeholder="pattern in wiki notation">${esc(isText ? t.pattern.slice(5) : "")}</textarea>
       <div class="tline">
@@ -535,7 +539,11 @@ function renderTracks(sec, box) {
     };
     txt.oninput = () => { t.pattern = "text:" + txt.value; markDirty(); clearTimeout(txt._t); txt._t = setTimeout(preview, 350); };
     const smp = $(".smp", el);
-    if (smp) smp.onchange = () => { t.sample = smp.value; markDirty(); };
+    if (smp) smp.onchange = () => {
+      t.sample = smp.value;
+      if ((t.voice_samples || []).length) { t.voice_samples = []; const v = $(".voices", el); if (v) v.remove(); }
+      markDirty();
+    };
     $(".gain", el).onchange = (e) => { t.gain_db = +e.target.value; markDirty(); };
     $(".oct", el).onchange = (e) => { t.octave = +e.target.value; markDirty(); };
     $(".sb", el).onchange = (e) => { t.start_bar = +e.target.value || 0; markDirty(); };

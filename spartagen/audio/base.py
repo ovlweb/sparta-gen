@@ -62,6 +62,7 @@ class BaseMap:
     sections: list = field(default_factory=list)
     intro_hits: list = field(default_factory=list)   # [(step from bar 1, semitone)]
     ending_root: int = 0
+    minor: bool = False                         # the key chord is minor (the pitch chords follow it)
     path: str = ""
 
     @property
@@ -85,7 +86,7 @@ class BaseMap:
     def from_dict(d: dict) -> "BaseMap":
         m = BaseMap(duration=float(d["duration"]), bpm=float(d["bpm"]), offset=float(d["offset"]),
                     bars=int(d["bars"]))
-        for k in ("key_pc", "progression", "roots", "bar_db", "intro_hits", "ending_root", "path"):
+        for k in ("key_pc", "progression", "roots", "bar_db", "intro_hits", "ending_root", "minor", "path"):
             if k in d:
                 setattr(m, k, d[k])
         m.sections = [BaseSection(**{k: v for k, v in s.items() if k in BaseSection.__dataclass_fields__})
@@ -271,6 +272,23 @@ def half_bar_roots(spec: _Spec, offset: float, bar_s: float, bars: int) -> list[
             score[r] = max(score[r], float(upper @ tpl))
         out.append(int(np.argmax(score)))
     return out
+
+
+def key_chord_is_minor(spec: _Spec, offset: float, bar_s: float, roots: list[Optional[int]], key_pc: int,
+                       loud: list[bool]) -> bool:
+    """Is the key chord minor?  Major and minor third compared over the loud half bars on the key
+    root — several pitches play chord lines, and a major third over a minor base clashes."""
+    votes = 0.0
+    for h, r in enumerate(roots):
+        if r != key_pc or not loud[h // 2]:
+            continue
+        t0 = offset + h * bar_s / 2
+        blk = spec.mag[spec.frames_between(t0 + 0.03, t0 + bar_s / 2 - 0.03)]
+        if blk.shape[0] < 4:
+            continue
+        c = _chroma(np.median(blk, axis=0), spec.freqs, 180.0, 2000.0)
+        votes += float(c[(key_pc + 3) % 12] - c[(key_pc + 4) % 12])
+    return votes > 0.0
 
 
 def detect_progression(roots: list[Optional[int]], loud: list[bool]) -> tuple[int, list[int]]:
@@ -503,6 +521,7 @@ def analyze_base(x: np.ndarray, sr: int, progress: Progress = None, bpm_hint: Op
     loud = list(level > float(np.percentile(level, 90)) - 8.0)
     # Bar 1 might sit a half bar off the chord cycle: pick the alignment whose chords change on it.
     key_pc, rel = detect_progression(roots, loud)
+    minor = key_chord_is_minor(spec, offset, bar_s, roots, key_pc, loud)
     say(0.75, "mapping sections")
     secs = label_sections(level, shape, rhythm, low)
     chorus_bars = [b for c in secs if c.kind == "chorus" for b in range(c.start_bar, c.start_bar + c.bars)]
@@ -516,7 +535,7 @@ def analyze_base(x: np.ndarray, sr: int, progress: Progress = None, bpm_hint: Op
     return BaseMap(duration=round(duration, 3), bpm=bpm, offset=round(offset, 4), bars=bars, key_pc=key_pc,
                    progression=" ".join(str(v) for v in rel), roots=rel_roots,
                    bar_db=[round(float(v), 2) for v in level], sections=secs, intro_hits=hits,
-                   ending_root=end_root)
+                   ending_root=end_root, minor=minor)
 
 
 def analyze_base_file(path: str, progress: Progress = None, bpm_hint: Optional[float] = None) -> BaseMap:
@@ -528,7 +547,8 @@ def analyze_base_file(path: str, progress: Progress = None, bpm_hint: Optional[f
 
 
 def describe(m: BaseMap) -> str:
-    lines = [f"{m.bpm:g} BPM, bar 1 at {m.offset:.3f}s, {m.bars} bars, key {m.key}, progression {m.progression}"]
+    lines = [f"{m.bpm:g} BPM, bar 1 at {m.offset:.3f}s, {m.bars} bars, key {m.key}{' minor' if m.minor else ''}, "
+             f"progression {m.progression}"]
     for s in m.sections:
         a, z = s.start_bar + 1, s.start_bar + s.bars
         lines.append(f"  bars {a:3d}-{z:3d}  {s.kind:13s} {s.level_db:6.1f} dB")
