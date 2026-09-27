@@ -28,15 +28,31 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
    grids, flips on every hit, flashes and kick zoom-punch — over the source itself, blurred and dimmed, behind the
    boxes.
 
-Everything happens in one app with a **preview before you save**, on **Windows, macOS, Linux and Android**.
+Everything happens in one app with a **preview before you save**, on **Windows, macOS, Linux and Android** (an
+installable APK with the engine and ffmpeg inside). **One click** does it all: drop your video (and your Sparta base),
+press **⚡ Make my Sparta Remix**, and the samples are cut automatically, the remix is built on the base and a preview
+is rendered — then fine-tune anything you like.
 
-![Sample detection](docs/gui-samples.jpg)
+![One click: video, base, Make my Sparta Remix](docs/gui-auto.jpg)
+
+### Quick start — your next remix, on your own
+
+1. Open Sparta Gen (the Android app, the desktop app, or `spartagen gui`).
+2. **Source**: drop the video (on a phone: tap *Drop a video here*, or *Share → Sparta Gen* from the gallery).
+3. **Sparta base**: pick your base (mp3/wav) in the box under the video — optional.
+4. Press **⚡ Make my Sparta Remix** and watch the preview (samples cut automatically: pitches tuned to D,
+   percussion, chorus, quotes; the remix follows your base's sections).
+5. Not happy with a sample? *Samples* tab → ▶ to listen, pick another candidate. Want another pattern? *Remix* tab.
+6. **Preview** tab → **Render final video** (720p/1080p) → download it; **Export sample pack** gives you every
+   cut sample in folders (Chorus, Pitches, Percussion, Quotes) for your own projects.
+
+Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack my_pack/`.
 
 ---
 
 ## Contents
 
-- [Install](#install) · [Using the app](#using-the-app) · [Command line](#command-line)
+- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Using the app](#using-the-app) · [Android app](#android-app) · [Command line](#command-line)
 - [Base variants](#base-variants) · [Pattern notation](#pattern-notation) · [How samples are made](#how-samples-are-made)
 - [FX polishing](#fx-polishing) · [Using a real Sparta base](#using-a-real-sparta-base) · [Sample pack export](#sample-pack-export)
 - [Development](#development) · [Credits](#credits) · [Known limitations](#known-limitations)
@@ -47,7 +63,7 @@ Everything happens in one app with a **preview before you save**, on **Windows, 
 |---|---|
 | **Windows / macOS / Linux** | Download `SpartaGen-<os>.zip` (ffmpeg included), unzip, run `SpartaGen` (`SpartaGen.app` on macOS). The zips are built by CI: push a tag like `v0.1.0` (they are attached to the release) or run the *test & build* workflow from the Actions tab (they appear as run artifacts). |
 | **From source (any desktop)** | Install Python 3.9+, then double-click `scripts/run_windows.bat`, `scripts/run_macos.command`, or run `scripts/run_unix.sh`. First start creates a virtual environment and installs everything (ffmpeg comes from `imageio-ffmpeg` if you have none). |
-| **Android** | Install [Termux](https://termux.dev) (F-Droid/GitHub build), then run `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`. Start with `spartagen gui` — the app opens in your phone's browser. Your videos are under `~/storage/shared/`. *Private repository?* In Termux: `pkg install git && git clone https://<token>@github.com/TheQSN/sparta-gen ~/sparta-gen && bash ~/sparta-gen/scripts/install-termux.sh` (a GitHub token with read access). |
+| **Android** | Install the APK (`SpartaGen-<version>-android.apk`, ffmpeg included): GitHub → *Actions* → *android* → the latest run → *Artifacts* → **SpartaGen-Android-APK** (or the release of a `v*` tag). Open it on the phone and allow installing from that source. See [Android app](#android-app). *Alternative:* [Termux](https://termux.dev) + `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`, then `spartagen gui` (opens in the phone's browser). |
 | **pip** | `pip install -e ".[all]"` (needs ffmpeg on PATH or the `imageio-ffmpeg` extra), then `spartagen gui`. |
 
 Requirements: **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
@@ -59,7 +75,10 @@ there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termu
 (`--window` opens a native window when `pywebview` is installed). It works on phone screens too.
 
 1. **Source** — drop a video, paste a YouTube/other link (downloaded with yt-dlp), or give a local path.
-   Press **Detect samples**.
+   **One click:** add your Sparta base (optional) and press **⚡ Make my Sparta Remix** — the pitches, percussion,
+   chorus and quotes are cut automatically, the remix is built on the base's own sections (a classic structure
+   without one) and a preview is rendered; the app jumps to it. Everything below stays editable afterwards.
+   **Step by step:** press **Detect samples**.
 2. **Samples** — every detected sample is shown with its clip, time range, detected note and the tuning
    (e.g. `D#5 → D5 (-1.01 st)`). ▶ plays the processed sample, ◇ plays the original cut (and its video).
    Swap any sample for another candidate, or type a start/end time. Change the key (default **D**), the pitch
@@ -72,13 +91,41 @@ there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termu
 4. **Preview & Save** — **Render preview** makes a fast 640×360 version to watch first; **Render final video**
    renders 720p/1080p. Download the MP4 and WAV, export the **sample pack**, save the project.
 
+![Sample detection](docs/gui-samples.jpg)
+
 ![Arrangement editor](docs/gui-remix.jpg)
 
 <p align="center"><img src="docs/gui-phone.jpg" width="420" alt="Phone layout"></p>
 
+## Android app
+
+The APK is the whole thing on the phone — no Termux, no computer: the same engine (Python, run by
+[Chaquopy](https://chaquo.com/chaquopy/)) and the same app, in a full-screen WebView, with ffmpeg built for Android
+inside.
+
+- **Install**: download `SpartaGen-<version>-android.apk` (see [Install](#install)), open it, allow installing apps
+  from your browser/file manager when Android asks. Needs Android 7.0+ on a 64-bit ARM phone (nearly every phone
+  since 2017).
+- **Use**: *Drop a video here* opens the phone's picker (gallery, files, Drive…); or **Share → Sparta Gen** from
+  the gallery. Add your base, press **⚡ Make my Sparta Remix**. Tapping a download saves it on the phone: videos in
+  **Movies/SpartaGen**, audio in **Music/SpartaGen**, sample packs in **Download/SpartaGen**.
+- The engine runs as a foreground service ("Sparta Gen engine" notification) so a render goes on with the screen
+  off; *Quit* in the app stops it. Projects live in the app's own storage
+  (`Android/data/gen.sparta.remix/files/SpartaGen`).
+- A phone is slower than a computer: a 2-minute remix's preview takes a few minutes, the 720p render longer.
+- Updates install over the previous version (every build is signed with the same key; see
+  [android/README.md](android/README.md) to sign with your own).
+
+How it is built (`android/`, CI workflow `android.yml`): `android/ffmpeg/build.sh` cross-compiles x264 + ffmpeg with
+the Android NDK and packages the program as `libffmpeg.so` (Android only lets an app run programs from its
+native-library folder); Gradle + Chaquopy package the repository's `spartagen` package with Python 3.12, numpy and
+yt-dlp. Every push builds the APK, and an x86_64 build is run on an Android emulator: the engine starts, its ffmpeg
+runs and the one-click remix renders a preview. Tags (`v*`) attach the APK to the release.
+
 ## Command line
 
 ```bash
+spartagen make  video.mp4 --base my_sparta_base.mp3 --pack pack/   # one command: samples, remix on the base, pack
 spartagen make  video.mp4 --variant semi_extended --quality 720p -o remix.mp4
 spartagen make  "https://www.youtube.com/watch?v=…" --variant extended --pack pack/   # also export the sample pack
 spartagen make  video.mp4 --audio-only -o remix.wav --polish hard --progression "0 1 3 1 | -2"
@@ -220,8 +267,16 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
   pitches are not the same note four times. They all share the main pitch's octave (they play chord lines
   together), and a note that still loses its level when shifted far up is played the sampler way.
 - **One shot per pitch** (music videos): a note the video cuts away from is shortened at the camera cut (colour
-  histogram / picture jump), audio with the picture, so each pitch's box shows one shot; an automatic pick that the
-  video cuts too short is passed over.
+  histogram / picture jump), audio with the picture, so each pitch's box shows one shot; an automatic pick has to
+  keep at least 0.18 s of its note inside one shot (an 8th at 140 BPM is 0.21 s), else it is passed over.
+- **Automatic picks, no help needed**: every pitch candidate is grown, isolated, tuned and measured; a pick is
+  rated by how the note comes out (its steady core's length, not the clip around it), how clearly it reads as a
+  note, and how little it has to move to reach the key; the pitches come from other clips than the Chorus's (heard
+  and seen in every Chorus already) and from other moments than each other; and the second to fourth pitch are
+  dealt out by how well they take an octave up — the Chorus lifts the third pitch highest (+19), the second next
+  (+16), the fourth plays the low root. On the source of the example remix, the automatic picks are three of the
+  four pitches chosen by ear, and every note of the remix sits within ±35 cents of its target. Tuned candidates are
+  kept per source, so swapping a pick in the *Samples* tab rebuilds in a moment.
 - **Tuning to D** (`spartagen/audio/psola.py`): pitch marks every period, TD-PSOLA re-synthesis with every period at
   the target note (formants kept). Transpositions reuse the synthesis marks; long notes are sustained by PSOLA
   stretching or ping-pong looping of the steady part.
@@ -283,23 +338,33 @@ what is heard. Labels are a best guess from the signal — every section stays e
 
 ## Sample pack export
 
-*Export sample pack* (or `spartagen pack`) writes every sample as a WAV (pitches already tuned to D) **and** its
-video clip as an MP4 with the processed audio, plus `samples.json` — ready for Vegas, FL Studio or Xleth if you
-prefer to finish by hand.
+*Export sample pack* (or `spartagen pack` / `spartagen make … --pack pack/`) writes every sample as a WAV (pitches
+already tuned to D) **and** its video clip as an MP4 with the processed audio, in the folders remixers keep, plus
+`samples.json` — ready for Vegas, FL Studio or Xleth if you prefer to finish by hand:
+
+```
+1 Chorus/            Chorus 1 (first part), Chorus 2 (second part), Epicness 3 (third word),
+                     DunDunDenDen 3A / 3B, Main phrase, Syllables (chops)/
+2 Pitches/           Pitch 1 (main) - D4, Pitch 2 - D4, Pitch 3 - D4, Pitch 4 - D4, Bass pitch - D3
+3 Percussion/        Kick, Snare, Clap, Hi-hat closed, Hi-hat open, Hi-hat 2, Extra hit, Crash
+4 Quotes and words/  Quote 1-3, Madness word 1 / 2
+```
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 203 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 210 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API, app engine
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
+# Android: see android/README.md (NDK for ffmpeg, then ./gradlew assembleRelease in android/)
 ```
 
 Layout: `spartagen/ffmpeg.py` (media I/O) · `audio/` (dsp, pitch, psola, harmonic, analysis, base, fx) · `samples.py` ·
 `patterns/` (notation parser, wiki library) · `arrangement.py` (variants, sections, note compiler) ·
 `render_audio.py` · `render_video.py` · `project.py` (pipeline) · `cli.py` · `gui/` (server + static UI).
+`spartagen/android.py` (the engine inside the APK) · `android/` (the Android app, ffmpeg build script, emulator test).
 CI (`.github/workflows/build.yml`) runs the tests with and without scipy on every push and builds the desktop apps
-for tags (`v*`) or on manual dispatch.
+for tags (`v*`) or on manual dispatch; `.github/workflows/android.yml` builds and emulator-tests the APK.
 
 ## Credits
 
@@ -313,11 +378,12 @@ for tags (`v*`) or on manual dispatch.
 
 ## Known limitations
 
-- Detection is signal-based: on busy sources (music under dialogue) the automatic picks can be imperfect — swap
-  candidates or type a time range in the *Samples* tab.
+- Detection is signal-based: on busy sources (music under dialogue) an automatic pick can still miss what your ear
+  would choose — swap it for another candidate or type a time range in the *Samples* tab.
 - Base section labels are heuristics tuned on the classic D bases; unusual bases may need a section renamed in the
   arrangement. Where the wiki places the *Execution* section varies by base — it is available as a section to add
   (the Hyper variant uses it).
 - Some Chromium builds without proprietary codecs cannot play H.264 in the page; the app then offers the preview
   as a download (normal Chrome, Edge, Firefox, Safari and Android browsers play it).
-- Android runs through Termux (no store APK yet).
+- The Android app is 64-bit ARM only (the build script also makes x86_64 and 32-bit ARM ffmpeg if you build it
+  yourself) and is installed from the APK, not a store. Phone renders are slower than a computer's.
