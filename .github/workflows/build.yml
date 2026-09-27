@@ -118,6 +118,20 @@ jobs:
           export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
           echo "NDK: $ANDROID_NDK_HOME"
           ABIS="arm64-v8a x86_64" bash android/ffmpeg/build.sh
+      - name: Check that it runs on phones
+        # (The emulator runs the x86_64 build; this checks the arm64 one too.)  Android runs position-independent
+        # programs without text relocations that link only libraries every device has.
+        run: |
+          for so in android/app/src/main/jniLibs/*/libffmpeg.so; do
+            echo "== $so ($(du -h "$so" | cut -f1))"
+            readelf -h "$so" | grep -E "Type:|Machine:"
+            readelf -d "$so" | grep -E "NEEDED|FLAGS" || true
+            readelf -lW "$so" | awk '$1 == "LOAD" {print "  LOAD align", $NF}' | sort -u
+            readelf -h "$so" | grep -q "DYN (" || { echo "::error::$so is not position-independent"; exit 1; }
+            if readelf -d "$so" | grep -q TEXTREL; then echo "::error::$so has text relocations"; exit 1; fi
+            extra=$(readelf -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | grep -vxE 'lib(c|m|dl|z|log)\.so' || true)
+            if [ -n "$extra" ]; then echo "::error::$so links libraries phones may not have: $extra"; exit 1; fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-android
