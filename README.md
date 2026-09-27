@@ -31,9 +31,9 @@ Everything happens in one app with a **preview before you save**, on **Windows, 
 
 | Platform | Easiest way |
 |---|---|
-| **Windows / macOS / Linux** | Download `SpartaGen-<os>.zip` from the GitHub *Releases* (built by CI, ffmpeg included), unzip, run `SpartaGen` (`SpartaGen.app` on macOS). |
+| **Windows / macOS / Linux** | Download `SpartaGen-<os>.zip` (ffmpeg included), unzip, run `SpartaGen` (`SpartaGen.app` on macOS). The zips are built by CI: push a tag like `v0.1.0` (they are attached to the release) or run the *test & build* workflow from the Actions tab (they appear as run artifacts). |
 | **From source (any desktop)** | Install Python 3.9+, then double-click `scripts/run_windows.bat`, `scripts/run_macos.command`, or run `scripts/run_unix.sh`. First start creates a virtual environment and installs everything (ffmpeg comes from `imageio-ffmpeg` if you have none). |
-| **Android** | Install [Termux](https://termux.dev) (F-Droid/GitHub build), then run `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`. Start with `spartagen gui` — the app opens in your phone's browser. Your videos are under `~/storage/shared/`. |
+| **Android** | Install [Termux](https://termux.dev) (F-Droid/GitHub build), then run `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`. Start with `spartagen gui` — the app opens in your phone's browser. Your videos are under `~/storage/shared/`. *Private repository?* In Termux: `pkg install git && git clone https://<token>@github.com/TheQSN/sparta-gen ~/sparta-gen && bash ~/sparta-gen/scripts/install-termux.sh` (a GitHub token with read access). |
 | **pip** | `pip install -e ".[all]"` (needs ffmpeg on PATH or the `imageio-ffmpeg` extra), then `spartagen gui`. |
 
 Requirements: **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (titles) are optional —
