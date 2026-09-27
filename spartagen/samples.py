@@ -5,7 +5,8 @@ processed the way remixers prepare them by hand:
 
 * pitch1..4 — held vowels hard-tuned to D (the key of the classic bases)
 * chorus_a/b — the main phrase cut into two parts (Chorus slots 1 and 2), played as is
-* chorus_c  — a third word of the voice, played as is (the Epicness's slot 3)
+* chorus_c  — a third word of the voice, played as is (the Epicness's slot 3); chorus_c_a/_b
+               its two halves (the DunDunDenDen's 3A and 3B)
 * bass       — the main pitch played an octave lower (D3), like a sampler; the bass pitch
 * kick       — a thump from the source, pitched down for body, with a pitch
                sweep for punch and the original transient on top
@@ -163,6 +164,37 @@ def _target_midi(f0: float, key_pc: int, octave: Optional[int]) -> int:
 # ── designers ────────────────────────────────────────────────────────────────
 
 
+def steady_core(seg: np.ndarray, sr: int, min_len: float = 0.1, pad: float = 0.004) -> Optional[tuple[int, int]]:
+    """(start, end) samples of the held note inside a cut: the longest run that is voiced, loud and on
+    one pitch (within 50 cents).  The consonant before it and the glide or breath after it make a
+    pitch sound like a sung word; the core alone sounds like a pitch."""
+    tr = yin_track(seg, sr, fmin=70.0, fmax=1000.0, frame=1024, hop=128, threshold=0.25)
+    ok = tr.voiced & np.isfinite(tr.f0)
+    if ok.sum() < 4:
+        return None
+    med = float(np.median(tr.f0[ok]))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cents = np.abs(1200.0 * np.log2(tr.f0 / med))
+    loud = tr.rms > float(np.max(tr.rms)) * 10 ** (-12.0 / 20.0)
+    steady = ok & (cents < 50.0) & loud
+    best, run_start, best_span = 0, None, None
+    for i, v in enumerate(list(steady) + [False]):
+        if v and run_start is None:
+            run_start = i
+        elif not v and run_start is not None:
+            if i - run_start > best:
+                best, best_span = i - run_start, (run_start, i - 1)
+            run_start = None
+    if best_span is None:
+        return None
+    half = 64 / sr                                   # half a hop around the frame centres
+    a = max(0, int((tr.times[best_span[0]] - half - pad) * sr))
+    b = min(seg.shape[0], int((tr.times[best_span[1]] + half + pad) * sr))
+    if (b - a) / sr < min_len:
+        return None
+    return a, b
+
+
 def make_pitch(x: np.ndarray, sr: int, cand: Candidate, sid: str, cfg: SampleConfig) -> Sample:
     seg = _cut(x, sr, cand.start, cand.end)
     seg = dsp.highpass(seg, sr, 60.0, order=2)
@@ -173,6 +205,13 @@ def make_pitch(x: np.ndarray, sr: int, cand: Candidate, sid: str, cfg: SampleCon
         seg, voiced_share = harmonic_filter(seg, sr, f0_hint=cand.info.get("f0"))
         seg = dsp.apply_fades(seg, sr, 2.0, 6.0)
         cleaned = voiced_share > 0.2
+    # A pitch is the held note, not the word: cut to its steady core (the clip with it).
+    core = steady_core(seg, sr)
+    trimmed_core = None
+    if core is not None and (core[0] > 0.012 * sr or seg.shape[0] - core[1] > 0.012 * sr):
+        trimmed_core = [round(core[0] / sr, 4), round((seg.shape[0] - core[1]) / sr, 4)]
+        seg = dsp.apply_fades(np.array(seg[core[0]:core[1]], dtype=np.float32), sr, 2.0, 6.0)
+        cand = Candidate(cand.kind, cand.start + core[0] / sr, cand.start + core[1] / sr, cand.score, cand.info)
     marks = find_marks(seg, sr)
     vper = marks.period[marks.voiced]
     f0 = float(sr / np.median(vper)) if vper.size else float(cand.info.get("f0", float("nan")))
@@ -187,6 +226,8 @@ def make_pitch(x: np.ndarray, sr: int, cand: Candidate, sid: str, cfg: SampleCon
             "score": round(float(cand.score), 4), "gain": round(float(scale), 4), "isolated": cleaned}
     if cand.info.get("shot_trimmed"):
         meta["shot_trimmed"] = cand.info["shot_trimmed"]      # the note as detected, before the camera cut
+    if trimmed_core:
+        meta["core_trimmed"] = trimmed_core                     # seconds cut before / after the held note
     return Sample(sid, "pitch", f"{sid} ({note_name(target)})", cand.start, cand.end, y, sr,
                   float(target), ts, 1.0, meta)
 
@@ -261,6 +302,22 @@ def _as_is_part(seg: np.ndarray, sr: int, a: int, b: int, cand: Candidate, targe
         root = float(target)
     return Sample(sid, "chorus", label, cand.start + a / sr, cand.start + b / sr, y, sr, root, ts, 1.0,
                   {"voiced": round(voiced, 3), "score": round(float(cand.score), 4), "plays": "as is"})
+
+
+def make_third_halves(x: np.ndarray, sr: int, third: Sample, cfg: SampleConfig) -> list[Sample]:
+    """The third word cut in two — the DunDunDenDen's "3A" and "3B" (its Original Pattern steps
+    through the main phrase: 1___2___3A___3B___)."""
+    cand = Candidate("word", third.src_start, third.src_end, float(third.meta.get("score", 1.0)))
+    seg = dsp.highpass(_cut(x, sr, cand.start, cand.end), sr, 60.0, order=2)
+    cut, how = split_point(seg, sr)
+    target = third.root_midi if np.isfinite(third.root_midi) else 62.0
+    out = []
+    for sid, (a, b), label in (("chorus_c_a", (0, cut), "third word, part A (DunDunDenDen 3A)"),
+                               ("chorus_c_b", (cut, seg.shape[0]), "third word, part B (DunDunDenDen 3B)")):
+        smp = _as_is_part(seg, sr, a, b, cand, target, cfg, sid, label)
+        smp.meta["split"] = how
+        out.append(smp)
+    return out
 
 
 def make_chorus_third(x: np.ndarray, sr: int, cand: Candidate, cfg: SampleConfig) -> Sample:
@@ -669,6 +726,8 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             third = next((c for c in mains if _clear_of(c, around, 0.3)), None)
         if third is not None:
             bank.samples["chorus_c"] = make_chorus_third(x, sr, third, cfg)
+            for smp in make_third_halves(x, sr, bank.samples["chorus_c"], cfg):
+                bank.samples[smp.id] = smp
     pitched = [bank.samples[k] for k in PITCH_ROLES if k in bank.samples]
     if pitched:
         step(0.35, "building bass")

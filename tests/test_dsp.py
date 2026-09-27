@@ -155,3 +155,17 @@ def test_a_hum_keeps_its_level_an_octave_up():
     for name in ("hum", "rich"):
         y = vr._shifted(samples[name], 12.0, int(0.2 * sr))
         assert 20 * np.log10(D.rms(samples[name].audio) / D.rms(y)) < 9.0, name
+
+
+def test_a_pitch_is_cut_to_its_held_note():
+    """A sung word = consonant + held vowel + glide away; the pitch sample keeps the held vowel only."""
+    from spartagen.samples import steady_core
+    from tests.conftest import harmonic_tone, noise_burst
+    sr = 44100
+    cons = 0.3 * noise_burst(0.04, sr, decay_ms=30.0)
+    held = harmonic_tone(293.66, 0.2, sr)
+    t = np.arange(int(0.08 * sr)) / sr
+    glide = (0.2 * np.sin(2 * np.pi * np.cumsum(293.66 * 2 ** (t / 0.08 * 5 / 12)) / sr)).astype(np.float32)
+    x = np.concatenate([cons[: int(0.04 * sr)], held, glide]).astype(np.float32)
+    a, b = steady_core(x, sr)
+    assert abs(a / sr - 0.04) < 0.02 and abs(b / sr - 0.24) < 0.03

@@ -139,13 +139,12 @@ def test_fit_to_base_follows_its_bars():
     bm = _classic_map()
     arr = AR.build_from_base(bm)
     assert arr.total_bars == bm.bars and arr.bpm == 140.0 and arr.progression == "0 1 -2 1"
-    # The base's DunDunDenDen part gets a Chorus (as remixers on it do); the DunDunDenDen is one option away.
-    assert [s.kind for s in arr.sections] == ["intro", "chorus", "chorus", "chorus", "epicness", "awesomeness",
+    assert [s.kind for s in arr.sections] == ["intro", "chorus", "dundundenden", "chorus", "epicness", "awesomeness",
                                               "chorus", "madness", "chorus", "epicness", "awesomeness", "chorus",
                                               "ending"]
-    assert arr.sections[2].bars == 6 and arr.sections[2].name == "Chorus 2"
-    dun = AR.build_from_base(bm, extra={"dundundenden_part": "dundundenden"})
-    assert dun.sections[2].kind == "dundundenden"
+    # A Chorus there instead (as one example remix on the extended base does) is one option away.
+    alt = AR.build_from_base(bm, extra={"dundundenden_part": "chorus"})
+    assert alt.sections[2].kind == "chorus" and alt.sections[2].bars == 6 and alt.sections[2].name == "Chorus 2"
     avail = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "kick", "clap", "snare", "hat_closed",
              "hat_open", "crash", "quote1", "quote2", "quote3", "phrase", "word_a", "word_b", "bass"}
     ev = AR.compile_events(arr, avail)
@@ -316,7 +315,8 @@ def test_shot_cuts_finds_a_camera_cut(tmp_path):
     assert ff.shot_cuts(out, 0.1, 0.9) == []        # moving picture, no cut
 
 
-AVAIL_ALL = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "chorus_c", "bass", "kick", "clap",
+AVAIL_ALL = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "chorus_c", "chorus_c_a",
+             "chorus_c_b", "bass", "kick", "clap",
              "snare", "hat_closed", "hat_open", "crash", "quote1", "quote2", "quote3", "phrase", "word_a", "word_b"}
 
 
@@ -420,7 +420,7 @@ def test_chorus_frame_sections_open_with_a_fullscreen_hit():
     ev = AR.compile_events(arr, AVAIL_ALL)
     starts = arr.section_starts()
     for si, sec in enumerate(arr.sections):
-        if sec.layout != "main":
+        if sec.layout != "main" or sec.kind == "dundundenden":      # the DunDunDenDen opens on its own hit
             continue
         hit = [e for e in ev if e.section == si and e.track_id == "crash"]
         assert [round((e.t - starts[si]) / arr.step_s) for e in hit] == [0], sec.kind
@@ -439,3 +439,28 @@ def test_timbre_tells_voices_apart_whatever_the_note():
     b = sample_timbre(smp(293.7, 2200.0))
     scale = np.ones_like(a)
     assert timbre_distance(a, b, scale) > 3 * timbre_distance(a, a2, scale)
+
+
+def test_dundundenden_steps_through_the_main_phrase_with_the_pitches():
+    """The wiki's Original Pattern 1___2___3A___3B___: the main phrase's parts and the third word's halves
+    on the quarter notes, as they are, with a pitch sample on each hit on the chord root; percussion
+    joins a third of the way in, the held chords and the bass two thirds in (0:10 / 0:13 / 0:17 on the
+    extended base)."""
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    si = next(i for i, s in enumerate(arr.sections) if s.kind == "dundundenden")
+    sec, t0 = arr.sections[si], arr.section_starts()[si]
+    assert sec.bars == 6 and sec.layout == "main"
+    at = lambda e: round((e.t - t0) / arr.step_s, 3)            # noqa: E731
+    main = sorted((e for e in ev if e.section == si and e.track_id == "main"), key=lambda e: e.t)
+    assert [at(e) for e in main] == [4.0 * k for k in range(24)]
+    assert [e.sample for e in main[:4]] == ["chorus_a", "chorus_b", "chorus_c_a", "chorus_c_b"]
+    assert not any(e.pitched for e in main)
+    pitch = sorted((e for e in ev if e.section == si and e.track_id == "pitch"), key=lambda e: e.t)
+    assert [at(e) for e in pitch] == [at(e) for e in main]
+    assert [e.sample for e in pitch[:4]] == ["pitch1", "pitch2", "pitch3", "pitch4"]
+    assert [int(e.semis) for e in pitch[:8]] == [0, 0, 1, 1, -2, -2, 1, 1]
+    drums = [at(e) for e in ev if e.section == si and e.stem == "drums" and not e.track_id.startswith("crash")]
+    assert drums and min(drums) == 32.0                          # bar 3 of 6 (0:13.7 on the extended base)
+    first = lambda tid: min(at(e) for e in ev if e.section == si and e.track_id == tid)   # noqa: E731
+    assert first("chords") == 64.0 and first("bass") == 66.0      # bar 5 (0:17.1); the bass on the off-beat

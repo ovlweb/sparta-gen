@@ -120,10 +120,13 @@ Sections and what plays in them:
   repetitive pattern") over a closed hi-hat layer on every 8th; a crash whose clip flashes fullscreen for an 8th on
   the downbeat. The main phrase big in the middle, a box per pitch (and the bass) along the top, drums along the
   bottom. On a base there are no fills of our own: the base has its fills, and the example remix on the same base
-  keeps the plain pattern through every section. On a base, its DunDunDenDen part gets a Chorus too — remixers on
-  it keep the chorus going there (the DunDunDenDen part is an option: `dundundenden_part`).
-- **DunDunDenDen** — `0*__0*__1*__1*__-2*__-2*__1*__1*__`: loud quarter notes with silence in between, each hit a
-  syllable of the **main phrase** pitched to the note, all drums hitting with it. Fullscreen, black between hits.
+  keeps the plain pattern through every section. (A Chorus in the base's DunDunDenDen part instead, as one example
+  remix does: `dundundenden_part="chorus"`.)
+- **DunDunDenDen** (the Buildup) — the wiki's Original Pattern `1___2___3A___3B___`: loud quarter notes with
+  silence in between, stepping through the **main phrase** as it is — `1`, `2` its parts, `3A`/`3B` the third word's
+  halves — with a pitch sample on every hit on the chord root (`0 0 1 1 -2 -2 1 1`, one pitch per step). It builds
+  like the base under it: the percussion joins a third of the way in, the held chords and the bass pitch two thirds
+  in (on the 2:08 extended base: 0:10, 0:13, 0:17). The Chorus's frame, black between hits.
 - **Madness** — the call & response (the Madness article's *Original Pattern*: `1` = first person's word, `2` = the
   second person answering, both together in the last bar) over the softer, low-passed Madness pitch patterns: the
   *First Pattern* from the first half to the end, the *Trance Gate* pattern joining from the second half.
@@ -204,6 +207,8 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
   how clearly they read as a note once isolated and tuned — voiced, harmonic, and sitting on the note (a singer
   bending into a note from its neighbour keeps some of the bend through the tuning), and keeping its level an
   octave up (a voice with hardly any overtones loses its high notes) — and longer held notes win.
+- **A pitch is the held note**, not the sung word: each pitch is cut to its steady core (voiced, loud, on one
+  pitch), dropping the consonant before it and the glide after it — the clip with it.
 - **Pitches that sound different**: after the main pitch, each pitch is picked for quality *and* for how far its
   sound (mean MFCCs once tuned — vowel, voice, instrument) is from the pitches already chosen, so the several
   pitches are not the same note four times. They all share the main pitch's octave (they play chord lines
@@ -278,7 +283,7 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 193 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 197 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 

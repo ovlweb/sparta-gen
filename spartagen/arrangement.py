@@ -306,33 +306,40 @@ def sec_chorus(bars: int, opts: dict, final: bool = False, name: str = "Chorus")
 
 
 def sec_dundundenden(bars: int, opts: dict) -> SectionSpec:
-    first = min(bars, 4)
+    """The DunDunDenDen (the Buildup): loud quarter notes with silence between.  The main phrase steps
+    through the wiki's Original Pattern — 1___2___3A___3B___: its two parts, then the third word's
+    halves, as they are — and the pitches hit with it, one pitch sample per step on the chord root
+    (0 0 1 1 -2 -2 1 1).  It builds like the base under it: percussion joins a third of the way in,
+    the held chords and the bass pitch two thirds in."""
+    tune_main = bool(opts.get("chorus_pitch", False))
+    minor = opts.get("minor", False)
+    perc_from = max(1, round(bars / 3)) if bars > 1 else bars
+    full_from = max(perc_from + 1, round(2 * bars / 3)) if bars > 2 else bars
     tracks = [
-        TrackSpec("chop", "chop", "dun.original", sample="phrase", gain_db=0.0, end_bar=first, visual="full_flash",
-                  flip="alternate"),
-        TrackSpec("pitch", "pitch", "dun.original", sample="pitch1", gain_db=-5.0, end_bar=first, visual="none"),
-        TrackSpec("kick", "drum", "", sample="kick", follow="@chop", pitched=False, end_bar=first, visual="none"),
-        TrackSpec("snare", "drum", "", sample="snare", follow="@chop", pitched=False, gain_db=-2.0, end_bar=first,
-                  visual="none"),
-        TrackSpec("crash_hits", "drum", "", sample="crash", follow="@chop", pitched=False, gain_db=-12.0,
-                  end_bar=first, visual="none"),
-        TrackSpec("bass", "bass", "dun.original", sample="bass", gain_db=-1.0, end_bar=first, visual="none"),
+        TrackSpec("main", "pitch", "dun.chops_original", mode="index",
+                  slots={"1": "chorus_a", "2": "chorus_b", "3": "chorus_c_a", "4": "chorus_c_b"},
+                  follow="progression" if tune_main else "", pitched=tune_main, oneshot=not tune_main,
+                  sustain=tune_main, choke=True, crisp=True, gain_db=0.0, visual="main", flip="alternate",
+                  stem="chorus"),
+        TrackSpec("pitch", "pitch", "dun.pitch_hits", mode="index",
+                  slots={"1": "pitch1", "2": "pitch2", "3": "pitch3", "4": "pitch4"}, follow="progression",
+                  crisp=True, sustain=True, gain_db=-3.0, visual="pitch_cycle", flip="alternate"),
     ]
-    if bars > 4:
-        second = opts.get("dun_second", "dun.madhouse_xye")
-        tracks += [
-            TrackSpec("pitch2", "pitch", second, sample="pitch1", start_bar=first, crisp=True, visual="pitch_cycle"),
-            TrackSpec("pitch2_b", "pitch", second, sample="pitch2", start_bar=first, octave=-1, gain_db=-8.0,
-                      visual="none", stem="pitch_layers"),
-            _bass("rolling", start_bar=first),
-            _crash(first),
-        ]
+    if perc_from < bars:
         if opts.get("base"):
-            tracks += _perc_layers("perc.normal", start_bar=first, suffix="_b")
+            tracks += _perc_layers("perc.normal", start_bar=perc_from)
         else:
-            tracks += _drums("four_on_floor_16", start_bar=first, end_bar=bars - 1, suffix="_b")
-            tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
-    return SectionSpec("dundundenden", bars, tracks, "DunDunDenDen", layout="full" if bars <= 4 else "grid3")
+            tracks += _drums("four_on_floor_16", start_bar=perc_from, suffix="_b")
+        tracks.append(_crash(perc_from, tid="crash_perc"))
+    if full_from < bars:
+        tracks += [
+            TrackSpec("chords", "pitch", "chords.minor" if minor else "chords.major", sample="pitch2",
+                      voice_samples=["pitch2", "pitch3", "pitch4"], gain_db=-12.0, sustain=True, visual="voices",
+                      flip="alternate", stem="pitch_layers", start_bar=full_from),
+            _bass("offbeat", start_bar=full_from),
+            _crash(full_from, tid="crash_full"),
+        ]
+    return SectionSpec("dundundenden", bars, tracks, "DunDunDenDen", layout="main")
 
 
 def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> SectionSpec:
@@ -695,9 +702,9 @@ def build_from_base(base_map, pitching: str = "normal", polish: str = "normal", 
     if chorus_pattern:
         opts["chorus_pattern"] = chorus_pattern
     opts.update(extra or {})
-    # The base's DunDunDenDen part: remixers on it keep the Chorus going there (the example remix on
-    # the extended base plays its chorus samples from bar 7 on, after one fullscreen hit).
-    dun_part = (extra or {}).get("dundundenden_part", "chorus")
+    # The base's DunDunDenDen part plays the DunDunDenDen (or, as one example remix on the extended
+    # base does, a Chorus: dundundenden_part="chorus").
+    dun_part = (extra or {}).get("dundundenden_part", "dundundenden")
     sections_in = [BaseSection(("chorus" if s.kind == "dundundenden" and dun_part == "chorus" else s.kind),
                                s.start_bar, s.bars, getattr(s, "level_db", 0.0)) for s in bm.sections]
     kinds = [s.kind for s in sections_in]
@@ -796,6 +803,7 @@ class NoteEvent:
 FALLBACKS = {
     "chorus_a": ("pitch1",), "chorus_b": ("pitch2", "pitch1"), "pitch2": ("pitch1",), "pitch3": ("pitch2", "pitch1"),
     "pitch4": ("pitch3", "pitch2", "pitch1"), "chorus_c": ("word_a", "word_b", "chorus_a"),
+    "chorus_c_a": ("chorus_c", "chorus_a"), "chorus_c_b": ("chorus_c", "chorus_b"),
     "quote1": ("quote2", "quote3", "phrase"),
     "clap": ("snare",), "snare": ("clap",), "hat_open": ("hat_closed",), "word_b": ("word_a",),
 }

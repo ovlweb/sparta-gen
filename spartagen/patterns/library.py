@@ -195,6 +195,15 @@ CHORDS: list[PatternDef] = [
 ]
 
 DUNDUNDENDEN: list[PatternDef] = [
+    # The DunDunDenDen page's Original Pattern: loud quarter notes stepping through the main phrase —
+    # 1, 2 its parts, 3A and 3B the third word's halves (written 3 and 4 here: "B" alone means 1+2).
+    P("dun.chops_original", "Original Pattern (1___2___3A___3B___)", "dundundenden", "1___2___3___4___",
+      mode="index", progression=None, credit="DunDunDenDen (Sparta Remix Wiki)",
+      fix="3A/3B written as 3/4"),
+    # The pitches on the same hits (an 8th each), following the chords: 0 0 1 1 -2 -2 1 1 — the
+    # Pitch Patterns page's DunDunDenDen Original.
+    P("dun.pitch_hits", "Original — pitches on the hits", "dundundenden", "1*__2*__3*__4*__", mode="index",
+      progression=None),
     P("dun.original", "Original", "dundundenden", "0*__0*__1*__1*__-2*__-2*__1*__1*__"),
     P("dun.madhouse_xye", "Madhouse XYE (Fixed by Lyr)", "dundundenden",
       "0* 7* 0* 12* 13* 20* 8* 1* 17* 5* 17* 5* 13* 20* 8* 13*"),
