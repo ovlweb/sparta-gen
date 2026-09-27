@@ -48,6 +48,7 @@ class Project:
     options: dict = field(default_factory=dict)  # bpm, key, progression, pitching, polish, minor …
     mix: dict = field(default_factory=dict)
     base: Optional[dict] = None              # BaseMap of the Sparta base (tempo, bars, sections …)
+    midi: Optional[dict] = None              # a MIDI base: path, its parts, their roles (see spartagen.midi)
     video: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
     version: str = __version__
@@ -98,6 +99,7 @@ class Session:
         self._bank: Optional[SampleBank] = None
         self._bank_key: Optional[str] = None
         self._pitch_cache: dict = {}         # tried pitch candidates of this source (see build_bank)
+        self._midi = None                    # the parsed MIDI base (spartagen.midi.MidiSong)
 
     # ── paths ──
     def path(self, *parts: str) -> str:
@@ -270,6 +272,69 @@ class Session:
                 self.project.variant = "unextended"
                 self.project.arrangement = None
 
+    # ── MIDI base ──
+    def midi_song(self):
+        from .midi import read_midi
+        with self.lock:
+            m = self.project.midi
+            if not m:
+                return None
+            if self._midi is None or self._midi.path != os.path.abspath(m["path"]):
+                self._midi = read_midi(m["path"])
+            return self._midi
+
+    def set_midi(self, path: str, copy_into_workspace: bool = True, use: bool = True) -> dict:
+        """Load a MIDI base: its parts get suggested roles and (``use``) the remix follows its notes."""
+        from .midi import read_midi, suggest_roles
+        path = os.path.abspath(path)
+        song = read_midi(path)                          # raises MidiError for a bad file
+        if copy_into_workspace:
+            dst = self.path("midi", os.path.basename(path))
+            if os.path.abspath(dst) != path:
+                shutil.copy2(path, dst)
+            path = dst
+            song.path = dst
+        with self.lock:
+            self._midi = song
+            self.project.midi = {"path": path, "summary": song.summary(), "mapping": suggest_roles(song),
+                                 "auto_percussion": True, "auto_phrase": True, "section_bars": 8}
+            if use:
+                self.project.variant = "midi"
+                self.project.arrangement = None
+        self.follow_key(song.key)
+        return self.project.midi
+
+    def set_midi_mapping(self, mapping: Optional[dict] = None, auto_percussion: Optional[bool] = None,
+                         auto_phrase: Optional[bool] = None, section_bars: Optional[int] = None) -> dict:
+        """Roles for the MIDI's parts (``{part id: {"role", "octave", "gain_db"}}``; "off" disables one)."""
+        from .midi import clean_mapping
+        song = self.midi_song()
+        if song is None:
+            raise ValueError("load a MIDI base first")
+        with self.lock:
+            m = self.project.midi
+            if mapping is not None:
+                merged = dict(m.get("mapping") or {})
+                merged.update(mapping)
+                m["mapping"] = clean_mapping(song, merged)
+            if auto_percussion is not None:
+                m["auto_percussion"] = bool(auto_percussion)
+            if auto_phrase is not None:
+                m["auto_phrase"] = bool(auto_phrase)
+            if section_bars is not None:
+                m["section_bars"] = max(2, min(32, int(section_bars)))
+            if self.project.variant == "midi":
+                self.project.arrangement = None
+        return self.project.midi
+
+    def clear_midi(self) -> None:
+        with self.lock:
+            self.project.midi = None
+            self._midi = None
+            if self.project.variant == "midi":
+                self.project.variant = "base" if self.project.base else "unextended"
+                self.project.arrangement = None
+
     # ── arrangement ──
     def arrangement(self) -> Arrangement:
         with self.lock:
@@ -277,6 +342,17 @@ class Session:
                 return Arrangement.from_dict(self.project.arrangement)
             o = self.project.options
             key = self.project.samples.get("key") or None
+            if self.project.variant == "midi" and self.project.midi:
+                from .midi import build_from_midi
+                m = self.project.midi
+                arr = build_from_midi(self.midi_song(), m.get("mapping"), bool(m.get("auto_percussion", True)),
+                                      bool(m.get("auto_phrase", True)), key=key,
+                                      pitching=o.get("pitching") or "normal", polish=o.get("polish") or "normal",
+                                      section_bars=int(m.get("section_bars", 8)),
+                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern") or "perc.normal")
+                arr.title = o.get("title") or (f"{self.project.name} has a Sparta Remix" if self.project.source_path
+                                               else "Sparta Remix")
+                return arr
             if self.project.variant == "base" and self.project.base:
                 tpl = self.base_template()
                 extra = dict(tpl.options) if tpl else {}
@@ -313,6 +389,10 @@ class Session:
         if variant == "base":
             if not self.project.base:
                 raise ValueError("load a Sparta base first to fit the remix to it")
+        elif variant == "midi":
+            if not self.project.midi:
+                raise ValueError("load a MIDI base first")
+            key = self.midi_song().key
         else:
             key = variant_def(variant).get("key")         # raises for an unknown template
         with self.lock:

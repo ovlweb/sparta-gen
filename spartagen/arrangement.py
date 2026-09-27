@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 from .patterns import library as lib
-from .patterns.notation import (ORIGINAL_PROGRESSION, ParsedPattern, parse, parse_progression, retarget,
+from .patterns.notation import (ORIGINAL_PROGRESSION, ParsedPattern, PNote, parse, parse_progression, retarget,
                                 STEPS_PER_BAR)
 
 
@@ -53,6 +53,7 @@ class TrackSpec:
     stem: str = ""
     muted: bool = False
     voice_samples: list = field(default_factory=list)  # one sample per line of a multi-line pattern
+    notes: list = field(default_factory=list)   # pattern "notes": [[start step, steps, value, voice], …] (MIDI)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -884,6 +885,14 @@ def _pattern_source(track: TrackSpec) -> tuple[Optional[ParsedPattern], Optional
     p = track.pattern
     if not p:
         return None, None, 0.0, 0.0
+    if p == "notes":
+        # Notes written out for the whole part (a MIDI base's): played once, as they are.
+        notes = sorted((PNote(float(r[0]), float(r[1]), int(r[2]), int(r[3]) if len(r) > 3 else 0)
+                        for r in track.notes), key=lambda n: (n.start, n.voice))
+        mode = track.mode if track.mode in ("index", "semitone") else "semitone"
+        length = max((n.start + n.dur for n in notes), default=0.0)
+        voices = 1 + max((n.voice for n in notes), default=0)
+        return ParsedPattern(notes, length, mode, voices=voices), None, 1e9, 0.0
     if p.startswith("text:"):
         pp = parse(p[5:], track.mode)
         return pp, ORIGINAL_PROGRESSION, pp.loop_length(), 0.0

@@ -85,6 +85,20 @@ def cmd_make(a: argparse.Namespace) -> int:
         if a.base_offset is not None:
             s.project.mix["base_offset"] = a.base_offset
         s.project.mix["base_mode"] = a.base_mode or ("remix" if variant == "base" else "replace")
+    if a.midi:
+        s.project.options = dict(opts, **{k: s.project.options[k] for k in ("key_mode",)
+                                         if k in s.project.options})
+        s.set_midi(a.midi)
+        mapping = {}
+        for item in (a.midi_map or "").split(","):
+            if "=" in item:
+                pid, role = item.split("=", 1)
+                mapping[pid.strip()] = {"role": role.strip()}
+        s.set_midi_mapping(mapping or None, auto_percussion=not a.no_auto_percussion,
+                           auto_phrase=not a.no_auto_phrase)
+        variant = "midi"
+        if not a.quiet:
+            _print_midi(s.midi_song(), s.project.midi["mapping"])
     s.set_variant(variant, opts)
     out = a.output
     quality = "audio" if a.audio_only else a.quality
@@ -92,6 +106,12 @@ def cmd_make(a: argparse.Namespace) -> int:
         ext = ".wav" if quality == "audio" else ".mp4"
         out = os.path.join(os.getcwd(), f"{s.project.name[:40]} - {variant}{ext}".replace("/", "_"))
     res = s.render(quality, _progress_printer(a.quiet), out_path=out, stems=a.stems)
+    if a.export_midi:
+        from .arrangement import compile_events
+        from .midi import arrangement_to_midi
+        arr = s.arrangement()
+        arrangement_to_midi(arr, compile_events(arr, set(s.bank().samples)), a.export_midi)
+        print(f"MIDI: {a.export_midi}")
     if a.pack:
         s.export_pack(a.pack, progress=_progress_printer(a.quiet))
         print(f"sample pack: {a.pack}")
@@ -139,6 +159,26 @@ def cmd_patterns(a: argparse.Namespace) -> int:
         for d in lib.by_section(section):
             pp = d.parsed()
             print(f"  {d.id:30s} {d.name[:44]:44s} {pp.mode:8s} {pp.length / 16:5.2f} bars")
+    return 0
+
+
+def _print_midi(song, mapping: dict) -> None:
+    from .midi import ROLES
+    print(f"MIDI: {song.bpm:.2f} BPM, key {song.key}{' minor' if song.minor else ''}, {song.bars} bars, "
+          f"{len(song.notes)} notes")
+    for w in song.warnings:
+        print(f"  note: {w}")
+    for p in song.parts:
+        m = mapping.get(p.id, {"role": "off"})
+        print(f"  {p.id:8s} {p.name[:28]:28s} ch {p.channel:2d}  {p.notes:5d} notes  {p.range_text:9s} "
+              f"poly {p.polyphony}  → {m['role']:7s} {ROLES[m['role']].split(' (')[0]}")
+
+
+def cmd_midi(a: argparse.Namespace) -> int:
+    from .midi import read_midi, suggest_roles
+    song = read_midi(a.file)
+    _print_midi(song, suggest_roles(song))
+    print("\nuse: spartagen make VIDEO --midi FILE [--midi-map t1c0=pitch1,t4c9=drums …]")
     return 0
 
 
@@ -217,6 +257,14 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--base-mode", default=None, choices=["replace", "remix", "layer"],
                    help="replace = mute our drums/bass/pads, remix = keep the source percussion (default with a "
                         "fitted base), layer = keep everything")
+    m.add_argument("--midi", help="a MIDI base: the remix plays its notes (see `spartagen midi FILE`)")
+    m.add_argument("--midi-map", help="roles for the MIDI's parts, e.g. t1c0=pitch1,t2c1=chords,t4c9=off "
+                                      "(default: suggested)")
+    m.add_argument("--no-auto-percussion", action="store_true",
+                   help="do not add Sparta percussion when the MIDI has no drums")
+    m.add_argument("--no-auto-phrase", action="store_true",
+                   help="do not put the main phrase on the Chorus pattern when no MIDI part plays it")
+    m.add_argument("--export-midi", help="also write the remix's notes as a MIDI file")
     m.add_argument("--stems", action="store_true", help="also write the stems")
     m.add_argument("--pack", help="also export the sample pack to this folder")
     m.add_argument("--project", help="save the project JSON here")
@@ -254,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
     pt.add_argument("--mode", default="auto", choices=["auto", "semitone", "compact", "index"])
     pt.set_defaults(fn=cmd_patterns)
 
+    md = sub.add_parser("midi", help="show a MIDI base's parts and their suggested roles")
+    md.add_argument("file")
+    md.set_defaults(fn=cmd_midi)
     vv = sub.add_parser("templates", aliases=["variants"], help="list the base templates (or import one)")
     vv.add_argument("--import", dest="import_file", help="add a shared .spartabase.json to my templates")
     vv.add_argument("-v", "--verbose", action="store_true", help="show each template's description")
