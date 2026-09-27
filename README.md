@@ -5,13 +5,13 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
 1. **Cuts the source video into samples** with ffmpeg — held vowels/notes become *pitches*, thumps/bangs/hisses become
    *kick, snare/clap, hi-hats and crash*, and speech becomes *quotes*, *Madness words* and *DunDunDenDen syllables*.
 2. **Fixes every pitch sample into a D note** (the key of the classic bases) with TD-PSOLA hard-tuning — the
-   "Melodyne pitch drift 100 %" treatment — and derives the **bass** (D2), **main**, **second**, **third** and
-   **fourth** pitches.
+   "Melodyne pitch drift 100 %" treatment — and derives the **bass pitch** (D3, the main pitch played an octave
+   lower like a sampler), **main**, **second**, **third** and **fourth** pitches.
    The **Chorus plays two layers**: the **main phrase** — cut into two parts at the gap between its syllables (on a
    zero crossing) and played as it is on the Chorus pattern, `1` the first part, `2` the second ("the chorus always
    contains the main phrase", Sparta Remix Wiki) — and **several pitches** under it, playing together: the wiki's
-   *1\*, 12\*, Chords* lines — root, third and fifth (the seventh joins in the Final Chorus), each line on its own
-   pitch sample, bouncing root/octave in 8ths on the chords. The main phrase **keeps playing through the Epicness
+   *1\*, 12\*, Chords* lines — root, third and fifth, each line on its own pitch sample, bouncing root/octave in
+   8ths on the chords (the fourth pitch doubles the roots an octave down in the Final Chorus). The main phrase **keeps playing through the Epicness
    and the Awesomeness** ("for the tricky epicness pattern, you will need 3 quote/word samples (the two of them you
    used is in your chorus)" — GageDaRemixer's guide on the wiki), with the chords held under it on the second to
    fourth pitch. The DunDunDenDen chops the main phrase.
@@ -112,10 +112,13 @@ Sections and what plays in them:
   ending; `1` = first part, `2` = second part, as they are — tick *pitched chorus* / `--chorus-pitch` to tune it to
   the chords too) over several pitches playing the *1\*, 12\*, Chords* lines together: the main pitch on the
   roots, the second pitch on the thirds, the third pitch on the fifths (`0* 12*`, `4* 16*`, `7* 19*` …, the minor
-  lines on a minor base), the fourth pitch on the sevenths (`11* 18*` …) in the Final Chorus and with hard pitching,
-  where the main pitch also doubles an octave up (pick any other pitch pattern with the pattern list); ChorusCrisp
-  pluck; offbeat bass; source kick, clap paralleled with the kick, hats; crash; fill in the last bar. The main
-  phrase big in the middle, a box per pitch (and the bass) along the top, drums along the bottom.
+  lines on a minor base); in the Final Chorus and with hard pitching the fourth pitch doubles the roots an octave
+  down (the pattern's seventh line — a major seventh and a raised eleventh — clashes with a base's major chords, so
+  it is left out; pick any other pitch pattern with the pattern list); ChorusCrisp pluck; the bass pitch on the
+  offbeats; the wiki's *Normal Percussion* (kick every beat, clap on 2 and 4 with the kick paralleled — once —
+  hats on the off-beats); crash. The main phrase big in the middle, a box per pitch (and the bass) along the top,
+  drums along the bottom. On a base there are no fills of our own: the base has its fills, and the example remix
+  on the same base keeps the plain pattern through every section.
 - **DunDunDenDen** — `0*__0*__1*__1*__-2*__-2*__1*__1*__`: loud quarter notes with silence in between, each hit a
   syllable of the **main phrase** pitched to the note, all drums hitting with it. Fullscreen, black between hits.
 - **Madness** — the call & response (the Madness article's *Original Pattern*: `1` = first person's word, `2` = the
@@ -123,12 +126,14 @@ Sections and what plays in them:
   *First Pattern* from the first half to the end, the *Trance Gate* pattern joining from the second half.
   Split screen.
 - **Epicness** — after the Chorus that follows the DunDunDenDen and after the Chorus that follows the Madness.
-  The "OMG Teh Epicness!" pattern played by the Chorus's samples — `1` and `2` the main phrase's two parts, `3` a
-  third word of the same voice — so the chorus never drops out; the pitches double the pattern on the chords and
-  the second to fourth pitch hold the chords under it. Its `1*` lead-in lands two 16ths before the section, the
-  four bars end on a roll of 16ths and the second line layers slot 3; long Epicness parts alternate the ORIGINAL
-  with an edit (CatmanTeam, TheInfySpartan, majugarzett… all 14 are in the library). The Chorus's frame (the main
-  phrase big in the middle, a box per pitch along the top) with the spinning title.
+  The Epicness pattern played by the Chorus's samples — `1` and `2` the main phrase's two parts, `3` a third word
+  of the same voice — so the chorus never drops out; the pitches double the pattern on the chords and the second
+  to fourth pitch hold the chords under it. By default it is the tutorial's version, on the downbeat, in every
+  4-bar block: `1_1_332_1_1_11__1_1_113_3_22221_3_1_332_1_1_111_1111111111111111` with the second line's 3s
+  (`3_3__________3__3_3333_33`) before and over the closing roll. The wiki's ORIGINAL (its `1*` as a lead-in two
+  16ths before the section) and all 14 edits (CatmanTeam, TheInfySpartan, majugarzett…) are in the library, and an
+  edit can alternate with it. The Chorus's frame (the main phrase big in the middle, a box per pitch along the top)
+  with the spinning title.
 - **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
 - **Awesomeness 1 / 2** — the pattern on the main pitch, an octave below on the second, the chords on the second
   to fourth pitch, and the main phrase following its rhythm (part 1 in the first half of each bar, part 2 in the
@@ -201,10 +206,10 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
 - **Tuning to D** (`spartagen/audio/psola.py`): pitch marks every period, TD-PSOLA re-synthesis with every period at
   the target note (formants kept). Transpositions reuse the synthesis marks; long notes are sustained by PSOLA
   stretching or ping-pong looping of the steady part.
-- **Designed hits** (`spartagen/samples.py`): kick = the thump pitched down for body + pitch-sweep punch + the
-  original click; snare/clap = EQ'd bang with transient boost (clap = three retriggers); hats = high-passed hiss with
-  short/long decays; crash = noise + long reverb tail; bass = the lowest tuned pitch dropped to D2, low-passed and
-  saturated.
+- **Designed hits** (`spartagen/samples.py`): kick = the source's thump, at most an octave down so it keeps its
+  knock (body ~90–150 Hz), + pitch-sweep punch + the original click; snare/clap = EQ'd bang with transient boost
+  (clap = three retriggers); hats = high-passed hiss with short/long decays; crash = noise + long reverb tail;
+  bass = the lowest tuned pitch played an octave lower (D3, like a sampler), lightly filtered and saturated.
 
 Every sample keeps its source time range, so its **video clip is known** — that is what the renderer shows.
 
@@ -265,7 +270,7 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 188 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 189 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 

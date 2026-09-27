@@ -37,7 +37,12 @@ def test_bank_tunes_pitches_to_d(session):
     tr = yin_track(p1.audio, p1.sr, hop=256)
     got = hz_to_midi(float(np.median(tr.f0[tr.voiced])))
     assert abs(got - p1.root_midi) < 0.15
-    assert int(round(bank.get("bass").root_midi)) == 38  # D2
+    # The bass pitch: an octave below the pitches (D3), heard above a base's own sub-bass — and it is there.
+    bass = bank.get("bass")
+    assert int(round(bass.root_midi)) == 50
+    tr = yin_track(bass.audio, bass.sr, fmin=60, fmax=400, hop=256)
+    got = hz_to_midi(float(np.median(tr.f0[tr.voiced])))
+    assert abs(((got - 50) + 6) % 12 - 6) < 0.5
 
 
 def test_every_variant_compiles(session):

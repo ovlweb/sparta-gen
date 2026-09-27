@@ -32,8 +32,8 @@ STEM_LEVEL_DB = {
 }
 
 BACKING_STEMS = {"drums", "bass", "pad"}
-REMIX_DRUMS_DB = -4.0     # source percussion on top of a base's own drums
-REMIX_BASS_DB = -4.0      # the source bass (a pitch like the others) on top of a base's own bass
+REMIX_DRUMS_DB = 0.0      # source percussion on top of a base's own drums (heard, like a remixer's percs)
+REMIX_BASS_DB = 3.0       # the bass pitch (a pitch like the others) heard over a base's own bass
 
 
 @dataclass
@@ -201,7 +201,7 @@ def stem_chain(stem: str, polish: str, sr: int) -> list[dict]:
         return [{"fx": "highpass", "freq": 150.0}, {"fx": "lowpass", "freq": 5500.0},
                 {"fx": "chorus", "rate_hz": 0.5, "depth_ms": 5.0, "mix_amount": 0.5}, {"fx": "width", "width": 1.6}]
     if stem == "bass":
-        chain = [{"fx": "highpass", "freq": 30.0}, {"fx": "lowpass", "freq": 1600.0},
+        chain = [{"fx": "highpass", "freq": 30.0}, {"fx": "lowpass", "freq": 3000.0},     # keep the voice
                  {"fx": "compressor", "threshold_db": -18.0, "ratio": 4.0, "attack_ms": 8.0, "release_ms": 90.0,
                   "makeup_db": 3.0}]
         if not light:

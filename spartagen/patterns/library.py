@@ -416,6 +416,13 @@ MADNESS_WORDS: list[PatternDef] = [
 #: bars after it end on a roll of 16ths; the second line layers slot 3.
 _EPIC_L2 = "____________________________________________3_3_____3__3_3333_33__"
 EPICNESS: list[PatternDef] = [
+    # The Epicness as remixers play it on the Chorus's samples: the first hit on the downbeat (not a
+    # lead-in), four bars exactly; the second line's 3s fill the gaps before the roll and over it.
+    P("epic.downbeat", "Epicness — on the downbeat (the tutorial's version)", "epicness",
+      "1_1_332_1_1_11__1_1_113_3_22221_3_1_332_1_1_111_1111111111111111\n"
+      + "_" * 39 + "3_3__________3__3_3333_33",
+      mode="index", length=64.0,
+      credit="as given by the user with therabbit911's Sparta Remix Epicness Tutorial"),
     P("epic.original", "ORIGINAL (OMG Teh Epicness!)", "epicness",
       "1*__1*332*1_1_11__1_1*113_3_22221*3_1*332*1_1_111_1111111111111111\n" + _EPIC_L2,
       mode="index", pickup=2.0, length=64.0, credit="Epicness Patterns"),

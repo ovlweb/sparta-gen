@@ -6,7 +6,7 @@ processed the way remixers prepare them by hand:
 * pitch1..4 — held vowels hard-tuned to D (the key of the classic bases)
 * chorus_a/b — the main phrase cut into two parts (Chorus slots 1 and 2), played as is
 * chorus_c  — a third word of the voice, played as is (the Epicness's slot 3)
-* bass       — the main pitch dropped to D2, low-passed and saturated
+* bass       — the main pitch played an octave lower (D3), like a sampler; the bass pitch
 * kick       — a thump from the source, pitched down for body, with a pitch
                sweep for punch and the original transient on top
 * snare/clap — a noisy "bang" from the source, EQ'd for body + snap
@@ -76,7 +76,7 @@ class SampleConfig:
     key: str = "D"                   # pitch class every pitch sample is tuned to
     pitch_octave: Optional[int] = None  # force D3/D4/D5; None = nearest to the voice
     flatten: float = 1.0             # 1 = dead-straight note, 0 = keep intonation
-    bass_octave: int = 2             # bass root = D2
+    bass_octave: int = 3             # bass root = D3 — a pitch you hear above a base's own sub-bass
     max_quotes: int = 3
     clean_pitch: bool = True         # isolate the voice's harmonics before tuning (sources with music under)
     selections: dict = field(default_factory=dict)  # role -> candidate index or {"start":…, "end":…}
@@ -334,14 +334,18 @@ def pitch_quality(s: Sample) -> float:
 
 
 def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
+    """The bass pitch: a pitch sample played lower the way a sampler does (slower, deeper), in octave 3
+    by default — real Sparta basslines sit there (root and octave bounces around D3), where the voice
+    still reads as a pitch instead of a rumble under the base's own bass."""
     sr = p.sr
     target = 12 * (cfg.bass_octave + 1) + pitch_class(cfg.key)
     shift = target - p.root_midi
     y = dsp.varispeed(p.audio, shift)
-    y = dsp.lowpass(y, sr, 700.0, order=4)
-    y = dsp.highpass(y, sr, 28.0, order=2)
-    y = fx.saturate(y, 6.0, "tanh")
-    y = dsp.lowpass(y, sr, 1800.0, order=2)
+    low = cfg.bass_octave <= 2
+    y = dsp.lowpass(y, sr, 700.0 if low else 3500.0, order=4)
+    y = dsp.highpass(y, sr, 28.0 if low else 70.0, order=2)
+    y = fx.saturate(y, 6.0 if low else 3.0, "tanh")
+    y = dsp.lowpass(y, sr, 1800.0 if low else 5000.0, order=2)
     y = dsp.declick(dsp.normalize_rms(y, -15.0, -1.0), sr, 2.0)
     return Sample("bass", "bass", f"bass ({note_name(target)})", p.src_start, p.src_end, y, sr,
                   float(target), None, 2.0 ** (shift / 12.0), {"from": p.id})
@@ -351,13 +355,14 @@ def make_kick(x: np.ndarray, sr: int, cand: Candidate) -> Sample:
     seg = _cut(x, sr, cand.start, cand.start + 0.45)
     cen = float(cand.info.get("centroid", 300.0))
     low = float(cand.info.get("low", 0.0))
-    # Pitch the thump down until its energy sits in the kick range (real kicks barely move).
-    shift = 0.0 if (low > 0.6 and cen < 200) else float(np.clip(-12.0 * math.log2(max(cen, 60.0) / 110.0), -24.0, 0.0))
+    # A thump from the source, "then EQ it" (wiki): at most an octave down, so it keeps its own knock
+    # and its body sits where a kick is heard (~90-150 Hz), not a sub-bass blip under the base.
+    shift = 0.0 if (low > 0.6 and cen < 200) else float(np.clip(-12.0 * math.log2(max(cen, 60.0) / 150.0), -12.0, 0.0))
     body = dsp.varispeed(seg, shift) if shift < -0.5 else seg.copy()
     body = body[: int(0.32 * sr)]
     body = fx.pitch_sweep(body, sr, 7.0, 0.0, 45.0)          # punch: glide down onto the body
-    body = dsp.lowpass(body, sr, 180.0, order=4)
-    body = dsp.highpass(body, sr, 30.0, order=2)
+    knock = dsp.highpass(dsp.lowpass(body, sr, 2500.0, order=2), sr, 200.0, order=2)
+    body = dsp.highpass(dsp.lowpass(body, sr, 200.0, order=4), sr, 40.0, order=2) + 0.5 * knock
     click = dsp.highpass(seg[: int(0.015 * sr)], sr, 1500.0, order=2)
     n = body.shape[0]
     y = body * dsp.exp_decay_env(n, sr, 300.0)

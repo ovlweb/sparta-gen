@@ -157,8 +157,13 @@ def test_fit_to_base_follows_its_bars():
     assert line("pitch1", choruses) == {0, 12, 1, 13, -2, 10}          # roots: D, Eb, C (and octaves)
     assert line("pitch2", choruses) == {4, 16, 5, 17, 2, 14}           # major thirds
     assert line("pitch3", choruses) == {7, 19, 8, 20, 5, 17}           # fifths
-    # The seventh line (fourth pitch) joins in the final Chorus only.
-    assert line("pitch4", choruses[:-1]) == set() and line("pitch4", choruses[-1:]) == {11, 18, 12, 19, 9, 16}
+    # No seventh line (a major seventh and a raised eleventh clash with the base's major chords): in the
+    # final Chorus the fourth pitch doubles the roots an octave down instead, and nothing goes an octave up.
+    assert line("pitch4", choruses) == set()
+    low = [e for e in ev if e.section_kind == "chorus" and e.track_id == "pitch_low"]
+    assert {e.section for e in low} == {choruses[-1]} and {e.sample for e in low} == {"pitch4"}
+    assert {int(e.semis) for e in low} == {-12, 0, -11, 1, -14, -2}
+    assert max(e.semis for e in ev if e.section_kind == "chorus" and e.pitched) <= 20
     # The voices play together: every root note has its third and fifth at the same time.
     for e in (e for e in pitch if e.sample == "pitch1"):
         assert {x.sample for x in pitch if abs(x.t - e.t) < 1e-9} >= {"pitch1", "pitch2", "pitch3"}
@@ -177,16 +182,31 @@ def test_fit_to_base_follows_its_bars():
     assert fin and fin[0].semis == 1.0
 
 
-def test_epicness_lead_in_lands_before_the_section():
+def test_epicness_starts_on_its_downbeat_in_every_block():
+    """The Epicness as the tutorial plays it: 1_1_332_1_1_11__… — the first hit on the downbeat, the
+    same four bars in every block, the second line's 3s before and over the closing roll."""
     bm = _classic_map()
     arr = AR.build_from_base(bm)
-    ev = AR.compile_events(arr, {"pitch1", "pitch2", "pitch3"})
+    ev = AR.compile_events(arr, AVAIL_ALL)
     si = max((i for i, s in enumerate(arr.sections) if s.kind == "epicness"), key=lambda i: arr.sections[i].bars)
     t0 = arr.section_starts()[si]
-    epic = sorted((e for e in ev if e.section == si and e.track_id.startswith("pitch")), key=lambda e: e.t)
-    assert abs(epic[0].t - (t0 - 2 * arr.step_s)) < 1e-6        # the "1*" lead-in, two 16ths early
-    # Consecutive 4-bar blocks never double a step: the next block's lead-in replaces the roll's last notes.
     step = lambda e: round((e.t - t0) / arr.step_s, 3)           # noqa: E731
+    main = sorted((e for e in ev if e.section == si and e.track_id.startswith("main")), key=lambda e: e.t)
+    assert step(main[0]) == 0.0
+    want = [0, 2, 4, 5, 6, 8, 10, 12, 13, 16, 18, 20, 21, 22, 24, 26, 27, 28, 29, 30, 32, 34, 36, 37, 38, 39, 40,
+            41, 42, 44, 45, 46] + list(range(48, 64))
+    for blk in range(arr.sections[si].bars // 4):
+        steps = sorted({step(e) - 64 * blk for e in main if 64 * blk <= step(e) < 64 * (blk + 1)})
+        assert steps == want, blk
+        threes = sorted(step(e) - 64 * blk for e in main if 64 * blk <= step(e) < 64 * (blk + 1)
+                        and e.sample == "chorus_c")
+        assert threes == [4, 5, 22, 24, 32, 36, 37, 39, 41, 52, 55, 57, 58, 59, 60, 62, 63]
+    # An explicit edit still alternates, and a lead-in pattern still reaches back before its block.
+    arr2 = AR.build_from_base(bm, extra={"epicness_pattern": "epic.original",
+                                         "epicness_edit": "epic.catmanteam_late2015"})
+    ev2 = AR.compile_events(arr2, AVAIL_ALL)
+    epic = sorted((e for e in ev2 if e.section == si and e.track_id.startswith("pitch")), key=lambda e: e.t)
+    assert abs(epic[0].t - (t0 - 2 * arr.step_s)) < 1e-6        # the "1*" lead-in, two 16ths early
     first_block = [step(e) for e in epic if e.track_id == "pitch"]
     second_block = [step(e) for e in epic if e.track_id == "pitch_1"]
     assert max(first_block) < 62 and min(second_block) == 62.0
@@ -254,7 +274,9 @@ def test_each_pitch_voice_gets_its_own_box():
             boxes.setdefault(e.section_kind + ":" + e.sample, set()).add(cell_for(e, layout[e.section]))
     # Chorus: main phrase in the middle, a box per pitch along the top.
     assert boxes["chorus:pitch1"] == {"t0"} and boxes["chorus:pitch2"] == {"t1"}
-    assert boxes["chorus:pitch3"] == {"t2"} and boxes["chorus:pitch4"] == {"t3"}
+    assert boxes["chorus:pitch3"] == {"t2"}
+    low = [e for e in ev if e.section_kind == "chorus" and e.track_id == "pitch_low"]
+    assert low and {cell_for(e, layout[e.section]) for e in low} == {"t3"}
     # Epicness: the Chorus's frame — the chord voices get the pitches' boxes along the top.
     chords = [e for e in ev if e.section_kind == "epicness" and e.track_id == "chords"]
     assert {e.sample: cell_for(e, layout[e.section]) for e in chords} == {"pitch2": "t1", "pitch3": "t2", "pitch4": "t3"}
@@ -311,9 +333,9 @@ def test_the_main_phrase_keeps_playing_through_the_epicness():
         # Same rhythm: every pitch note has the main phrase with it.
         starts = {round(e.t, 6) for e in main}
         assert pitch and all(round(e.t, 6) in starts for e in pitch)
-        # The lead-in "1*" lands two 16ths before the section, on the main phrase too.
+        # The first hit on the section's downbeat.
         t0 = arr.section_starts()[si]
-        assert abs(min(e.t for e in main) - (t0 - 2 * arr.step_s)) < 1e-6
+        assert abs(min(e.t for e in main) - t0) < 1e-6
 
 
 def test_the_main_phrase_follows_the_awesomeness_rhythm():
@@ -359,3 +381,24 @@ def test_a_crash_hits_once_on_its_downbeat():
         steps = [round((e.t - starts[si]) / arr.step_s) for e in crashes]
         # Each crash lands on its bar's downbeat, once (no echo half a bar later).
         assert all(st % 16 == 0 for st in steps) and len(steps) == len(set(steps)), (sec.kind, steps)
+
+
+def test_percussion_on_a_base_is_the_normal_pattern_without_fills_or_doubles():
+    """Like the example remix on the same base: kick on every beat, clap on 2 and 4, hats on the
+    off-beats, in every section with drums — no fills of our own over the base's, no double kicks."""
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    starts = arr.section_starts()
+    for si, sec in enumerate(arr.sections):
+        if sec.kind not in ("chorus", "epicness", "awesomeness", "madness"):
+            continue
+        assert not any("fill" in tr.id for tr in sec.tracks), sec.kind
+        drums = [e for e in ev if e.section == si and e.stem == "drums" and e.track_id.startswith("perc")]
+        for bar in range(sec.bars):
+            hits = {}
+            for e in drums:
+                st = round((e.t - starts[si]) / arr.step_s - 16 * bar, 3)
+                if 0 <= st < 16:
+                    hits.setdefault(e.sample, []).append(st)
+            assert sorted(hits["kick"]) == [0, 4, 8, 12], (sec.kind, bar, hits)
+            assert sorted(hits["clap"]) == [4, 12] and sorted(hits["hat_closed"]) == [2, 6, 10, 14]

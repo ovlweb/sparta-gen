@@ -258,11 +258,11 @@ def sec_chorus(bars: int, opts: dict, final: bool = False, name: str = "Chorus")
     tune_main = bool(opts.get("chorus_pitch", False))
     main_slots = dict(SLOTS_CHORUS if opts.get("chorus_split", True) else SLOTS_12)
     minor = opts.get("minor", False)
-    # Several pitches: the "1*, 12*, Chords" lines (Pitch Patterns) — root, third, fifth (and the
-    # seventh line in the final Chorus), each played by its own pitch sample.
+    # Several pitches: the "1*, 12*, Chords" lines (Pitch Patterns) — root, third and fifth, each
+    # played by its own pitch sample (the pattern's seventh line is left out: it clashes with a base's
+    # major chords).
     pitch_pat = opts.get("chorus_pitch_pattern") or ("chords.arp_minor" if minor else "chords.arp_major")
-    n_voices = 4 if (final or hard) else 3
-    voices = list(PITCH_VOICES[:n_voices])
+    voices = list(PITCH_VOICES[:3])
     tracks = [
         TrackSpec("main", "pitch", pattern, mode="index", slots=main_slots,
                   follow="progression" if tune_main else "", pitched=tune_main, crisp=True, gain_db=0.0,
@@ -273,20 +273,24 @@ def sec_chorus(bars: int, opts: dict, final: bool = False, name: str = "Chorus")
         _bass("offbeat"),
         _crash(0.0),
     ]
-    if final:
-        # The main pitch doubles the root line an octave up.
-        tracks.append(TrackSpec("pitch_oct", "pitch", pitch_pat, sample="pitch1", voice_samples=["pitch1"],
-                                octave=1, crisp=True, sustain=True, gain_db=-10.0, visual="none",
-                                stem="pitch_layers"))
+    if final or hard:
+        # A fourth pitch doubles the root line an octave down — weight, not the seventh line's
+        # clash (a major seventh and a raised eleventh over the base's major chords) nor an
+        # octave-up copy two octaves above the samples' own notes.
+        tracks.append(TrackSpec("pitch_low", "pitch", "chorus.0_12", sample="pitch4", octave=-1, crisp=True,
+                                sustain=True, gain_db=-5.0, visual="pitch_cycle", flip="alternate"))
     if hard:
         tracks.append(TrackSpec("chords", "pitch", "chords.minor" if minor else "chords.major",
                                 sample="pitch3", voice_samples=list(PITCH_VOICES[:3]), gain_db=-16.0, sustain=True,
                                 visual="none", stem="pad"))
-    if opts.get("wiki_perc", False):
+    if opts.get("base"):
+        tracks.append(_perc("perc.vitro" if hard else "perc.normal"))
+    elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.vitro" if hard else "perc.normal", end_bar=bars - 1))
+        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
     else:
         tracks += _drums("four_on_floor_16" if hard else "four_on_floor", end_bar=bars - 1, hat_open=hard)
-    tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
+        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
     return SectionSpec("chorus", bars, tracks, name, layout="main")
 
 
@@ -312,8 +316,11 @@ def sec_dundundenden(bars: int, opts: dict) -> SectionSpec:
             _bass("rolling", start_bar=first),
             _crash(first),
         ]
-        tracks += _drums("four_on_floor_16", start_bar=first, end_bar=bars - 1, suffix="_b")
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
+        if opts.get("base"):
+            tracks.append(_perc("perc.normal", start_bar=first, suffix="_b"))
+        else:
+            tracks += _drums("four_on_floor_16", start_bar=first, end_bar=bars - 1, suffix="_b")
+            tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
     return SectionSpec("dundundenden", bars, tracks, "DunDunDenDen", layout="full" if bars <= 4 else "grid3")
 
 
@@ -322,13 +329,13 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
     over 4-bar blocks; long Epicness parts alternate the original with a community edit.  The main
     phrase plays it (1, 2 = the Chorus's two parts, 3 = a third word), the pitches double it."""
     tune_main = bool(opts.get("chorus_pitch", False))
-    first = pattern or opts.get("epicness_pattern", "epic.original")
-    edit = opts.get("epicness_edit", "epic.catmanteam_late2015")
+    first = pattern or opts.get("epicness_pattern", "epic.downbeat")
+    edit = opts.get("epicness_edit")          # e.g. "epic.catmanteam_late2015": alternates with the first
     blocks = []
     b = 0
     while b < bars:
         n = min(4, bars - b)
-        use_edit = (b // 4) % 2 == 1 and b + n < bars          # the last block keeps the original's roll
+        use_edit = bool(edit) and (b // 4) % 2 == 1 and b + n < bars   # the last block keeps the first's roll
         blocks.append((b, n, edit if use_edit else first))
         b += n
     tracks: list[TrackSpec] = []
@@ -352,7 +359,9 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
         _bass("rolling"),
         _crash(0.0),
     ]
-    if opts.get("wiki_perc", False):
+    if opts.get("base"):
+        tracks.append(_perc("perc.normal"))
+    elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.sparta_crash_mix", end_bar=bars - 1))
         tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
     else:
@@ -373,7 +382,9 @@ def sec_chords(bars: int, opts: dict) -> SectionSpec:
         _bass("roots"),
         _crash(0.0),
     ]
-    if opts.get("wiki_perc", False):
+    if opts.get("base"):
+        tracks.append(_perc("perc.normal"))
+    elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.generic", end_bar=bars - 1))
         tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
     else:
@@ -435,11 +446,14 @@ def sec_madness(bars: int, opts: dict) -> SectionSpec:
         TrackSpec("pitch_gate", "pitch", "mad.second_half", sample="pitch2", gain_db=-10.0, start_bar=half,
                   visual="none", stem="pitch_soft"),
         TrackSpec("bass", "bass", "bass:held", mode="index", slots={"1": "bass"}, follow="progression",
-                  gain_db=-5.0, sustain=True, visual="none"),
+                  gain_db=-11.0 if opts.get("base") else -5.0, sustain=True, visual="none"),   # the soft part
     ]
-    tracks += _drums("breakdown", end_bar=half)
-    tracks += _drums("half_time", start_bar=half, end_bar=bars - 1, suffix="_h")
-    tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
+    if opts.get("base"):
+        tracks.append(_perc("perc.normal", gain=-3.0))
+    else:
+        tracks += _drums("breakdown", end_bar=half)
+        tracks += _drums("half_time", start_bar=half, end_bar=bars - 1, suffix="_h")
+        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
     return SectionSpec("madness", bars, tracks, "Madness", layout="split2",
                        fx=[{"fx": "filter_sweep", "kind": "lowpass", "f_start": 500.0, "f_end": 14000.0,
                             "track": "pitch_soft"}])
@@ -936,8 +950,23 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                     count += 1
                     voice_count[voice] = voice_count.get(voice, 0) + 1
     events.sort(key=lambda e: (e.t, e.track))
+    events = _drop_doubles(events)
     _resolve_chokes(events, arr.duration)
     return events
+
+
+def _drop_doubles(events: list[NoteEvent]) -> list[NoteEvent]:
+    """One hit per sample, note and moment on a track: a percussion pattern's kick line and the kick
+    paralleled with its snare land together on beats 2 and 4 — played twice they are 6 dB louder."""
+    seen = set()
+    out = []
+    for e in events:
+        key = (round(e.t, 6), e.track.split("#")[0], e.sample, e.semis)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return out
 
 
 def _default_stem(tr: TrackSpec) -> str:
