@@ -124,3 +124,11 @@ def test_chorus_parts_play_the_main_phrase_as_is(session):
     n = min(raw.shape[0], a.audio.shape[0]) - 200
     r = np.corrcoef(raw[100:n], a.audio[100:n])[0, 1]
     assert r > 0.9
+
+
+def test_the_epicness_third_word_is_another_moment_of_the_voice(session):
+    bank = session.bank()
+    a, b, c = bank.get("chorus_a"), bank.get("chorus_b"), bank.get("chorus_c")
+    assert c is not None and c.role == "chorus" and c.meta["plays"] == "as is"
+    # Not a piece of the main phrase: another word, clear of it.
+    assert c.src_end + 0.3 <= a.src_start or c.src_start >= b.src_end + 0.3

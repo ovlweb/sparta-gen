@@ -11,8 +11,10 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
    zero crossing) and played as it is on the Chorus pattern, `1` the first part, `2` the second ("the chorus always
    contains the main phrase", Sparta Remix Wiki) — and **several pitches** under it, playing together: the wiki's
    *1\*, 12\*, Chords* lines — root, third and fifth (the seventh joins in the Final Chorus), each line on its own
-   pitch sample, bouncing root/octave in 8ths on the chords. The Epicness and Awesomeness hold the chords on the
-   second to fourth pitch under their patterns. The DunDunDenDen chops the main phrase.
+   pitch sample, bouncing root/octave in 8ths on the chords. The main phrase **keeps playing through the Epicness
+   and the Awesomeness** ("for the tricky epicness pattern, you will need 3 quote/word samples (the two of them you
+   used is in your chorus)" — GageDaRemixer's guide on the wiki), with the chords held under it on the second to
+   fourth pitch. The DunDunDenDen chops the main phrase.
    Pitch samples cut from songs are **isolated first** (only the held note's harmonics are kept, the band under it
    is pushed down ~30 dB) so they still sound like clean notes once tuned.
 3. **Sequences the patterns from the Sparta Remix Wiki** (standard Chorus `11_11_111_1_1_11222_2_222_222_2_…`,
@@ -121,14 +123,19 @@ Sections and what plays in them:
   *First Pattern* from the first half to the end, the *Trance Gate* pattern joining from the second half.
   Split screen.
 - **Epicness** — after the Chorus that follows the DunDunDenDen and after the Chorus that follows the Madness.
-  The "OMG Teh Epicness!" pattern: its `1*` lead-in lands two 16ths before the section, the four bars
-  end on a roll of 16ths and the second line layers slot 3; long Epicness parts alternate the ORIGINAL with an edit
-  (CatmanTeam, TheInfySpartan, majugarzett… all 14 are in the library), with the chords held under it on the
-  second, third and fourth pitch — one box each in the middle of the 4×4 grid, with the spinning title.
+  The "OMG Teh Epicness!" pattern played by the Chorus's samples — `1` and `2` the main phrase's two parts, `3` a
+  third word of the same voice — so the chorus never drops out; the pitches double the pattern on the chords and
+  the second to fourth pitch hold the chords under it. Its `1*` lead-in lands two 16ths before the section, the
+  four bars end on a roll of 16ths and the second line layers slot 3; long Epicness parts alternate the ORIGINAL
+  with an edit (CatmanTeam, TheInfySpartan, majugarzett… all 14 are in the library). The Chorus's frame (the main
+  phrase big in the middle, a box per pitch along the top) with the spinning title.
 - **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
-- **Awesomeness 1 / 2** (the pattern on the main pitch, an octave below on the second, the chords on the second to
-  fourth pitch), **Execution**, **Intro** (quotes, then the 3-hit intro pattern), **Ending** (final hit, main
-  phrase, tape stop).
+- **Awesomeness 1 / 2** — the pattern on the main pitch, an octave below on the second, the chords on the second
+  to fourth pitch, and the main phrase following its rhythm (part 1 in the first half of each bar, part 2 in the
+  second), in the Chorus's frame.
+- **Ending** — one hit on the base's last chord (every pitch on its chord tone, bass, kick, clap, crash — once),
+  then a quote from the source played as it is, fullscreen, while the chord rings out (a tape stop without a
+  base). **Execution**, **Intro** (quotes, then the 3-hit intro pattern).
 
 ## Pattern notation
 
@@ -179,7 +186,8 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
   - The **main phrase** (the Chorus clip) is the best clear word or short phrase of the voice — held notes beat
     glides, which keeps a sliding instrument from winning over the singer — cut in two at the deepest energy valley
     between 35 % and 65 % of it (else at the biggest change of sound, else the middle), snapped to a zero crossing.
-    The parts keep their own sound; a tuned copy is only used with *pitched chorus*. The DunDunDenDen syllables and
+    The parts keep their own sound; a tuned copy is only used with *pitched chorus*. The Epicness's third sample is
+    the next best word of the voice, whole, from another moment of the source. The DunDunDenDen syllables and
     the ending use the same phrase; the Madness words come from the same voice ranking.
 - **Isolation** (`spartagen/audio/harmonic.py`): a held note cut from a song carries the band under it. A
   time-varying harmonic mask on the short-time spectrum keeps the bins around every harmonic of the tracked note
@@ -257,7 +265,7 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 183 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 188 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 

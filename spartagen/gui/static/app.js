@@ -217,18 +217,18 @@ $("#btn-analyze").addEventListener("click", async () => {
 
 // ── 2 · samples ──────────────────────────────────────────────────────────────
 const GROUPS = [
-  ["Chorus — the main phrase cut in two (plays as is)", ["chorus_a", "chorus_b"]],
+  ["Chorus & Epicness — the main phrase cut in two, and a third word (play as they are)", ["chorus_a", "chorus_b", "chorus_c"]],
   ["Pitches (tuned) — several play the chord lines together", ["pitch1", "pitch2", "pitch3", "pitch4", "bass"]],
   ["Percussion", ["kick", "snare", "clap", "hat_closed", "hat_open", "crash"]],
   ["Quotes & Madness words", ["quote1", "quote2", "quote3", "phrase", "word_a", "word_b"]],
   ["Main phrase syllables (DunDunDenDen chops)", null],
 ];
-const ROLE_KIND = { chorus_a: "word", chorus_b: "word", pitch1: "pitch", pitch2: "pitch", pitch3: "pitch", pitch4: "pitch", kick: "kick", snare: "snare", clap: "snare",
+const ROLE_KIND = { chorus_a: "word", chorus_b: "word", chorus_c: "word", pitch1: "pitch", pitch2: "pitch", pitch3: "pitch", pitch4: "pitch", kick: "kick", snare: "snare", clap: "snare",
   hat_closed: "hat", hat_open: "hat", crash: "crash", quote1: "quote", quote2: "quote", quote3: "quote",
   phrase: "quote", word_a: "word", word_b: "word" };
 // Both chorus parts come from one pick: the main phrase.
 const SELECT_KEY = { chorus_a: "chorus", chorus_b: "chorus" };
-const ROLE_NAME = { chorus_a: "Chorus 1 — part 1", chorus_b: "Chorus 2 — part 2", pitch1: "Main pitch", pitch2: "Second pitch", pitch3: "Third pitch", pitch4: "Fourth pitch", bass: "Bass",
+const ROLE_NAME = { chorus_a: "Chorus 1 — part 1", chorus_b: "Chorus 2 — part 2", chorus_c: "Epicness 3 — third word", pitch1: "Main pitch", pitch2: "Second pitch", pitch3: "Third pitch", pitch4: "Fourth pitch", bass: "Bass",
   kick: "Kick", snare: "Snare", clap: "Clap", hat_closed: "Closed hat", hat_open: "Open hat", crash: "Crash",
   quote1: "Quote 1", quote2: "Quote 2", quote3: "Quote 3", phrase: "Main phrase", word_a: "Madness word 1",
   word_b: "Madness word 2" };

@@ -144,6 +144,9 @@ SLOTS_12 = {"1": "pitch1", "2": "pitch2", "3": "pitch3", "4": "pitch4"}
 PITCH_VOICES = ("pitch1", "pitch2", "pitch3", "pitch4")
 #: The Chorus plays the main source clip cut in two: 1 = first part, 2 = second part.
 SLOTS_CHORUS = {"1": "chorus_a", "2": "chorus_b", "3": "pitch3", "4": "pitch1"}
+#: The Epicness keeps the Chorus's samples: "for the tricky epicness pattern, you will need 3 quote/word
+#: samples (the two of them you used is in your chorus)" (GageDaRemixer's guide, Sparta Remix Wiki).
+SLOTS_EPIC = {"1": "chorus_a", "2": "chorus_b", "3": "chorus_c", "4": "pitch1"}
 
 
 def _rests(steps: int) -> str:
@@ -188,8 +191,16 @@ def _perc(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, g
                      flip="alternate", stem="drums")
 
 
+def _once(text: str, total: int) -> str:
+    """A pattern padded with rests to ``total`` steps, so it plays once — a cell of half a bar or
+    less would otherwise loop on the half bar."""
+    return "\n".join(line + "_" * max(0, total - int(round(parse(line, "auto").length)))
+                     for line in text.split("\n"))
+
+
 def _crash(bar: float = 0.0, gain: float = -6.0, tid: str = "crash") -> TrackSpec:
-    return TrackSpec(tid, "oneshot", "text:1", sample="crash", gain_db=gain, pitched=False, oneshot=True,
+    return TrackSpec(tid, "oneshot", "text:" + _placements(STEPS_PER_BAR, [(0, "1")]), mode="index",
+                     slots={"1": "crash"}, sample="crash", gain_db=gain, pitched=False, oneshot=True,
                      start_bar=bar, end_bar=bar + 1, visual="crash", choke=False, stem="drums")
 
 
@@ -308,7 +319,9 @@ def sec_dundundenden(bars: int, opts: dict) -> SectionSpec:
 
 def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> SectionSpec:
     """The Epicness: the index pattern (lead-in "1*" before the downbeat, a roll of 16ths at the end)
-    over 4-bar blocks; long Epicness parts alternate the original with a community edit."""
+    over 4-bar blocks; long Epicness parts alternate the original with a community edit.  The main
+    phrase plays it (1, 2 = the Chorus's two parts, 3 = a third word), the pitches double it."""
+    tune_main = bool(opts.get("chorus_pitch", False))
     first = pattern or opts.get("epicness_pattern", "epic.original")
     edit = opts.get("epicness_edit", "epic.catmanteam_late2015")
     blocks = []
@@ -323,8 +336,14 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
         nxt = blocks[i + 1] if i + 1 < len(blocks) else None
         pick = lib.get(nxt[2]).pickup if nxt else 0.0
         end = b0 + n - pick / STEPS_PER_BAR       # leave the lead-in steps to the next block
+        # The Chorus's samples play the Epicness pattern (the main phrase stays the main thing) …
+        tracks.append(TrackSpec("main" if i == 0 else f"main_{i}", "pitch", pid, mode="index",
+                                slots=dict(SLOTS_EPIC), follow="progression" if tune_main else "",
+                                pitched=tune_main, crisp=True, gain_db=0.0, visual="main", flip="alternate",
+                                stem="chorus", start_bar=b0, end_bar=end))
+        # … with the pitches under it on the same pattern, following the chords.
         tracks.append(TrackSpec("pitch" if i == 0 else f"pitch_{i}", "pitch", pid, mode="index",
-                                slots=dict(SLOTS_12), follow="progression", crisp=True, sustain=True,
+                                slots=dict(SLOTS_12), follow="progression", crisp=True, sustain=True, gain_db=-3.0,
                                 visual="pitch_cycle", flip="rotate", start_bar=b0, end_bar=end))
     tracks += [
         TrackSpec("chords", "pitch", "chords.minor" if opts.get("minor") else "chords.major", sample="pitch2",
@@ -339,7 +358,8 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
     else:
         tracks += _drums("four_on_floor_16", end_bar=bars - 1, hat_open=True)
         tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
-    return SectionSpec("epicness", bars, tracks, "Epicness", layout="grid4")
+    # The Chorus's frame: the main phrase big in the middle, a box per pitch along the top.
+    return SectionSpec("epicness", bars, tracks, "Epicness", layout="main")
 
 
 def sec_chords(bars: int, opts: dict) -> SectionSpec:
@@ -362,10 +382,30 @@ def sec_chords(bars: int, opts: dict) -> SectionSpec:
     return SectionSpec("chords", bars, tracks, "Chords (Pre-Awesomeness)", layout="grid3")
 
 
+def _rhythm_as_index(pid: str, total: int) -> str:
+    """The rhythm of a (semitone) pattern as an index pattern for the main phrase: "1" (first part)
+    on notes in the first half of each bar, "2" (second part) in the second half — the way the
+    Chorus pattern answers part 1 with part 2."""
+    pp = lib.get(pid).parsed()
+    loop = max(1, int(round(pp.loop_length())))
+    hits = []
+    for rep in range(0, total, loop):
+        for n in pp.notes:
+            st = rep + int(round(n.start))
+            if n.voice == 0 and st < total:
+                hits.append((st, "1" if st % STEPS_PER_BAR < STEPS_PER_BAR // 2 else "2"))
+    return _placements(total, hits)
+
+
 def sec_awesomeness(which: int, opts: dict, bars: int = 4) -> SectionSpec:
     minor = opts.get("minor", False)
     pid = opts.get(f"awesomeness{which}_pattern") or f"awe.{which}_{'minor' if minor else 'major'}"
+    tune_main = bool(opts.get("chorus_pitch", False))
     tracks = [
+        # The main phrase stays: it follows the Awesomeness's rhythm, the pitch plays the melody.
+        TrackSpec("main", "pitch", "text:" + _rhythm_as_index(pid, bars * STEPS_PER_BAR), mode="index",
+                  slots=dict(SLOTS_CHORUS), follow="progression" if tune_main else "", pitched=tune_main,
+                  crisp=True, gain_db=-2.0, visual="main", flip="alternate", stem="chorus"),
         TrackSpec("pitch", "pitch", pid, sample="pitch1", crisp=True, sustain=True, visual="pitch_cycle",
                   flip="rotate"),
         TrackSpec("pitch_low", "pitch", pid, sample="pitch2", octave=-1, gain_db=-9.0, sustain=True, visual="none",
@@ -380,7 +420,7 @@ def sec_awesomeness(which: int, opts: dict, bars: int = 4) -> SectionSpec:
         tracks.append(_perc("perc.normal"))
     else:
         tracks += _drums("four_on_floor_16", hat_open=True)
-    return SectionSpec("awesomeness", bars, tracks, f"Awesomeness {which}", layout="grid4")
+    return SectionSpec("awesomeness", bars, tracks, f"Awesomeness {which}", layout="main")
 
 
 def sec_madness(bars: int, opts: dict) -> SectionSpec:
@@ -418,23 +458,35 @@ def sec_execution(bars: int, opts: dict, pattern: str = "exec.original") -> Sect
 
 
 def sec_ending(bars: int, opts: dict) -> SectionSpec:
+    """The last hit, once, on the base's last chord (every pitch on its chord tone, bass, kick, clap,
+    crash), then a quote from the source played as it is, fullscreen, while the chord rings out.
+    Nothing loops: every part is written out to the section's length."""
     r = int(opts.get("ending_root", 0))          # the base's last chord (0 = the key root)
-    g = -4.0 if opts.get("base") else 0.0         # on a base: sit in its fade-out
+    on_base = bool(opts.get("base"))
+    total = bars * STEPS_PER_BAR
+    third = 3 if opts.get("minor") else 4
+    hold = "0***" if on_base else "0******"      # on a base, its own chord rings out
+    g = -2.0 if on_base else 0.0
+    hit = _placements(total, [(0, "1")])
     tracks = [
-        TrackSpec("final", "pitch", "text:0******", sample="pitch1", sustain=True, visual="center", flip="none",
-                  transpose=r, gain_db=g),
-        TrackSpec("final_b", "pitch", "text:0******\n7******\n12******", sample="pitch2", sustain=True,
-                  gain_db=-8.0, visual="none", stem="pad", transpose=r),
-        TrackSpec("bass", "bass", "text:0******", sample="bass", sustain=True, gain_db=-1.0, visual="none",
-                  transpose=r),
-        TrackSpec("kick", "drum", "text:1", sample="kick", pitched=False, visual="none"),
-        TrackSpec("snare", "drum", "text:1", sample="clap", pitched=False, visual="none"),
+        TrackSpec("final", "pitch", "text:" + _once(hold, total), mode="semitone", sample="pitch1", sustain=True,
+                  visual="center", flip="none", transpose=r, gain_db=g),
+        TrackSpec("final_chord", "pitch", "text:" + _once(f"{third}{hold[1:]}\n7{hold[1:]}", total), mode="semitone",
+                  sample="pitch2", voice_samples=["pitch2", "pitch3"], sustain=True, gain_db=g - 6.0,
+                  visual="none", stem="pitch_layers", transpose=r),
+        TrackSpec("bass", "bass", "text:" + _once(hold, total), mode="semitone", sample="bass", sustain=True,
+                  gain_db=-1.0, visual="none", transpose=r),
+        TrackSpec("kick", "drum", "text:" + hit, mode="index", slots={"1": "kick"}, sample="kick", pitched=False,
+                  visual="none"),
+        TrackSpec("snare", "drum", "text:" + hit, mode="index", slots={"1": "clap"}, sample="clap", pitched=False,
+                  visual="none"),
         _crash(0.0, -4.0),
-        TrackSpec("phrase", "oneshot", "text:" + _placements(bars * 16, [(8, "1")]), mode="index",
-                  slots={"1": "phrase"}, oneshot=True, pitched=False, gain_db=g, visual="center_late", flip="none",
-                  choke=False),
+        # A quarter note after the hit, the quote takes the screen and plays to its end.
+        TrackSpec("quote", "oneshot", "text:" + _placements(total, [(4, "1")]), mode="index",
+                  slots={"1": opts.get("ending_quote") or "quote1"}, oneshot=True, pitched=False, gain_db=g,
+                  visual="center_late", flip="none", choke=False, stem="quotes"),
     ]
-    fx = [] if opts.get("base") else [{"fx": "tape_stop", "duration_s": 0.9, "track": "*"}]
+    fx = [] if on_base else [{"fx": "tape_stop", "duration_s": 0.9, "track": "*"}]
     return SectionSpec("ending", bars, tracks, "Ending", layout="full", fx=fx)
 
 
@@ -711,7 +763,8 @@ class NoteEvent:
 #: When a bank lacks a sample, these stand in (chorus halves → the main pitches …).
 FALLBACKS = {
     "chorus_a": ("pitch1",), "chorus_b": ("pitch2", "pitch1"), "pitch2": ("pitch1",), "pitch3": ("pitch2", "pitch1"),
-    "pitch4": ("pitch3", "pitch2", "pitch1"),
+    "pitch4": ("pitch3", "pitch2", "pitch1"), "chorus_c": ("word_a", "word_b", "chorus_a"),
+    "quote1": ("quote2", "quote3", "phrase"),
     "clap": ("snare",), "snare": ("clap",), "hat_open": ("hat_closed",), "word_b": ("word_a",),
 }
 

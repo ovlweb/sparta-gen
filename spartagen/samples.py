@@ -3,8 +3,9 @@
 Every sample is cut from the source audio (so its video clip is known) and
 processed the way remixers prepare them by hand:
 
-* pitch1/2/3 — held vowels hard-tuned to D (the key of the classic bases)
+* pitch1..4 — held vowels hard-tuned to D (the key of the classic bases)
 * chorus_a/b — the main phrase cut into two parts (Chorus slots 1 and 2), played as is
+* chorus_c  — a third word of the voice, played as is (the Epicness's slot 3)
 * bass       — the main pitch dropped to D2, low-passed and saturated
 * kick       — a thump from the source, pitched down for body, with a pitch
                sweep for punch and the original transient on top
@@ -239,22 +240,41 @@ def make_chorus_pair(x: np.ndarray, sr: int, cand: Candidate, cfg: SampleConfig)
     target = _target_midi(f0, pitch_class(cfg.key), cfg.pitch_octave)
     out = []
     for sid, (a, b), label in (("chorus_a", (0, cut), "chorus part 1"), ("chorus_b", (cut, seg.shape[0]), "chorus part 2")):
-        part = dsp.apply_fades(np.array(seg[a:b], dtype=np.float32), sr, 1.0, 3.0)
-        y = dsp.normalize_rms(part, -16.0, -1.0)
-        pm = find_marks(part, sr)
-        voiced = float(np.mean(pm.voiced)) if pm.voiced.size else 0.0
-        ts = None
-        root = float("nan")
-        if voiced >= 0.3:
-            ts = tune_to_note(part, sr, midi_to_hz(target), flatten=float(cfg.flatten), marks=pm)
-            ts = TunedSample(dsp.normalize_rms(ts.audio, -16.0, -1.0), sr, ts.f0, ts.marks, ts.source_f0)
-            root = float(target)
-        t0 = cand.start + a / sr
-        t1 = cand.start + b / sr
-        out.append(Sample(sid, "chorus", f"{label} (main phrase)", t0, t1, y, sr, root, ts, 1.0,
-                          {"split": how, "voiced": round(voiced, 3), "score": round(float(cand.score), 4),
-                           "plays": "as is", "source_f0": round(f0, 2) if np.isfinite(f0) else None}))
+        smp = _as_is_part(seg, sr, a, b, cand, target, cfg, sid, f"{label} (main phrase)")
+        smp.meta.update({"split": how, "source_f0": round(f0, 2) if np.isfinite(f0) else None})
+        out.append(smp)
     return out
+
+
+def _as_is_part(seg: np.ndarray, sr: int, a: int, b: int, cand: Candidate, target: float, cfg: SampleConfig,
+                sid: str, label: str) -> Sample:
+    """A chorus sample: the source's own audio (plays as is), plus a copy tuned to ``target``."""
+    part = dsp.apply_fades(np.array(seg[a:b], dtype=np.float32), sr, 1.0, 3.0)
+    y = dsp.normalize_rms(part, -16.0, -1.0)
+    pm = find_marks(part, sr)
+    voiced = float(np.mean(pm.voiced)) if pm.voiced.size else 0.0
+    ts = None
+    root = float("nan")
+    if voiced >= 0.3:
+        ts = tune_to_note(part, sr, midi_to_hz(target), flatten=float(cfg.flatten), marks=pm)
+        ts = TunedSample(dsp.normalize_rms(ts.audio, -16.0, -1.0), sr, ts.f0, ts.marks, ts.source_f0)
+        root = float(target)
+    return Sample(sid, "chorus", label, cand.start + a / sr, cand.start + b / sr, y, sr, root, ts, 1.0,
+                  {"voiced": round(voiced, 3), "score": round(float(cand.score), 4), "plays": "as is"})
+
+
+def make_chorus_third(x: np.ndarray, sr: int, cand: Candidate, cfg: SampleConfig) -> Sample:
+    """The Epicness's third sample ("3"): another word of the voice, whole, played as is.  "For the
+    tricky epicness pattern, you will need 3 quote/word samples (the two of them you used is in
+    your chorus)" — GageDaRemixer's guide on the Sparta Remix Wiki."""
+    seg = dsp.highpass(_cut(x, sr, cand.start, cand.end), sr, 60.0, order=2)
+    marks = find_marks(seg, sr)
+    vper = marks.period[marks.voiced]
+    f0 = float(sr / np.median(vper)) if vper.size else float(cand.info.get("f0", float("nan")))
+    target = _target_midi(f0, pitch_class(cfg.key), cfg.pitch_octave)
+    smp = _as_is_part(seg, sr, 0, seg.shape[0], cand, target, cfg, "chorus_c", "third word (Epicness 3)")
+    smp.meta["source_f0"] = round(f0, 2) if np.isfinite(f0) else None
+    return smp
 
 
 def _steadiness(x: np.ndarray, sr: int, c: Candidate) -> float:
@@ -562,6 +582,17 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
         step(0.3, "cutting the main phrase in two")
         for smp in make_chorus_pair(x, sr, main_c, cfg):
             bank.samples[smp.id] = smp
+        # The Epicness's "3": another word of the same voice, from another moment of the source.
+        tsel = sel.get("chorus_c")
+        if isinstance(tsel, dict) and "start" in tsel and "end" in tsel:
+            third = Candidate("word", float(tsel["start"]), float(tsel["end"]), 1.0, {"manual": True})
+        elif isinstance(tsel, int) and 0 <= tsel < len(words_c):
+            third = words_c[tsel]
+        else:
+            around = [(main_c.start, main_c.end)]
+            third = next((c for c in mains if _clear_of(c, around, 0.3)), None)
+        if third is not None:
+            bank.samples["chorus_c"] = make_chorus_third(x, sr, third, cfg)
     pitched = [bank.samples[k] for k in PITCH_ROLES if k in bank.samples]
     if pitched:
         step(0.35, "building bass")

@@ -255,8 +255,10 @@ def test_each_pitch_voice_gets_its_own_box():
     # Chorus: main phrase in the middle, a box per pitch along the top.
     assert boxes["chorus:pitch1"] == {"t0"} and boxes["chorus:pitch2"] == {"t1"}
     assert boxes["chorus:pitch3"] == {"t2"} and boxes["chorus:pitch4"] == {"t3"}
-    # Epicness: the chord voices hold the middle of the grid, one box each.
+    # Epicness: the Chorus's frame — the chord voices get the pitches' boxes along the top.
     chords = [e for e in ev if e.section_kind == "epicness" and e.track_id == "chords"]
+    assert {e.sample: cell_for(e, layout[e.section]) for e in chords} == {"pitch2": "t1", "pitch3": "t2", "pitch4": "t3"}
+    # In a 4x4 grid (custom layouts) they hold its middle, one box each.
     assert {e.sample: cell_for(e, "grid4") for e in chords} == {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21"}
     # Each voice's box flips on its own notes.
     p2 = [e for e in chords if e.sample == "pitch2"]
@@ -286,3 +288,74 @@ def test_shot_cuts_finds_a_camera_cut(tmp_path):
     cuts = ff.shot_cuts(out, 0.5, 1.5)
     assert len(cuts) == 1 and abs(cuts[0] - 1.0) <= 0.041
     assert ff.shot_cuts(out, 0.1, 0.9) == []        # moving picture, no cut
+
+
+AVAIL_ALL = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "chorus_c", "bass", "kick", "clap",
+             "snare", "hat_closed", "hat_open", "crash", "quote1", "quote2", "quote3", "phrase", "word_a", "word_b"}
+
+
+def test_the_main_phrase_keeps_playing_through_the_epicness():
+    """The Epicness is played with the Chorus's samples — 1 and 2 are its two parts, 3 a third word —
+    and the main phrase stays big in the middle; the pitches play the same pattern on the chords."""
+    from spartagen.render_video import cell_for
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    for si, sec in enumerate(arr.sections):
+        if sec.kind != "epicness":
+            continue
+        assert sec.layout == "main"
+        main = [e for e in ev if e.section == si and e.track_id.startswith("main")]
+        assert {e.sample for e in main} == {"chorus_a", "chorus_b", "chorus_c"}
+        assert not any(e.pitched for e in main) and all(cell_for(e, sec.layout) == "main" for e in main)
+        pitch = [e for e in ev if e.section == si and e.track_id.startswith("pitch")]
+        # Same rhythm: every pitch note has the main phrase with it.
+        starts = {round(e.t, 6) for e in main}
+        assert pitch and all(round(e.t, 6) in starts for e in pitch)
+        # The lead-in "1*" lands two 16ths before the section, on the main phrase too.
+        t0 = arr.section_starts()[si]
+        assert abs(min(e.t for e in main) - (t0 - 2 * arr.step_s)) < 1e-6
+
+
+def test_the_main_phrase_follows_the_awesomeness_rhythm():
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    si = next(i for i, s in enumerate(arr.sections) if s.kind == "awesomeness")
+    t0 = arr.section_starts()[si]
+    main = [e for e in ev if e.section == si and e.track_id == "main"]
+    melody = [e for e in ev if e.section == si and e.track_id == "pitch"]
+    assert main and {round(e.t, 6) for e in main} <= {round(e.t, 6) for e in melody}
+    for e in main:
+        st = round((e.t - t0) / arr.step_s) % 16
+        assert e.sample == ("chorus_a" if st < 8 else "chorus_b") and not e.pitched
+
+
+def test_the_ending_hits_once_then_a_quote_plays():
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    si = len(arr.sections) - 1
+    assert arr.sections[si].kind == "ending"
+    t0 = arr.section_starts()[si]
+    end = [e for e in ev if e.section == si]
+    by = {}
+    for e in end:
+        by.setdefault(e.track_id, []).append(round((e.t - t0) / arr.step_s, 3))
+    # Nothing loops: one hit on the base's last chord …
+    for tid in ("final", "bass", "kick", "snare", "crash"):
+        assert by[tid] == [0.0], (tid, by[tid])
+    assert sorted(e.sample for e in end if e.track_id == "final_chord") == ["pitch2", "pitch3"]
+    assert {e.semis for e in end if e.track_id == "final"} == {1.0}              # the base's last chord (+1)
+    assert {e.semis for e in end if e.track_id == "final_chord"} == {5.0, 8.0}   # its third and fifth
+    # … then the quote, as it is, a quarter note later.
+    q = [e for e in end if e.track_id == "quote"]
+    assert [round((e.t - t0) / arr.step_s) for e in q] == [4] and q[0].sample == "quote1" and not q[0].pitched
+
+
+def test_a_crash_hits_once_on_its_downbeat():
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    starts = arr.section_starts()
+    for si, sec in enumerate(arr.sections):
+        crashes = [e for e in ev if e.section == si and e.track_id == "crash"]
+        steps = [round((e.t - starts[si]) / arr.step_s) for e in crashes]
+        # Each crash lands on its bar's downbeat, once (no echo half a bar later).
+        assert all(st % 16 == 0 for st in steps) and len(steps) == len(set(steps)), (sec.kind, steps)
