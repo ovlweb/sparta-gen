@@ -39,7 +39,7 @@
           <input type="url" id="url" placeholder="…or paste a YouTube / video link">
           <button id="btn-url">Download</button>
         </div>
-        <details class="more">
+        <details class="more desktop-only">
           <summary>Use a file already on this computer (path)</summary>
           <div class="row"><input type="text" id="path" placeholder="/home/me/Videos/source.mp4"><button id="btn-path">Load</button></div>
         </details>
@@ -180,7 +180,9 @@
           <button class="ghost" id="btn-save-proj">Save project</button>
         </div>
         <div id="pack-out" class="downloads"></div>
-        <details class="more">
+        <p class="hint android-only">Tapping a download saves it on the phone: videos in <b>Movies/SpartaGen</b>, audio in
+          <b>Music/SpartaGen</b>, sample packs in <b>Download/SpartaGen</b>.</p>
+        <details class="more desktop-only">
           <summary>Copy the final file to a folder on this computer</summary>
           <div class="row"><input type="text" id="saveas-path" placeholder="~/Videos"><button id="btn-saveas">Copy</button></div>
         </details>

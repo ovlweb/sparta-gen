@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sparta Gen</string>
+    <string name="make_remix">Make a Sparta Remix</string>
+    <string name="channel_engine">Sparta Gen engine</string>
+    <string name="engine_running">Ready — cutting samples and rendering run here</string>
+    <string name="starting">Starting the engine…&lt;br&gt;&lt;small&gt;(the first start unpacks it: a few seconds)&lt;/small&gt;</string>
+    <string name="engine_failed">The engine could not start.</string>
+    <string name="pick_file">Choose a video or audio file</string>
+    <string name="loading_shared">Loading the shared video…</string>
+    <string name="shared_failed">Could not load the shared file: %1$s</string>
+    <string name="saving">Saving %1$s…</string>
+    <string name="saved">Saved to %1$s</string>
+    <string name="save_failed">Could not save %1$s</string>
+</resources>

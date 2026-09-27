@@ -11,6 +11,7 @@ rotate), flash on the attack, and the frame punches with the kick.
 from __future__ import annotations
 
 import math
+import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -364,7 +365,10 @@ def render_video(
     cfg = cfg or VideoConfig()
     W, H, fps = cfg.width, cfg.height, cfg.fps
     info = ff.probe(source)
-    cache = ClipCache(source, bank, fps, cfg.memory_mb, info.has_video)
+    memory_mb = cfg.memory_mb
+    if os.environ.get("SPARTAGEN_MEMORY_MB", "").isdigit():      # a cap for small devices (the Android app)
+        memory_mb = min(memory_mb, int(os.environ["SPARTAGEN_MEMORY_MB"]))
+    cache = ClipCache(source, bank, fps, memory_mb, info.has_video)
     starts = arr.section_starts()
     total = duration if duration is not None else arr.duration + 0.5
     n_frames = int(math.ceil(total * fps))

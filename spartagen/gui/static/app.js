@@ -757,10 +757,12 @@ $("#btn-quit").addEventListener("click", async () => {
   try { await api("/api/project/save", { body: {} }); } catch (e) { /* nothing loaded */ }
   try { await api("/api/quit", { body: {} }); } catch (e) { /* server already gone */ }
   document.body.innerHTML = "<main><div class='card'><h2>Sparta Gen stopped</h2><p class='hint'>You can close this tab.</p></div></main>";
+  if (window.SpartaAndroid) window.SpartaAndroid.quit();       // the Android app: close it
 });
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 (async function boot() {
+  if (window.SpartaAndroid) document.body.classList.add("android");     // inside the Android app
   try {
     const [st, variants, catalog] = await Promise.all([api("/api/status"), api("/api/variants"), api("/api/patterns")]);
     S.status = st; S.variants = variants; S.catalog = catalog; S.project = st.project;

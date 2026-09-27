@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Sparta Gen helmet (spartagen/gui/static/icon.svg), centred in the adaptive icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="22" android:translateY="20">
+        <path android:fillColor="#c8102e" android:pathData="M14,38c0,-12 8,-24 18,-26 10,2 18,14 18,26H14z" />
+        <path android:fillColor="#e7b62c" android:pathData="M22,38h20v6c0,4 -4,8 -10,8s-10,-4 -10,-8v-6z" />
+        <path android:fillColor="#ff3a4f" android:pathData="M32,10c6,4 9,9 10,16 -4,-3 -7,-4 -10,-4s-6,1 -10,4c1,-7 4,-12 10,-16z" />
+        <path android:fillColor="#140a0a" android:pathData="M30,24h4v22h-4z" />
+        <path android:strokeColor="#e7b62c" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M12,52h40" />
+    </group>
+</vector>

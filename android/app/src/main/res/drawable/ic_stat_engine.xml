@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification icon: the helmet as a white silhouette. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path android:fillColor="#ffffff" android:pathData="M14,38c0,-12 8,-24 18,-26 10,2 18,14 18,26H14z" />
+    <path android:fillColor="#ffffff" android:pathData="M22,40h20v4c0,4 -4,8 -10,8s-10,-4 -10,-8v-4z" />
+    <path android:fillColor="#ffffff" android:pathData="M32,6c6,4 9,9 10,16 -4,-3 -7,-4 -10,-4s-6,1 -10,4c1,-7 4,-12 10,-16z" />
+    <path android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M12,57h40" />
+</vector>

@@ -94,3 +94,22 @@ def test_base_upload_maps_and_fits(base_url, tmp_path):
     assert arr["variant"] == "base" and arr["total_bars"] == r["base"]["bars"]
     r = call(base_url, "/api/mix", {"clear_base": True})
     assert r["base"] is None and "base_path" not in r["mix"] and r["variant"] != "base"
+
+
+def test_one_click_auto_remix(tmp_path_factory, synthetic_source):
+    """Source in, remix out: samples cut automatically, arranged and rendered by one call."""
+    httpd, url = make_server("127.0.0.1", 0, str(tmp_path_factory.mktemp("auto-home")))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = url.rstrip("/")
+    try:
+        with pytest.raises(urllib.error.HTTPError):             # nothing loaded yet
+            call(base, "/api/auto", {"quality": "audio"})
+        call(base, "/api/source/upload", raw=open(synthetic_source, "rb").read(), headers={"X-Filename": "src.mp4"})
+        res = wait(base, call(base, "/api/auto", {"quality": "audio"}))
+        assert res["file_url"] and res["events"] > 100 and res["duration"] > 20
+        project = call(base, "/api/project")
+        assert project["analyzed"] and project["outputs"]["audio"]["file"] == res["file"]
+        samples = call(base, "/api/samples")["samples"]
+        assert {"pitch1", "chorus_a", "kick"} <= {s["id"] for s in samples}
+    finally:
+        httpd.shutdown()

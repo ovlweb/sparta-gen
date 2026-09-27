@@ -1,0 +1,5 @@
+// Sparta Gen for Android: the engine (Python, via Chaquopy) and its web app in a WebView.
+plugins {
+    id "com.android.application" version "8.7.3" apply false
+    id "com.chaquo.python" version "17.0.0" apply false
+}

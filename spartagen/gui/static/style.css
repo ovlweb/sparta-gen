@@ -191,3 +191,8 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .autobox .basepick { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 .autobox .basepick input { width: 100%; }
 #btn-analyze { width: 100%; }
+
+/* inside the Android app: no desktop paths; downloads go to the phone's media folders */
+.android-only { display: none; }
+.android .android-only { display: block; }
+.android .desktop-only { display: none !important; }
