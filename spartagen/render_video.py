@@ -2,8 +2,9 @@
 
 Layouts per section follow what remixers build in Vegas: fullscreen hits
 (Intro, DunDunDenDen — black between the "DUN"s), a left/right split for the
-Madness call & response, and 3x3 / 4x4 grids for the Chorus, Epicness and
-Awesomeness with drums in the corners.  Clips flip on every hit (alternate or
+Madness call & response, the Chorus with the main phrase big in the middle,
+pitches along the top and drums along the bottom, and 3x3 / 4x4 grids for the
+Epicness and Awesomeness.  Clips flip on every hit (alternate or
 rotate), flash on the attack, and the frame punches with the kick.
 """
 
@@ -79,6 +80,17 @@ LAYOUT_CELLS: dict[str, dict[str, Rect]] = {
     "grid4": {f"c{r}{c}": _grid(4, r, c) for r in range(4) for c in range(4)},
 }
 LAYOUT_CELLS["grid4"]["center"] = (0.25, 0.25, 0.5, 0.5)
+# The Chorus: the main phrase big in the middle (16:9), pitches along the top, drums along the bottom,
+# pitch layers at the sides — the way remixers frame it.
+LAYOUT_CELLS["main"] = {
+    "main": (0.2, 0.2, 0.6, 0.6),
+    **{f"t{i}": (0.2 * i, 0.0, 0.2, 0.2) for i in range(5)},
+    **{f"b{i}": (0.2 * i, 0.8, 0.2, 0.2) for i in range(5)},
+    "l": (0.0, 0.2, 0.2, 0.6), "r": (0.8, 0.2, 0.2, 0.6),
+}
+MAIN_PITCH = {"pitch1": "t0", "pitch2": "t1", "pitch3": "t2"}
+MAIN_FIXED = {"corner": "t3", "crash": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "bass": "b3", "quote": "b4",
+              "side": "l"}
 
 # Snake order around the 4x4 border then the centre, for cycling pitch clips.
 GRID4_CYCLE = ["c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10"]
@@ -92,16 +104,20 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
     if v == "none":
         return None
     if layout == "full":
-        if v in ("kick", "snare", "hat", "crash", "bass", "corner"):
+        if v in ("kick", "snare", "hat", "crash", "bass", "corner", "side"):
             return None
         return "main"
     if layout == "split2":
+        if v == "main":
+            return "left" if e.index % 2 == 0 else "right"
         if v == "madness":
             return "left" if e.sample.endswith("_a") or e.sample in ("pitch1", "word_a") else "right"
         if v in ("center", "center_late", "full_flash", "pitch_cycle"):
             return "left" if e.index % 2 == 0 else "right"
         return None
     if layout == "grid3":
+        if v == "main":
+            return "mc"
         if v == "pitch_cycle":
             return GRID3_PITCH.get(e.sample, "mc")
         if v in ("full_flash", "center_late"):
@@ -109,10 +125,16 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
         if v == "madness":
             return "ml" if e.sample in ("word_a",) else "mr"
         return GRID3_FIXED.get(v)
+    if layout == "main":
+        if v in ("main", "center", "center_late", "full_flash", "madness"):
+            return "main"
+        if v == "pitch_cycle":
+            return MAIN_PITCH.get(e.sample, "main" if e.sample.startswith("chorus") else "t2")
+        return MAIN_FIXED.get(v)
     if layout == "grid4":
         if v == "pitch_cycle":
             return GRID4_CYCLE[e.index % len(GRID4_CYCLE)]
-        if v in ("center", "full_flash", "center_late", "madness"):
+        if v in ("main", "center", "full_flash", "center_late", "madness"):
             return "center"
         return {"kick": "c30", "snare": "c33", "hat": "c00", "crash": "c03", "bass": "c31", "corner": "c03"}.get(v)
     return None

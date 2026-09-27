@@ -92,3 +92,35 @@ def test_project_roundtrip(session, tmp_path):
     p = Project.load(path)
     assert p.source_path == session.project.source_path
     assert p.analysis is not None
+
+
+def test_session_on_a_base(session, tmp_path):
+    from tests.test_base import make_base, SR
+    base = tmp_path / "base.wav"
+    dsp.write_wav(str(base), make_base(), SR)
+    bm = session.set_base(str(base))
+    assert session.project.variant == "base" and session.project.mix["base_mode"] == "remix"
+    arr = session.arrangement()
+    assert arr.total_bars == bm["bars"] and arr.variant == "base"
+    bank = session.bank()
+    assert {"chorus_a", "chorus_b"} <= set(bank.samples)
+    ev = AR.compile_events(arr, set(bank.samples))
+    assert ev and all(e.t >= 0 for e in ev)
+    session.clear_base()
+    assert session.project.variant != "base" and session.project.base is None
+
+
+def test_chorus_parts_play_the_main_phrase_as_is(session):
+    bank = session.bank()
+    a, b = bank.get("chorus_a"), bank.get("chorus_b")
+    ph = bank.get("phrase")
+    assert a is not None and b is not None and ph is not None
+    assert a.role == "chorus" and a.meta["plays"] == "as is"
+    # The two parts are consecutive pieces of one clip — the main phrase, which the DunDunDenDen chops too.
+    assert abs(a.src_end - b.src_start) < 1e-6 and a.src_start < b.src_start
+    assert ph.src_start <= a.src_start + 0.05 and ph.src_end >= b.src_end - 0.05
+    raw = session.audio()[int(a.src_start * a.sr):int(a.src_end * a.sr)]
+    # "As is": the part is the source audio (level aside), not a re-pitched copy.
+    n = min(raw.shape[0], a.audio.shape[0]) - 200
+    r = np.corrcoef(raw[100:n], a.audio[100:n])[0, 1]
+    assert r > 0.9

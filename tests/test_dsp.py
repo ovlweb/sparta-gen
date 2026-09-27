@@ -107,3 +107,26 @@ def test_wav_roundtrip(tmp_path):
     dsp.write_wav(p, x, SR, bits=32)
     y, sr = dsp.read_wav(p)
     assert sr == SR and np.allclose(x, y)
+
+
+def test_harmonic_filter_keeps_the_voice_and_drops_the_band():
+    from conftest import harmonic_tone
+    from spartagen.audio.harmonic import harmonic_filter
+    sr = 44100
+    voice = harmonic_tone(220.0, 0.5, sr)
+    t = np.arange(voice.shape[0]) / sr
+    band = (0.08 * np.sin(2 * np.pi * 311.1 * t) + 0.08 * np.sin(2 * np.pi * 392.0 * t)).astype(np.float32)
+    y, voiced = harmonic_filter(voice + band, sr, f0_hint=220.0)
+
+    def level(sig, f):
+        S = np.abs(np.fft.rfft(sig * np.hanning(sig.shape[0])))
+        fr = np.fft.rfftfreq(sig.shape[0], 1.0 / sr)
+        k = int(np.argmin(np.abs(fr - f)))
+        return 20 * np.log10(S[k - 3:k + 4].max() + 1e-9)
+
+    mix = voice + band
+    assert level(mix, 220.0) - level(y, 220.0) < 6.0          # the voice stays
+    assert level(mix, 311.1) - level(y, 311.1) > 20.0         # the band goes
+    assert level(mix, 392.0) - level(y, 392.0) > 20.0
+    assert voiced > 0.8
+    assert np.corrcoef(y[2000:-2000], voice[2000:-2000])[0, 1] > 0.97

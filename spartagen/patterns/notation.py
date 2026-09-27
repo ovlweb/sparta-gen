@@ -7,6 +7,7 @@ Key symbols (Sparta Remix Wiki, "Pitch Patterns"):
     0    16th note          _   16th rest                     '   32nd note
     "    64th note          /   32nd rest                     \\   64th rest
     |    semi-progression (split) in progressions
+    B    (index patterns) slots 1 and 2 at the same time
 
 A bare number is a 16th note.  Longer asterisk runs used on the wiki are read
 as ***** = dotted quarter (6) and ****** = half note (8); both are needed to
@@ -152,6 +153,21 @@ def _parse_line(line: str, mode: str, voice: int, warnings: list[str]) -> tuple[
             t += 1.0
             i += 1
             continue
+        if c == "B" and mode == "index":  # "B" = slots 1 and 2 together (Madness freestyles)
+            m = i + 1
+            stars = 0
+            while m < n and line[m] == "*":
+                stars += 1
+                m += 1
+            dur = ASTERISKS.get(stars, 16.0) if stars else 1.0
+            if not stars and m < n and line[m] == "'":
+                dur, m = 0.5, m + 1
+            for value in (1, 2):
+                notes.append(PNote(t, dur, value, voice))
+            last = notes[-1]
+            t += dur
+            i = m
+            continue
         if c in "+-" or c.isdigit():
             sign = 1
             j = i
@@ -180,6 +196,9 @@ def _parse_line(line: str, mode: str, voice: int, warnings: list[str]) -> tuple[
                 m += 1
             if stars:
                 dur = ASTERISKS.get(stars, 16.0)
+            elif m + 1 < n and line[m] == "'" and line[m + 1] == "'":  # '' typed for "
+                dur = 0.25
+                m += 2
             elif m < n and line[m] == "'":
                 dur = 0.5
                 m += 1

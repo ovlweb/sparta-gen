@@ -95,6 +95,7 @@
         <label>Pitching <select id="opt-pitching"><option value="classic">classic (sampler)</option><option value="normal">normal</option><option value="hard">hard (layers)</option></select></label>
         <label>FX polish <select id="opt-polish"><option value="light">light</option><option value="normal">normal</option><option value="hard">hard (OTT, pump)</option></select></label>
         <label class="check"><input type="checkbox" id="opt-minor"> minor patterns</label>
+        <label class="check" title="Normally the Chorus plays the main phrase as it is. Tick to tune it to the chords instead (with octave/arp layers)."><input type="checkbox" id="opt-chorus-pitch"> pitched chorus</label>
       </div>
       <div class="row gap"><button class="primary" id="btn-apply-variant">Rebuild arrangement</button>
         <span class="hint">Rebuilding resets section edits.</span></div>
@@ -129,13 +130,14 @@
     </div>
     <div class="card">
       <h2>Sparta base (optional)</h2>
-      <p class="hint">Remixes normally sit on a Sparta base. Drop one here to put the source samples on top of it
-        (our own drums/bass/pads are muted in “replace” mode).</p>
+      <p class="hint">Remixes normally sit on a Sparta base. Drop one here: its tempo, bar 1, chords and sections
+        (Intro, Chorus, DunDunDenDen, Awesomeness, Madness, Epicness …) are detected and the remix follows them
+        (“Follow my base”). In “remix” mode the source percussion stays on top of the base; “replace” mutes it.</p>
       <div class="row gap">
         <input type="file" id="base-file" accept="audio/*,video/*">
         <label>Bar 1 starts at <input type="number" id="base-offset" step="0.01" value="0" style="width:6em"> s</label>
         <label>Gain <input type="number" id="base-gain" step="0.5" value="-3" style="width:5em"> dB</label>
-        <select id="base-mode"><option value="replace">replace backing</option><option value="layer">layer</option></select>
+        <select id="base-mode"><option value="remix">remix (keep source percussion)</option><option value="replace">replace backing</option><option value="layer">layer</option></select>
         <button class="ghost" id="btn-base-clear">Remove base</button>
       </div>
       <div id="base-info" class="muted"></div>

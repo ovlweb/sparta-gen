@@ -1,4 +1,4 @@
-"""Command line: `spartagen gui`, `spartagen make`, `spartagen analyze`, `spartagen pack`, `spartagen patterns`."""
+"""Command line: `spartagen gui`, `make`, `analyze`, `base`, `pack`, `patterns`, `variants`."""
 
 from __future__ import annotations
 
@@ -65,20 +65,27 @@ def cmd_make(a: argparse.Namespace) -> int:
     opts = {k: v for k, v in {
         "bpm": a.bpm, "key": a.key, "progression": a.progression, "pitching": a.pitching, "polish": a.polish,
         "minor": True if a.minor else None, "title": a.title, "chorus_pattern": a.chorus_pattern,
-        "intro_pattern": a.intro_pattern,
+        "intro_pattern": a.intro_pattern, "chorus_pitch": True if a.chorus_pitch else None,
     }.items() if v is not None}
     s.project.samples["key"] = a.key
     if a.pitch_octave:
         s.project.samples["pitch_octave"] = a.pitch_octave
-    s.set_variant(a.variant, opts)
+    variant = a.variant or ("base" if a.base else "unextended")
     if a.base:
-        s.project.mix.update({"base_path": os.path.abspath(a.base), "base_offset": a.base_offset,
-                              "base_mode": a.base_mode})
+        s.project.options = dict(opts)
+        bm = s.set_base(a.base, _progress_printer(a.quiet), fit=variant == "base")
+        if not a.quiet:
+            from .audio.base import BaseMap, describe
+            print("base: " + describe(BaseMap.from_dict(bm)).replace("\n", "\n      "))
+        if a.base_offset is not None:
+            s.project.mix["base_offset"] = a.base_offset
+        s.project.mix["base_mode"] = a.base_mode or ("remix" if variant == "base" else "replace")
+    s.set_variant(variant, opts)
     out = a.output
     quality = "audio" if a.audio_only else a.quality
     if out is None:
         ext = ".wav" if quality == "audio" else ".mp4"
-        out = os.path.join(os.getcwd(), f"{s.project.name[:40]} - {a.variant}{ext}".replace("/", "_"))
+        out = os.path.join(os.getcwd(), f"{s.project.name[:40]} - {variant}{ext}".replace("/", "_"))
     res = s.render(quality, _progress_printer(a.quiet), out_path=out, stems=a.stems)
     if a.pack:
         s.export_pack(a.pack, progress=_progress_printer(a.quiet))
@@ -87,6 +94,17 @@ def cmd_make(a: argparse.Namespace) -> int:
         s.project.save(a.project)
     print(f"\n{res['title']}\n  file: {res['file']}\n  length: {res['duration']:.1f}s   loudness: {res['lufs']} LUFS"
           f"   peak: {res['peak_db']} dBFS   notes: {res['events']}")
+    return 0
+
+
+def cmd_base(a: argparse.Namespace) -> int:
+    from .audio.base import analyze_base_file, describe
+    m = analyze_base_file(a.base, _progress_printer(a.quiet), bpm_hint=a.bpm)
+    print(describe(m))
+    if a.json:
+        with open(a.json, "w", encoding="utf-8") as fh:
+            json.dump(m.to_dict(), fh, indent=1)
+        print(f"base map written to {a.json}")
     return 0
 
 
@@ -151,8 +169,9 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("make", help="build a remix from a video file or URL")
     m.add_argument("source", help="video/audio file or URL")
     m.add_argument("-o", "--output")
-    m.add_argument("--variant", default="unextended",
-                   choices=["unextended", "semi_extended", "extended", "hyper", "minor", "classic"])
+    m.add_argument("--variant", default=None,
+                   choices=["unextended", "semi_extended", "extended", "hyper", "minor", "classic", "base"],
+                   help="structure; with --base the default is 'base' (follow the base's own sections)")
     m.add_argument("--quality", default="720p", choices=["preview", "720p", "1080p"])
     m.add_argument("--audio-only", action="store_true")
     m.add_argument("--bpm", type=float)
@@ -163,11 +182,17 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--polish", choices=["light", "normal", "hard"])
     m.add_argument("--minor", action="store_true")
     m.add_argument("--chorus-pattern", help="library id for the chorus (see `spartagen patterns`)")
+    m.add_argument("--chorus-pitch", action="store_true",
+                   help="tune the chorus (the main phrase) to the chords instead of playing it as is")
     m.add_argument("--intro-pattern", help="library id for the intro hits")
     m.add_argument("--title")
-    m.add_argument("--base", help="a Sparta base (backing track) to put under the remix")
-    m.add_argument("--base-offset", type=float, default=0.0, help="seconds into the base where bar 1 starts")
-    m.add_argument("--base-mode", default="replace", choices=["replace", "layer"])
+    m.add_argument("--base", help="a Sparta base (backing track): its tempo, bars, chords and sections are "
+                   "detected and the remix is built on them")
+    m.add_argument("--base-offset", type=float, default=None,
+                   help="seconds into the base where bar 1 starts (default: detected)")
+    m.add_argument("--base-mode", default=None, choices=["replace", "remix", "layer"],
+                   help="replace = mute our drums/bass/pads, remix = keep the source percussion (default with a "
+                        "fitted base), layer = keep everything")
     m.add_argument("--stems", action="store_true", help="also write the stems")
     m.add_argument("--pack", help="also export the sample pack to this folder")
     m.add_argument("--project", help="save the project JSON here")
@@ -182,6 +207,13 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("--workspace")
     an.add_argument("-q", "--quiet", action="store_true")
     an.set_defaults(fn=cmd_analyze)
+
+    bs = sub.add_parser("base", help="map a Sparta base: tempo, bar 1, key, chord progression and sections")
+    bs.add_argument("base")
+    bs.add_argument("--bpm", type=float, help="tempo hint")
+    bs.add_argument("--json", help="write the base map here")
+    bs.add_argument("-q", "--quiet", action="store_true")
+    bs.set_defaults(fn=cmd_base)
 
     pk = sub.add_parser("pack", help="export the sample pack (tuned pitches, percussion, quotes; wav + mp4)")
     pk.add_argument("source")

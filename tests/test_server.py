@@ -80,3 +80,17 @@ def test_media_path_traversal_is_blocked(base_url):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(base_url + "/file?path=/etc/passwd")
     assert e.value.code == 403
+
+
+def test_base_upload_maps_and_fits(base_url, tmp_path):
+    from tests.test_base import make_base, SR
+    from spartagen.audio import dsp
+    wav = tmp_path / "base.wav"
+    dsp.write_wav(str(wav), make_base(), SR)
+    r = call(base_url, "/api/base/upload", raw=wav.read_bytes(), headers={"X-Filename": "toy%20base.wav"})
+    assert r["base"] and abs(r["base"]["bpm"] - 140) < 0.05 and r["variant"] == "base"
+    assert r["mix"]["base_mode"] == "remix" and abs(r["mix"]["base_offset"] - 0.25) < 0.02
+    arr = call(base_url, "/api/arrangement")
+    assert arr["variant"] == "base" and arr["total_bars"] == r["base"]["bars"]
+    r = call(base_url, "/api/mix", {"clear_base": True})
+    assert r["base"] is None and "base_path" not in r["mix"] and r["variant"] != "base"

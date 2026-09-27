@@ -124,7 +124,7 @@ audio { width: 100%; margin: 8px 0; }
 .k-intro, .k-intro_hits { background: #4b3b6b; } .k-chorus { background: #a0132b; }
 .k-dundundenden { background: #b8621b; } .k-epicness { background: #c79a13; color: #111 !important; }
 .k-awesomeness { background: #2c7a4b; } .k-madness { background: #1d4f8a; } .k-execution { background: #6b1d8a; }
-.k-ending { background: #444; }
+.k-ending { background: #444; } .k-chords { background: #1f6f6f; }
 .section { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; background: var(--panel2); }
 .section > header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-wrap: wrap; }
 .section > header .swatch { width: 12px; height: 12px; border-radius: 3px; }

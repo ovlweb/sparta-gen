@@ -27,11 +27,12 @@ POLISH_TARGET_LUFS = {"light": -12.0, "normal": -10.0, "hard": -8.5}
 # Gain staging: the source pitches lead (they ARE the remix), drums punch just
 # under them, the bass supports.  Measured on chorus sections after the stem chains.
 STEM_LEVEL_DB = {
-    "pitch": 5.5, "pitch_layers": 7.0, "pitch_soft": 3.0, "pad": -1.0, "bass": -4.0, "drums": -3.5,
-    "chop": 4.0, "quotes": 2.0, "misc": 0.0,
+    "pitch": 5.5, "chorus": 3.5, "pitch_layers": 7.0, "pitch_soft": 3.0, "pad": -1.0, "bass": -4.0,
+    "drums": -3.5, "chop": 4.0, "quotes": 2.0, "misc": 0.0,
 }
 
 BACKING_STEMS = {"drums", "bass", "pad"}
+REMIX_DRUMS_DB = -4.0     # source percussion on top of a base's own drums
 
 
 @dataclass
@@ -43,7 +44,7 @@ class MixConfig:
     base_path: Optional[str] = None   # a Sparta base (backing track) to put under the remix
     base_offset: float = 0.0          # seconds into the base where bar 1 starts
     base_gain_db: float = -3.0
-    base_mode: str = "replace"        # replace (mute our drums/bass/pad) | layer
+    base_mode: str = "replace"        # replace (mute our drums/bass/pad) | remix (keep the source percussion) | layer
     stem_gains: dict = field(default_factory=dict)
     mute: list = field(default_factory=list)
     tail_s: float = 2.5
@@ -55,6 +56,19 @@ class MixConfig:
             if hasattr(c, k):
                 setattr(c, k, v)
         return c
+
+
+def muted_stems(cfg: MixConfig) -> set:
+    """Stems left out of the mix (and so out of the picture): the user's mutes, plus what a base
+    replaces — on a base the remix keeps its source-made percussion ("remix") or not ("replace"),
+    and leaves bass and chords to the base."""
+    muted = set(cfg.mute)
+    if cfg.base_path and os.path.isfile(cfg.base_path):
+        if cfg.base_mode == "replace":
+            muted |= BACKING_STEMS
+        elif cfg.base_mode == "remix":
+            muted |= {"bass", "pad"}
+    return muted
 
 
 # ── voices ───────────────────────────────────────────────────────────────────
@@ -199,6 +213,14 @@ def stem_chain(stem: str, polish: str, sr: int) -> list[dict]:
             chain.append({"fx": "transient", "attack_db": 3.0, "sustain_db": -1.0})
             chain.append({"fx": "saturate", "drive_db": 3.0 if hard else 1.5, "mode": "soft", "mix_amount": 0.5})
         return chain
+    if stem == "chorus":          # the main phrase: a voice, kept natural, pushed forward
+        chain = [{"fx": "highpass", "freq": 90.0},
+                 {"fx": "eq", "bands": [{"type": "peak", "freq": 3200.0, "q": 0.9, "gain": 2.0}]},
+                 {"fx": "compressor", "threshold_db": -20.0, "ratio": 3.5, "attack_ms": 2.0, "release_ms": 70.0,
+                  "makeup_db": 4.0}]
+        if not light:
+            chain.append({"fx": "saturate", "drive_db": 2.5 if hard else 1.5, "mode": "tanh", "mix_amount": 0.4})
+        return chain
     if stem == "chop":
         return [{"fx": "highpass", "freq": 90.0},
                 {"fx": "compressor", "threshold_db": -20.0, "ratio": 4.0, "attack_ms": 2.0, "release_ms": 70.0,
@@ -212,11 +234,12 @@ def stem_chain(stem: str, polish: str, sr: int) -> list[dict]:
 
 
 STEM_SENDS = {  # reverb / delay send amounts per stem
-    "pitch": (0.10, 0.06), "pitch_layers": (0.18, 0.1), "pad": (0.35, 0.0), "chop": (0.12, 0.08),
+    "pitch": (0.10, 0.06), "chorus": (0.07, 0.04), "pitch_layers": (0.18, 0.1), "pad": (0.35, 0.0),
+    "chop": (0.12, 0.08),
     "quotes": (0.08, 0.05), "pitch_soft": (0.25, 0.1), "drums": (0.04, 0.0), "bass": (0.0, 0.0),
 }
 
-SIDECHAINED = {"pitch": 0.6, "pitch_layers": 1.0, "pad": 1.0, "bass": 0.8, "pitch_soft": 0.7}
+SIDECHAINED = {"pitch": 0.6, "chorus": 0.35, "pitch_layers": 1.0, "pad": 1.0, "bass": 0.8, "pitch_soft": 0.7}
 
 
 def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg: Optional[MixConfig] = None,
@@ -229,8 +252,10 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
     stems: dict[str, np.ndarray] = {}
     use_base = bool(cfg.base_path) and os.path.isfile(cfg.base_path or "")
     muted = set(cfg.mute)
-    if use_base and cfg.base_mode == "replace":
-        muted |= BACKING_STEMS
+    stem_gains = dict(cfg.stem_gains)
+    muted |= muted_stems(cfg) - set(cfg.mute)
+    if use_base and cfg.base_mode == "remix":
+        stem_gains.setdefault("drums", REMIX_DRUMS_DB)
     kick_times: list[float] = []
 
     def say(p: float, m: str) -> None:
@@ -309,7 +334,7 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
         if sidechain is not None and name in SIDECHAINED:
             amt = SIDECHAINED[name]
             y = fx.apply_env(y, 1.0 - amt * (1.0 - sidechain))
-        lvl = STEM_LEVEL_DB.get(name, 0.0) + float(cfg.stem_gains.get(name, 0.0))
+        lvl = STEM_LEVEL_DB.get(name, 0.0) + float(stem_gains.get(name, 0.0))
         y = y * dsp.db_to_gain(lvl)
         stems[name] = y
         rv, dl = STEM_SENDS.get(name, (0.0, 0.0))

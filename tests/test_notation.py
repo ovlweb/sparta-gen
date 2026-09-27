@@ -69,3 +69,14 @@ def test_progression_split_and_retarget():
 def test_warnings_for_unknown_symbols():
     p = parse("0* x 1*", "semitone")
     assert p.warnings and len(p.notes) == 2
+
+
+def test_b_plays_slots_one_and_two_together():
+    p = parse("1*B*_B", "index")
+    assert [(n.start, n.value) for n in p.notes] == [(0.0, 1), (2.0, 1), (2.0, 2), (5.0, 1), (5.0, 2)]
+    assert p.length == 6.0
+
+
+def test_double_apostrophe_is_a_64th():
+    p = parse("1''1''2'", "index")
+    assert [n.dur for n in p.notes] == [0.25, 0.25, 0.5]

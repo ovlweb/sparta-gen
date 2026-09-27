@@ -6,12 +6,21 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
    *kick, snare/clap, hi-hats and crash*, and speech becomes *quotes*, *Madness words* and *DunDunDenDen syllables*.
 2. **Fixes every pitch sample into a D note** (the key of the classic bases) with TD-PSOLA hard-tuning — the
    "Melodyne pitch drift 100 %" treatment — and derives the **bass** (D2), **main**, **second** and **third** pitches.
+   The **Chorus plays two layers on the same pattern**: the **main phrase** — cut into two parts at the gap between
+   its syllables (on a zero crossing) and played as it is, `1` the first part, `2` the second ("the chorus always
+   contains the main phrase", Sparta Remix Wiki) — and the **pitch** under it, playing a Chorus pitch pattern on the
+   chords: the tutorial's basic one first (`D***D***D#***D#***C***C***D#***D#***`), then `0*, 12*`, the root/octave
+   pattern "commonly used in the chorus section". The DunDunDenDen chops the same phrase.
+   Pitch samples cut from songs are **isolated first** (only the held note's harmonics are kept, the band under it
+   is pushed down ~30 dB) so they still sound like clean notes once tuned.
 3. **Sequences the patterns from the Sparta Remix Wiki** (standard Chorus `11_11_111_1_1_11222_2_222_222_2_…`,
-   DunDunDenDen, Madness call & response, Epicness, Awesomeness 1/2, Execution, chords, 43 freestyles…) over the
-   classic D → E♭ → C → E♭ progression.
-4. **Polishes the mix with an Xleth-style FX rack** (3-band OTT, ChorusCrisp "Jario" pluck, compressor, limiter,
+   DunDunDenDen, Madness call & response, the Epicness and its 13 edits, Awesomeness 1/2 and 30 custom ones,
+   Execution, chords, percussion and hi-hat patterns, 43 freestyles…) over the classic D → E♭ → C → E♭ progression.
+4. **Reads your Sparta base** — tempo, bar 1, key, chord progression and its sections (Intro, Chorus,
+   DunDunDenDen, Awesomeness 1, Madness, Epicness, Awesomeness 2, Ending) — and builds the remix on it, bar for bar.
+5. **Polishes the mix with an Xleth-style FX rack** (3-band OTT, ChorusCrisp "Jario" pluck, compressor, limiter,
    saturation, reverb, delay, chorus, flanger, phaser, transient shaper, sidechain pump, filter sweeps, tape stop).
-5. **Renders the video**: every note shows its own clip, in sync — fullscreen hits, Madness split screen, 3×3/4×4
+6. **Renders the video**: every note shows its own clip, in sync — fullscreen hits, Madness split screen, 3×3/4×4
    grids, flips on every hit, flashes, kick zoom-punch and the spinning *OMG TEH EPICNESS* text.
 
 Everything happens in one app with a **preview before you save**, on **Windows, macOS, Linux and Android**.
@@ -68,7 +77,8 @@ there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termu
 spartagen make  video.mp4 --variant semi_extended --quality 720p -o remix.mp4
 spartagen make  "https://www.youtube.com/watch?v=…" --variant extended --pack pack/   # also export the sample pack
 spartagen make  video.mp4 --audio-only -o remix.wav --polish hard --progression "0 1 3 1 | -2"
-spartagen make  video.mp4 --base my_sparta_base.mp3 --base-offset 0.42               # remix on top of a real base
+spartagen make  video.mp4 --base my_sparta_base.mp3     # map the base and build the remix on its sections
+spartagen base  my_sparta_base.mp3                      # just show the base map (tempo, bar 1, chords, sections)
 spartagen analyze video.mp4              # what would be cut into samples (pitches with their notes, hits, quotes)
 spartagen pack    video.mp4 -o pack/     # tuned samples as WAV + their video clips as MP4
 spartagen patterns --section chorus      # the pattern library
@@ -77,7 +87,7 @@ spartagen variants
 ```
 
 Useful options: `--bpm`, `--key D`, `--pitch-octave 4`, `--pitching classic|normal|hard`,
-`--polish light|normal|hard`, `--minor`, `--chorus-pattern chorus.0_12`, `--intro-pattern intro.nos`,
+`--polish light|normal|hard`, `--minor`, `--chorus-pattern chorus.0_12`, `--chorus-pitch`, `--intro-pattern intro.nos`,
 `--stems`, `--project project.json`.
 
 ## Base variants
@@ -86,21 +96,32 @@ Useful options: `--bpm`, `--key D`, `--pitch-octave 4`, `--pitching classic|norm
 |---|---|---|---|
 | **Unextended** | 140 | 43 bars ≈ 1:14 | Intro · intro hits · Chorus · DunDunDenDen · Chorus · Madness · final Chorus · Ending |
 | **Semi-Extended** | 140 | 55 bars ≈ 1:34 | + Epicness and Awesomeness 1 — **hard pitching** (octave, chord and arp layers) and **hard FX polishing** (heavy OTT, sidechain pump) |
-| **Extended** | 140 | 75 bars ≈ 2:09 | 8-bar DunDunDenDen, Epicness after the 2nd Chorus and after the Madness, Awesomeness 1 before the Madness, Awesomeness 2 opening the final Chorus |
+| **Extended** | 140 | 74 bars ≈ 2:07 | The 2:08 extended base's layout: 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending |
+| **Follow my base** | the base's | the base's | Appears once a base is loaded: every section of the base gets its part (see [Using a real Sparta base](#using-a-real-sparta-base)) |
 | **Hyper** | 160 | 55 bars ≈ 1:23 | Semi-extended with the Hyper/Vertex execution pattern, hard pitching and FX |
 | **Minor** | 140 | 67 bars ≈ 1:55 | Extended with the wiki's minor variants (Metro/Minor intro, minor chords, `0*, 3*` arps, minor Awesomeness) |
 | **Classic (2010)** | 140 | 43 bars ≈ 1:14 | Unextended with sampler ("chipmunk") pitching, no OTT, light polish |
 
 Sections and what plays in them:
 
-- **Chorus** — the standard 8-bar Chorus (3 lines: main line ×2, swapped line, 32nd-note ending); `1` = main pitch,
-  `2` = second pitch, each hit on the root of the current chord; ChorusCrisp pluck; offbeat bass; four-on-the-floor
-  source kick, clap paralleled with the kick, hats; crash; fill in the last bar. Grid 3×3 visuals.
+- **Chorus** — the main phrase on the standard 8-bar Chorus pattern (3 lines: main line ×2, swapped line, 32nd-note
+  ending; `1` = first part, `2` = second part, as they are — tick *pitched chorus* / `--chorus-pitch` to tune it to
+  the chords too) over the main pitch playing a Chorus pitch pattern: *Original* (quarter notes on the roots) in
+  the first Chorus, `0*, 12*` in the others (pick any other with the pattern list); with hard pitching and in the
+  final Chorus the second pitch adds fifths (`0*, 7*`) and the main pitch doubles an octave up; ChorusCrisp pluck; offbeat bass; four-on-the-floor
+  source kick, clap paralleled with the kick, hats; crash; fill in the last bar. The main phrase big in the
+  middle, pitches along the top, drums along the bottom.
 - **DunDunDenDen** — `0*__0*__1*__1*__-2*__-2*__1*__1*__`: loud quarter notes with silence in between, each hit a
   syllable of the **main phrase** pitched to the note, all drums hitting with it. Fullscreen, black between hits.
-- **Madness** — the call & response (`1` = first person's word, `2` = second person repeating it, with the 32nd rolls)
-  over the softer, low-passed Madness pitch patterns (First Pattern, then Trance Gate). Split screen.
-- **Epicness** — the "OMG Teh Epicness!" pattern with chords and arps. 4×4 grid with the spinning title.
+- **Madness** — the call & response (the Madness article's *Original Pattern*: `1` = first person's word, `2` = the
+  second person answering, both together in the last bar) over the softer, low-passed Madness pitch patterns: the
+  *First Pattern* from the first half to the end, the *Trance Gate* pattern joining from the second half.
+  Split screen.
+- **Epicness** — after the Chorus that follows the DunDunDenDen and after the Chorus that follows the Madness.
+  The "OMG Teh Epicness!" pattern: its `1*` lead-in lands two 16ths before the section, the four bars
+  end on a roll of 16ths and the second line layers slot 3; long Epicness parts alternate the ORIGINAL with an edit
+  (CatmanTeam, TheInfySpartan, majugarzett… all 14 are in the library). 4×4 grid with the spinning title.
+- **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
 - **Awesomeness 1 / 2**, **Execution**, **Intro** (quotes, then the 3-hit intro pattern), **Ending** (final hit,
   main phrase, tape stop).
 
@@ -127,8 +148,13 @@ Three styles are recognised automatically (you can also force one):
 Picking a **Progression Twist** re-targets every semitone pattern written for `0 1 -2 1` (e.g. under `0 1 2 1` a
 note on C moves to E). Multi-line patterns (Chords) play their lines together.
 
-The library holds **139 patterns** from the wiki (7 progressions, 6 intros, 27 chorus patterns, 13 chord sets,
-14 DunDunDenDens, 15 Execution patterns, 5 Awesomeness, 7 Madness + the call & response, Epicness, 43 freestyles).
+Index patterns may use `B` (slots 1 and 2 together, from the Madness freestyles).
+Percussion patterns are index patterns too: `1` kick, `2` clap/snare (with the kick paralleled, as the Percussion
+article describes), `3` hi-hat.
+
+The library holds **210 patterns** from the wiki (7 progressions, 6 intros, 27 chorus patterns, 13 chord sets,
+14 DunDunDenDens, 15 Execution patterns, 34 Awesomeness (originals + customs), 9 Madness pitch patterns and 6 call &
+response patterns, 14 Epicness patterns, 17 percussion and 5 hi-hat patterns, 43 freestyles).
 Where a wiki transcription did not add up to whole bars, the obvious typo is fixed and documented in the source
 (`spartagen/patterns/library.py`, field `fix`).
 
@@ -143,6 +169,16 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
     *hats* = sibilants ("s", "ts") and cymbal hiss; *crash* = longer loud noisy stretches.
   - *Quotes* are phrases between pauses; *words* are split at energy valleys; the best quote is the
     **main phrase**, chopped into syllables for the DunDunDenDen.
+  - The **main phrase** (the Chorus clip) is the best clear word or short phrase of the voice — held notes beat
+    glides, which keeps a sliding instrument from winning over the singer — cut in two at the deepest energy valley
+    between 35 % and 65 % of it (else at the biggest change of sound, else the middle), snapped to a zero crossing.
+    The parts keep their own sound; a tuned copy is only used with *pitched chorus*. The DunDunDenDen syllables and
+    the ending use the same phrase; the Madness words come from the same voice ranking.
+- **Isolation** (`spartagen/audio/harmonic.py`): a held note cut from a song carries the band under it. A
+  time-varying harmonic mask on the short-time spectrum keeps the bins around every harmonic of the tracked note
+  (the detected pitch stands in where the band hides it from the tracker) and pushes everything between them
+  ~30 dB down — the source's own audio, filtered, like Melodyne's note separation. Pitch candidates are ranked by
+  how clearly they read as a note once isolated and tuned, and longer held notes win.
 - **Tuning to D** (`spartagen/audio/psola.py`): pitch marks every period, TD-PSOLA re-synthesis with every period at
   the target note (formants kept). Transpositions reuse the synthesis marks; long notes are sustained by PSOLA
   stretching or ping-pong looping of the steady part.
@@ -168,9 +204,35 @@ Masters land around −12 / −10 / −8.5 LUFS for light / normal / hard polish
 
 ## Using a real Sparta base
 
-Remixes normally sit on a Sparta base. In the *Remix* tab (or `--base`), add a base and set where bar 1 starts.
-In *replace* mode the app mutes its own source-made drums, bass and pads and lays the pitches, chops, quotes and
-Madness words on top of the base; *layer* keeps everything.
+Remixes normally sit on a Sparta base. Add one in the *Remix* tab (or `--base`) and it is mapped
+(`spartagen/audio/base.py`):
+
+- **tempo and bar 1** from the base's own drums on a 16th grid (e.g. `140 BPM, bar 1 at 0.139 s`);
+- **key and progression** from the chords of every half bar (triads above the bass — a base's kick is often tuned
+  and would fool a bass reading), e.g. `key D, progression 0 1 -2 1`;
+- **sections**: the Chorus is the loud texture that keeps coming back; the Madness is the soft breakdown; the
+  rest follow from their places as the wiki describes the structure — the DunDunDenDen after the first Chorus, an
+  Epicness after the Chorus that follows it and after the Chorus that follows the Madness, Awesomeness 1 as the
+  last pattern before the Madness, Awesomeness 2 opening the final Chorus;
+- the **intro hits** (where and on which note) and the **last chord**.
+
+`spartagen base my_base.mp3` prints the map, e.g. for the 2:08 extended base:
+
+```
+140 BPM, bar 1 at 0.139s, 74 bars, key D, progression 0 1 -2 1
+  bars   1-  2  intro          bars  25- 32  chorus
+  bars   3-  6  chorus         bars  33- 40  madness
+  bars   7- 12  dundundenden   bars  41- 48  chorus
+  bars  13- 16  chorus         bars  49- 60  epicness
+  bars  17- 20  epicness       bars  61- 64  awesomeness2
+  bars  21- 24  awesomeness1   bars  65- 72  chorus
+  intro hits: step 0 (-2), step 8 (-2), step 16 (-2)      ending on +1   (bars 73-74)
+```
+
+The **Follow my base** structure then gives every base section its part, lined up with bar 1. Mix modes:
+*remix* (default) keeps the source-made percussion (the wiki's percussion patterns) on top of the base and leaves
+bass and chords to it; *replace* also mutes the source percussion; *layer* keeps everything. The video only shows
+what is heard. Labels are a best guess from the signal — every section stays editable in the arrangement.
 
 ## Sample pack export
 
@@ -182,11 +244,11 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 130 tests: notation, DSP, pitch accuracy, full pipeline, HTTP API
+pytest                 # 179 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 
-Layout: `spartagen/ffmpeg.py` (media I/O) · `audio/` (dsp, pitch, psola, analysis, fx) · `samples.py` ·
+Layout: `spartagen/ffmpeg.py` (media I/O) · `audio/` (dsp, pitch, psola, harmonic, analysis, base, fx) · `samples.py` ·
 `patterns/` (notation parser, wiki library) · `arrangement.py` (variants, sections, note compiler) ·
 `render_audio.py` · `render_video.py` · `project.py` (pipeline) · `cli.py` · `gui/` (server + static UI).
 CI (`.github/workflows/build.yml`) runs the tests with and without scipy on every push and builds the desktop apps
@@ -206,9 +268,9 @@ for tags (`v*`) or on manual dispatch.
 
 - Detection is signal-based: on busy sources (music under dialogue) the automatic picks can be imperfect — swap
   candidates or type a time range in the *Samples* tab.
-- The *Epicness* pattern shipped is a partial transcription; paste the wiki's *Pitch Patterns/Epicness Patterns*
-  into the Pattern lab to use the full ones. Where the wiki places the *Execution* section varies by base — it is
-  available as a section to add (the Hyper variant uses it).
+- Base section labels are heuristics tuned on the classic D bases; unusual bases may need a section renamed in the
+  arrangement. Where the wiki places the *Execution* section varies by base — it is available as a section to add
+  (the Hyper variant uses it).
 - Some Chromium builds without proprietary codecs cannot play H.264 in the page; the app then offers the preview
   as a download (normal Chrome, Edge, Firefox, Safari and Android browsers play it).
 - Android runs through Termux (no store APK yet).

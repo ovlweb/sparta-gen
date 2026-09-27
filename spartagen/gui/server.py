@@ -120,6 +120,7 @@ class App:
             "name": p.name, "workspace": p.workspace, "variant": p.variant, "options": p.options,
             "samples_config": p.samples, "mix": p.mix, "video": p.video,
             "source": None, "analyzed": p.analysis is not None, "outputs": {},
+            "base": ({k: v for k, v in p.base.items() if k not in ("roots", "bar_db")} if p.base else None),
         }
         if p.source_path:
             d["source"] = dict(p.source_info, url=self.media_url(p.source_path), name=os.path.basename(p.source_path))
@@ -456,14 +457,19 @@ class Handler(BaseHTTPRequestHandler):
                 if k in body:
                     s.project.mix[k] = body[k]
             if body.get("clear_base"):
-                s.project.mix.pop("base_path", None)
+                s.clear_base()
             for k in ("width", "height", "fps", "crf", "flash", "zoom_punch", "hold_last", "titles", "background"):
                 if k in body.get("video", {}):
                     s.project.video[k] = body["video"][k]
             return self._json(app.project_view())
         if path == "/api/base/upload" and method == "POST":
             dest = self._receive_upload(s.path("base"))
-            s.project.mix["base_path"] = dest
+            try:
+                s.set_base(dest, fit=True)       # map tempo, bars, chords, sections; follow them
+            except Exception as exc:              # still usable as a plain backing track
+                s.project.mix["base_path"] = dest
+                s.project.base = None
+                return self._json(dict(app.project_view(), base_error=str(exc)))
             return self._json(app.project_view())
 
         # ── render & export ──

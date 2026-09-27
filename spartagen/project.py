@@ -15,10 +15,10 @@ import numpy as np
 
 from . import SAMPLE_RATE, __version__
 from . import ffmpeg as ff
-from .arrangement import Arrangement, build_arrangement, compile_events, VARIANTS
+from .arrangement import Arrangement, build_arrangement, build_from_base, compile_events, VARIANTS
 from .audio import dsp
 from .audio.analysis import Analysis, analyze
-from .render_audio import MixConfig, render_mix
+from .render_audio import MixConfig, muted_stems, render_mix
 from .render_video import VideoConfig, render_video
 from .samples import SampleBank, SampleConfig, build_bank
 
@@ -47,6 +47,7 @@ class Project:
     arrangement: Optional[dict] = None       # full Arrangement.to_dict() once built/edited
     options: dict = field(default_factory=dict)  # bpm, key, progression, pitching, polish, minor …
     mix: dict = field(default_factory=dict)
+    base: Optional[dict] = None              # BaseMap of the Sparta base (tempo, bars, sections …)
     video: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
     version: str = __version__
@@ -192,17 +193,53 @@ class Session:
             dsp.write_wav(out, dsp.apply_fades(seg, SAMPLE_RATE, 3, 6), SAMPLE_RATE)
         return out
 
+    # ── base ──
+    def set_base(self, path: str, progress: Progress = None, fit: bool = True) -> dict:
+        """Load a Sparta base: map its tempo, bars, chords and sections, line bar 1 up with the remix
+        and (``fit``) build the remix on the base's own structure."""
+        from .audio.base import analyze_base_file
+        path = os.path.abspath(path)
+        bm = analyze_base_file(path, progress)
+        with self.lock:
+            self.project.base = bm.to_dict()
+            self.project.mix.update({"base_path": path, "base_offset": bm.offset,
+                                     "base_mode": self.project.mix.get("base_mode") or "remix"})
+            if self.project.mix.get("base_mode") == "replace" and fit:
+                self.project.mix["base_mode"] = "remix"
+            if fit:
+                self.project.variant = "base"
+                self.project.arrangement = None
+        return self.project.base
+
+    def clear_base(self) -> None:
+        with self.lock:
+            self.project.base = None
+            for k in ("base_path", "base_offset"):
+                self.project.mix.pop(k, None)
+            if self.project.variant == "base":
+                self.project.variant = "unextended"
+                self.project.arrangement = None
+
     # ── arrangement ──
     def arrangement(self) -> Arrangement:
         with self.lock:
             if self.project.arrangement:
                 return Arrangement.from_dict(self.project.arrangement)
             o = self.project.options
+            if self.project.variant == "base" and self.project.base:
+                arr = build_from_base(self.project.base, pitching=o.get("pitching") or "normal",
+                                      polish=o.get("polish") or "normal", minor=bool(o.get("minor")),
+                                      title=o.get("title") or None, chorus_pattern=o.get("chorus_pattern"),
+                                      progression=o.get("progression"),
+                                      chorus_pitch=bool(o.get("chorus_pitch")))
+                if not o.get("title"):
+                    arr.title = f"{self.project.name} has a Sparta Remix" if self.project.source_path else arr.title
+                return arr
             arr = build_arrangement(
                 self.project.variant, bpm=o.get("bpm"), key=o.get("key", "D"), progression=o.get("progression"),
                 pitching=o.get("pitching"), polish=o.get("polish"), minor=o.get("minor"),
                 intro_pattern=o.get("intro_pattern"), chorus_pattern=o.get("chorus_pattern"),
-                title=o.get("title") or None,
+                title=o.get("title") or None, chorus_pitch=bool(o.get("chorus_pitch")),
             )
             if o.get("title"):
                 arr.title = o["title"]
@@ -212,7 +249,9 @@ class Session:
             return arr
 
     def set_variant(self, variant: str, options: Optional[dict] = None) -> Arrangement:
-        if variant not in VARIANTS:
+        if variant == "base" and not self.project.base:
+            raise ValueError("load a Sparta base first to fit the remix to it")
+        if variant not in VARIANTS and variant != "base":
             raise ValueError(f"unknown variant {variant}")
         with self.lock:
             self.project.variant = variant
@@ -252,7 +291,9 @@ class Session:
         else:
             vcfg = VideoConfig.from_dict({"preset_name": quality, **self.project.video})
             video = out_path or self.path("renders", f"remix-{quality}-{stamp}.mp4")
-            render_video(video, self.project.source_path, arr, events, bank, wav, vcfg, sub(0.55, 1.0),
+            muted = muted_stems(mix_cfg)
+            shown = [e for e in events if e.stem not in muted]      # the picture shows what is heard
+            render_video(video, self.project.source_path, arr, shown, bank, wav, vcfg, sub(0.55, 1.0),
                          duration=info["duration"])
             result["file"] = video
             result["video"] = video

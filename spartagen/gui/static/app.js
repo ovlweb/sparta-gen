@@ -110,13 +110,16 @@ function renderProject() {
   const o = p.options || {};
   $("#opt-title").value = o.title || "";
   $("#opt-minor").checked = !!o.minor;
+  $("#opt-chorus-pitch").checked = !!o.chorus_pitch;
   const cfg = p.samples_config || {};
   $("#cfg-key").value = cfg.key || "D";
   $("#cfg-oct").value = cfg.pitch_octave || "";
   $("#cfg-flat").value = cfg.flatten ?? 1;
   $("#cfg-flat-v").textContent = (+(cfg.flatten ?? 1)).toFixed(2);
   const mix = p.mix || {};
-  $("#base-info").textContent = mix.base_path ? `Base: ${mix.base_path.split(/[\\/]/).pop()}` : "No base — the remix uses its own source-made drums and bass.";
+  $("#base-info").textContent = mix.base_path
+    ? `Base: ${mix.base_path.split(/[\\/]/).pop()}` + (p.base ? ` — ${baseSummary(p.base)}` : " (not mapped)")
+    : "No base — the remix uses its own source-made drums and bass.";
   $("#base-offset").value = mix.base_offset ?? 0;
   $("#base-gain").value = mix.base_gain_db ?? -3;
   $("#base-mode").value = mix.base_mode || "replace";
@@ -213,15 +216,18 @@ $("#btn-analyze").addEventListener("click", async () => {
 
 // ── 2 · samples ──────────────────────────────────────────────────────────────
 const GROUPS = [
+  ["Chorus — the main phrase cut in two (plays as is)", ["chorus_a", "chorus_b"]],
   ["Pitches (tuned)", ["pitch1", "pitch2", "pitch3", "bass"]],
   ["Percussion", ["kick", "snare", "clap", "hat_closed", "hat_open", "crash"]],
   ["Quotes & Madness words", ["quote1", "quote2", "quote3", "phrase", "word_a", "word_b"]],
   ["Main phrase syllables (DunDunDenDen chops)", null],
 ];
-const ROLE_KIND = { pitch1: "pitch", pitch2: "pitch", pitch3: "pitch", kick: "kick", snare: "snare", clap: "snare",
+const ROLE_KIND = { chorus_a: "word", chorus_b: "word", pitch1: "pitch", pitch2: "pitch", pitch3: "pitch", kick: "kick", snare: "snare", clap: "snare",
   hat_closed: "hat", hat_open: "hat", crash: "crash", quote1: "quote", quote2: "quote", quote3: "quote",
   phrase: "quote", word_a: "word", word_b: "word" };
-const ROLE_NAME = { pitch1: "Main pitch", pitch2: "Second pitch", pitch3: "Third pitch", bass: "Bass",
+// Both chorus parts come from one pick: the main phrase.
+const SELECT_KEY = { chorus_a: "chorus", chorus_b: "chorus" };
+const ROLE_NAME = { chorus_a: "Chorus 1 — part 1", chorus_b: "Chorus 2 — part 2", pitch1: "Main pitch", pitch2: "Second pitch", pitch3: "Third pitch", bass: "Bass",
   kick: "Kick", snare: "Snare", clap: "Clap", hat_closed: "Closed hat", hat_open: "Open hat", crash: "Crash",
   quote1: "Quote 1", quote2: "Quote 2", quote3: "Quote 3", phrase: "Main phrase", word_a: "Madness word 1",
   word_b: "Madness word 2" };
@@ -236,6 +242,7 @@ function sampleMeta(s) {
   if (s.role === "bass") return `${esc(s.root_note)} from ${esc(m.from)}`;
   if (s.role === "kick") return m.shift_semitones ? `pitched ${m.shift_semitones} st for body` : "source kick";
   if (s.role === "syllable" || s.role === "word") return m.tuned_to ? `tuned copy on ${esc(m.tuned_to)}` : "";
+  if (s.role === "chorus") return `main phrase, plays as is · cut at ${esc(m.split || "the middle")}`;
   return "";
 }
 
@@ -263,7 +270,8 @@ function sampleCard(s, b) {
   el.className = "sample";
   const kind = ROLE_KIND[s.id];
   const cands = kind ? (b.candidates[kind] || []) : [];
-  const sel = (b.config.selections || {})[s.id];
+  const key = SELECT_KEY[s.id] || s.id;
+  const sel = (b.config.selections || {})[key];
   const selIdx = typeof sel === "number" ? sel : null;
   const opts = cands.map((c, i) => {
     const extra = c.kind === "pitch" && c.info.note ? ` ${c.info.note}` : "";
@@ -271,7 +279,7 @@ function sampleCard(s, b) {
   }).join("");
   el.innerHTML = `
     <div class="thumb" style="background-image:url('${s.thumb_url}')" title="play the video clip">
-      <span class="tag">${esc(ROLE_NAME[s.id] || s.label)}</span>${s.root_note ? `<span class="note">${esc(s.root_note)}</span>` : ""}
+      <span class="tag">${esc(ROLE_NAME[s.id] || s.label)}</span>${s.root_note && s.role !== "chorus" ? `<span class="note">${esc(s.root_note)}</span>` : ""}
     </div>
     <div class="body">
       <div><b>${fmtT(s.src_start)}</b> – ${fmtT(s.src_end)} <span class="muted">· ${s.duration.toFixed(2)}s</span></div>
@@ -287,14 +295,14 @@ function sampleCard(s, b) {
   $(".thumb", el).onclick = () => playClip(el, s.src_start, s.src_end, true);
   const cs = $("[data-act=cand]", el);
   if (cs) cs.onchange = async () => {
-    const body = cs.value === "" ? { role: s.id, reset: true } : { role: s.id, index: +cs.value };
+    const body = cs.value === "" ? { role: key, reset: true } : { role: key, index: +cs.value };
     try { S.bank = await api("/api/samples/select", { body }); renderSamples(); S.arr = null; } catch (e) { toast(e.message); }
   };
   const rb = $("[data-act=range]", el);
   if (rb) rb.onclick = async () => {
     const [a, z] = $$(".range input", el).map((i) => parseFloat(i.value));
     if (!(z > a)) return toast("End must be after start.");
-    try { S.bank = await api("/api/samples/select", { body: { role: s.id, start: a, end: z } }); renderSamples(); } catch (e) { toast(e.message); }
+    try { S.bank = await api("/api/samples/select", { body: { role: key, start: a, end: z } }); renderSamples(); } catch (e) { toast(e.message); }
   };
   return el;
 }
@@ -336,9 +344,22 @@ $("#btn-reanalyze").addEventListener("click", async () => {
 });
 
 // ── 3 · remix ────────────────────────────────────────────────────────────────
+function baseSummary(b) {
+  const secs = (b.sections || []).map((s) => `${s.kind} ${s.bars}`).join(" · ");
+  return `${b.bpm} BPM · bar 1 at ${(+b.offset).toFixed(3)} s · ${b.bars} bars · key ${b.key} · chords ${b.progression}` + (secs ? ` — ${secs}` : "");
+}
+
 function renderVariants() {
   const root = $("#variants");
   root.innerHTML = "";
+  const b = S.project && S.project.base;
+  if (b) {
+    const el = document.createElement("div");
+    el.className = "variant" + (S.variant === "base" ? " active" : "");
+    el.innerHTML = `<h4>Follow my base</h4><div class="v-meta">${esc(b.bpm)} BPM · ${esc(b.bars)} bars · ${fmtT(b.bars * 240 / b.bpm)}</div><p>Every section of your base gets its part: ${esc((b.sections || []).map((s) => s.kind).join(", "))}.</p>`;
+    el.onclick = () => { S.variant = "base"; renderVariants(); $("#opt-bpm").value = b.bpm; };
+    root.appendChild(el);
+  }
   Object.entries(S.variants.variants).forEach(([k, v]) => {
     const bars = v.plan.reduce((a, p) => a + p[1], 0);
     const secs = bars * 4 * 60 / v.bpm;
@@ -358,6 +379,7 @@ function optionsFromForm() {
   o.pitching = $("#opt-pitching").value;
   o.polish = $("#opt-polish").value;
   if ($("#opt-minor").checked) o.minor = true;
+  if ($("#opt-chorus-pitch").checked) o.chorus_pitch = true;
   o.key = $("#cfg-key").value || "D";
   return o;
 }
@@ -390,13 +412,13 @@ function setProgSelect(value) {
   sel.value = value;
 }
 
-const LAYOUTS = ["full", "split2", "grid3", "grid4"];
+const LAYOUTS = ["main", "full", "split2", "grid3", "grid4"];
 const TRACK_SECTIONS = {
   pitch: ["chorus", "dundundenden", "epicness", "awesomeness", "execution", "madness", "intro", "chords", "freestyle"],
   chop: ["dundundenden", "intro", "chorus", "execution"],
   words: ["madness_words", "freestyle"],
   bass: ["dundundenden", "chorus", "intro", "execution"],
-  drum: [], oneshot: [],
+  drum: ["percussion", "hihat"], oneshot: [],
 };
 
 function patternOptions(track) {
@@ -605,7 +627,16 @@ $("#btn-lab-add").addEventListener("click", async () => {
 $("#base-file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  try { S.project = (await upload("/api/base/upload", f, () => {})); renderProject(); toast("Base loaded", true); } catch (err) { toast(err.message); }
+  try {
+    toast("Mapping the base…", true);
+    S.project = (await upload("/api/base/upload", f, () => {}));
+    renderProject(); renderVariants();
+    if (S.project.base) {
+      S.variant = "base";
+      await loadArrangement(); renderVariants();
+      toast("Base mapped — the remix now follows its sections", true);
+    } else toast("Base loaded" + (S.project.base_error ? ` (could not map it: ${S.project.base_error})` : ""), true);
+  } catch (err) { toast(err.message); }
 });
 ["base-offset", "base-gain", "base-mode"].forEach((id) => $("#" + id).addEventListener("change", async () => {
   S.project = await api("/api/mix", { body: { base_offset: +$("#base-offset").value, base_gain_db: +$("#base-gain").value, base_mode: $("#base-mode").value } });
@@ -712,7 +743,8 @@ $("#btn-quit").addEventListener("click", async () => {
     renderProject();
     renderVariants();
     const v = variants.variants[S.variant];
-    $("#opt-bpm").value = v.bpm; $("#opt-pitching").value = v.pitching; $("#opt-polish").value = v.polish;
+    if (v) { $("#opt-bpm").value = v.bpm; $("#opt-pitching").value = v.pitching; $("#opt-polish").value = v.polish; }
+    else if (S.project.base) $("#opt-bpm").value = S.project.base.bpm;
     if (S.project.analyzed) await loadSamples();
   } catch (e) { toast("Could not reach the Sparta Gen engine: " + e.message); }
 })();

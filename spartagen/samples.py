@@ -4,6 +4,7 @@ Every sample is cut from the source audio (so its video clip is known) and
 processed the way remixers prepare them by hand:
 
 * pitch1/2/3 — held vowels hard-tuned to D (the key of the classic bases)
+* chorus_a/b — the main phrase cut into two parts (Chorus slots 1 and 2), played as is
 * bass       — the main pitch dropped to D2, low-passed and saturated
 * kick       — a thump from the source, pitched down for body, with a pitch
                sweep for punch and the original transient on top
@@ -11,7 +12,7 @@ processed the way remixers prepare them by hand:
 * hat_closed / hat_open — sibilants or cymbal hiss, high-passed
 * crash      — a loud noisy stretch with a long reverb tail
 * quote1..3  — speech phrases (intro, fills, ending)
-* phrase + syl1..N — the main phrase and its syllables (DunDunDenDen chops)
+* phrase + syl1..N — the main phrase (the Chorus clip) and its syllables (DunDunDenDen chops)
 * word_a / word_b  — call & response words for the Madness
 """
 
@@ -26,7 +27,8 @@ import numpy as np
 
 from .audio import dsp, fx
 from .audio.analysis import Analysis, Candidate, similar_word, split_syllables
-from .audio.pitch import midi_to_hz, hz_to_midi, pitch_class, note_name
+from .audio.harmonic import harmonic_filter
+from .audio.pitch import midi_to_hz, hz_to_midi, pitch_class, note_name, yin_track
 from .audio.psola import TunedSample, tune_to_note, find_marks
 
 PITCH_ROLES = ("pitch1", "pitch2", "pitch3")
@@ -35,7 +37,7 @@ PITCH_ROLES = ("pitch1", "pitch2", "pitch3")
 @dataclass
 class Sample:
     id: str
-    role: str                  # pitch | bass | kick | snare | hat_closed | hat_open | crash | quote | phrase | syllable | word
+    role: str                  # pitch | chorus | bass | kick | snare | hat_closed | hat_open | crash | quote | phrase | syllable | word
     label: str
     src_start: float           # source time range (drives the video clip)
     src_end: float
@@ -73,6 +75,7 @@ class SampleConfig:
     flatten: float = 1.0             # 1 = dead-straight note, 0 = keep intonation
     bass_octave: int = 2             # bass root = D2
     max_quotes: int = 3
+    clean_pitch: bool = True         # isolate the voice's harmonics before tuning (sources with music under)
     selections: dict = field(default_factory=dict)  # role -> candidate index or {"start":…, "end":…}
 
     @staticmethod
@@ -144,6 +147,13 @@ def _target_midi(f0: float, key_pc: int, octave: Optional[int]) -> int:
 def make_pitch(x: np.ndarray, sr: int, cand: Candidate, sid: str, cfg: SampleConfig) -> Sample:
     seg = _cut(x, sr, cand.start, cand.end)
     seg = dsp.highpass(seg, sr, 60.0, order=2)
+    cleaned = False
+    if cfg.clean_pitch:
+        # Keep only the held note's harmonics: the band under a sung note would otherwise be tuned
+        # along with it and blur the pitch.
+        seg, voiced_share = harmonic_filter(seg, sr, f0_hint=cand.info.get("f0"))
+        seg = dsp.apply_fades(seg, sr, 2.0, 6.0)
+        cleaned = voiced_share > 0.2
     marks = find_marks(seg, sr)
     vper = marks.period[marks.voiced]
     f0 = float(sr / np.median(vper)) if vper.size else float(cand.info.get("f0", float("nan")))
@@ -155,9 +165,124 @@ def make_pitch(x: np.ndarray, sr: int, cand: Candidate, sid: str, cfg: SampleCon
     meta = {"source_f0": round(f0, 2) if np.isfinite(f0) else None,
             "source_note": note_name(hz_to_midi(f0)) if np.isfinite(f0) else None,
             "shift_semitones": round(target - hz_to_midi(f0), 2) if np.isfinite(f0) else None,
-            "score": round(float(cand.score), 4), "gain": round(float(scale), 4)}
+            "score": round(float(cand.score), 4), "gain": round(float(scale), 4), "isolated": cleaned}
     return Sample(sid, "pitch", f"{sid} ({note_name(target)})", cand.start, cand.end, y, sr,
                   float(target), ts, 1.0, meta)
+
+
+def split_point(x: np.ndarray, sr: int, lo: float = 0.35, hi: float = 0.65) -> tuple[int, str]:
+    """Where to cut a clip in two: the deepest energy valley between syllables in the middle part,
+    else the biggest change of sound there, else the middle — always on a zero crossing."""
+    n = x.shape[0]
+    hop = max(1, int(0.005 * sr))
+    frame = 4 * hop
+    if n < 4 * frame:
+        cut, how = n // 2, "middle"
+    else:
+        fr = dsp.block_features(x, frame, hop)
+        db = 20.0 * np.log10(np.sqrt(np.mean(fr.astype(np.float64) ** 2, axis=1)) + 1e-9)
+        db = np.convolve(db, np.ones(5) / 5.0, mode="same")
+        a, b = int(lo * db.shape[0]), max(int(lo * db.shape[0]) + 1, int(hi * db.shape[0]))
+        m = a + int(np.argmin(db[a:b]))
+        depth = min(db[:m].max(initial=db[m]), db[m:].max(initial=db[m])) - db[m]
+        if depth >= 3.0:
+            cut, how = m * hop + frame // 2, "valley"
+        else:
+            spec = np.abs(np.fft.rfft(fr * np.hanning(frame), axis=1))
+            spec /= spec.sum(axis=1, keepdims=True) + 1e-9
+            change = np.abs(np.diff(spec, axis=0)).sum(axis=1)
+            change = np.convolve(change, np.ones(5) / 5.0, mode="same")
+            if change.shape[0] > b and change[a:b].max() > 1.5 * np.median(change):
+                cut, how = (a + int(np.argmax(change[a:b]))) * hop + frame, "change"
+            else:
+                cut, how = n // 2, "middle"
+    # Snap to the nearest rising zero crossing within 5 ms.
+    w = int(0.005 * sr)
+    seg = x[max(1, cut - w):min(n - 1, cut + w)]
+    zc = np.flatnonzero((seg[:-1] <= 0) & (seg[1:] > 0))
+    if zc.size:
+        cut = max(1, cut - w) + int(zc[np.argmin(np.abs(zc - (cut - max(1, cut - w))))]) + 1
+    return int(np.clip(cut, 1, n - 1)), how
+
+
+def make_chorus_pair(x: np.ndarray, sr: int, cand: Candidate, cfg: SampleConfig) -> list[Sample]:
+    """The main phrase cut into two parts — the Chorus plays part 1 on "1" and part 2 on "2".
+
+    The Chorus is the main phrase, not a pitch sample: the parts play as they are.  A copy tuned
+    to the key note is kept alongside (``tuned``) for remixes that want a pitched chorus."""
+    seg = _cut(x, sr, cand.start, cand.end)
+    seg = dsp.highpass(seg, sr, 60.0, order=2)
+    cut, how = split_point(seg, sr)
+    marks = find_marks(seg, sr)
+    vper = marks.period[marks.voiced]
+    f0 = float(sr / np.median(vper)) if vper.size else float(cand.info.get("f0", float("nan")))
+    target = _target_midi(f0, pitch_class(cfg.key), cfg.pitch_octave)
+    out = []
+    for sid, (a, b), label in (("chorus_a", (0, cut), "chorus part 1"), ("chorus_b", (cut, seg.shape[0]), "chorus part 2")):
+        part = dsp.apply_fades(np.array(seg[a:b], dtype=np.float32), sr, 1.0, 3.0)
+        y = dsp.normalize_rms(part, -16.0, -1.0)
+        pm = find_marks(part, sr)
+        voiced = float(np.mean(pm.voiced)) if pm.voiced.size else 0.0
+        ts = None
+        root = float("nan")
+        if voiced >= 0.3:
+            ts = tune_to_note(part, sr, midi_to_hz(target), flatten=float(cfg.flatten), marks=pm)
+            ts = TunedSample(dsp.normalize_rms(ts.audio, -16.0, -1.0), sr, ts.f0, ts.marks, ts.source_f0)
+            root = float(target)
+        t0 = cand.start + a / sr
+        t1 = cand.start + b / sr
+        out.append(Sample(sid, "chorus", f"{label} (main phrase)", t0, t1, y, sr, root, ts, 1.0,
+                          {"split": how, "voiced": round(voiced, 3), "score": round(float(cand.score), 4),
+                           "plays": "as is", "source_f0": round(f0, 2) if np.isfinite(f0) else None}))
+    return out
+
+
+def _steadiness(x: np.ndarray, sr: int, c: Candidate) -> float:
+    """1 for a held note, towards 0 for glides (a bowed or slid instrument, a sliding voice)."""
+    seg = _cut(x, sr, c.start, c.end)
+    tr = yin_track(seg, sr, fmin=70.0, fmax=1000.0, frame=2048, hop=256)
+    ok = tr.voiced & np.isfinite(tr.f0)
+    f = tr.f0[ok]
+    if f.size < 4:
+        return 0.2
+    cents = 1200.0 * np.log2(f / np.median(f))
+    held = float(np.mean(np.abs(cents) < 60.0))          # robust to octave slips in a noisy tail
+    return held * float(np.sqrt(ok.mean()))
+
+
+def _main_candidates(C: dict, x: Optional[np.ndarray] = None, sr: int = 44100, top: int = 10) -> list[Candidate]:
+    """Clips that can be the main (Chorus) sample: sung or spoken words with a clear voice on a held
+    note — the ones that sound good cut in two and tuned."""
+    pool = []
+    for c in C.get("word", []) + C.get("pitch", []):
+        d = c.duration
+        if not 0.18 <= d <= 0.9:
+            continue
+        voiced = float(c.info.get("voiced", 1.0 if c.kind == "pitch" else 0.0))
+        fit = math.exp(-((d - 0.42) / 0.25) ** 2)
+        pool.append((c.score * (0.3 + 0.7 * voiced) * (0.4 + 0.6 * fit), c))
+    pool.sort(key=lambda z: -z[0])
+    if x is not None:
+        head = [(sc * (0.25 + 0.75 * _steadiness(x, sr, c)), c) for sc, c in pool[:top]]
+        pool = sorted(head, key=lambda z: -z[0]) + pool[top:]
+    return [c for _, c in pool]
+
+
+def pitch_quality(s: Sample) -> float:
+    """How clearly a tuned sample reads as a note: voiced share × harmonic purity (0..1)."""
+    y = s.audio
+    if y.shape[0] < 1024 or not s.pitched:
+        return 0.05
+    tr = yin_track(y, s.sr, fmin=60.0, fmax=1200.0, frame=2048, hop=256)
+    voiced = float(tr.voiced.mean()) if tr.voiced.size else 0.0
+    f = float(midi_to_hz(s.root_midi))
+    S = np.abs(np.fft.rfft(y * np.hanning(y.shape[0]))) ** 2
+    fr = np.fft.rfftfreq(y.shape[0], 1.0 / s.sr)
+    band = (fr > 80.0) & (fr < 8000.0)
+    k = np.round(fr / f)
+    harm = (k >= 1) & (np.abs(fr - k * f) < np.maximum(15.0, 0.03 * k * f))
+    purity_db = 10.0 * math.log10(float(S[harm & band].sum()) / max(float(S[~harm & band].sum()), 1e-12))
+    return max(0.05, voiced) * float(np.clip((purity_db - 3.0) / 15.0, 0.1, 1.0))
 
 
 def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
@@ -342,12 +467,29 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
     # ── pitches ──
     used: list[tuple[float, float]] = []
     pitches = C.get("pitch", [])
+    # Auto picks go by how the note comes out once isolated and tuned: a steady note buried in the
+    # band is no pitch at all.  (Explicit picks index the analysis list as shown in the app.)
+    made: dict[int, Sample] = {}
+    ranked = pitches
+    if pitches:
+        step(0.03, "trying pitch candidates")
+        scored = []
+        for c in pitches[:12]:
+            smp = make_pitch(x, sr, c, "try", cfg)
+            made[id(c)] = smp
+            # Longer held notes make better pitches (they carry 8ths and held notes without looping).
+            held = float(np.clip((c.duration - 0.08) / 0.17, 0.35, 1.0))
+            scored.append((c.score * pitch_quality(smp) * held, c))
+        scored.sort(key=lambda z: -z[0])
+        ranked = [c for _, c in scored] + pitches[12:]
     for i, sid in enumerate(PITCH_ROLES):
+        explicit = sel.get(sid) is not None
+        pool = pitches if explicit else ranked
         # Second/third pitch: prefer another moment of the source (another word,
         # speaker or note) so the call & response between slots is audible.
-        cand = _pick(pitches, sel.get(sid), used, 2.0) if i > 0 else None
-        if cand is None or (i > 0 and not _clear_of(cand, used, 2.0)):
-            cand = _pick(pitches, sel.get(sid), used, 0.3)
+        cand = _pick(pool, sel.get(sid), used, 2.0) if i > 0 else None
+        if cand is None or (i > 0 and not explicit and not _clear_of(cand, used, 2.0)):
+            cand = _pick(pool, sel.get(sid), used, 0.3)
         if cand is None:
             # No voiced material at all: fall back to the loudest word/quote so the remix still has a "pitch".
             cand = _pick(C.get("word", []) or C.get("quote", []), None, used)
@@ -356,10 +498,26 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
         if i > 0 and cand in [bank.samples[k].meta.get("_cand") for k in bank.samples]:
             continue
         step(0.05 + 0.1 * i, f"tuning {sid} to {cfg.key}")
-        s = make_pitch(x, sr, cand, sid, cfg)
+        pre = made.get(id(cand))
+        s = make_pitch(x, sr, cand, sid, cfg) if pre is None else pre
+        s.id, s.label = sid, s.label.replace("try", sid)
         s.meta["_cand"] = cand
         bank.samples[sid] = s
         used.append((cand.start, cand.end))
+    # ── the Chorus: the main phrase cut into two parts ──
+    mains = _main_candidates(C, x, sr)
+    csel = sel.get("chorus")                  # a word candidate index, a {"start", "end"} range, or auto
+    words_c = C.get("word", [])
+    if isinstance(csel, dict) and "start" in csel and "end" in csel:
+        main_c = Candidate("word", float(csel["start"]), float(csel["end"]), 1.0, {"manual": True})
+    elif isinstance(csel, int) and 0 <= csel < len(words_c):
+        main_c = words_c[csel]
+    else:
+        main_c = mains[0] if mains else None
+    if main_c is not None:
+        step(0.3, "cutting the main phrase in two")
+        for smp in make_chorus_pair(x, sr, main_c, cfg):
+            bank.samples[smp.id] = smp
     pitched = [bank.samples[k] for k in PITCH_ROLES if k in bank.samples]
     if pitched:
         step(0.35, "building bass")
@@ -405,7 +563,12 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             break
         bank.samples[sid] = make_speech(x, sr, qc, sid, "quote", f"quote {i + 1}")
         q_used.append((qc.start, qc.end))
-    phrase_c = _pick(quotes, sel.get("phrase"))
+    # The main phrase: the Chorus clip (the chorus always holds the main phrase, and the DunDunDenDen
+    # usually chops it too — Sparta Remix Wiki), else the best quote.
+    if sel.get("phrase") is None and main_c is not None:
+        phrase_c = main_c
+    else:
+        phrase_c = _pick(quotes, sel.get("phrase"))
     if phrase_c is not None:
         ph = make_speech(x, sr, phrase_c, "phrase", "phrase", "main phrase")
         bank.samples["phrase"] = ph
@@ -415,11 +578,24 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             syl = make_speech(x, sr, c, f"syl{j + 1}", "syllable", f"syllable {j + 1}", fade_ms=3.0)
             bank.samples[syl.id] = tune_speech(syl, cfg)
     words = C.get("word", [])
-    wa = _pick(words, sel.get("word_a"))
+    voice: list[Candidate] = []
+    if sel.get("word_a") is None and mains:
+        # The Madness call & response: clear voices (the ranking used for the main clip), not the
+        # chorus clip itself.
+        voice = [c for c in mains if c.kind == "word" and main_c is not None and
+                 (c.end <= main_c.start or c.start >= main_c.end)]
+        wa = voice[0] if voice else _pick(words, None)
+    else:
+        wa = _pick(words, sel.get("word_a"))
     if wa is not None:
         step(0.85, "pairing Madness words")
         wb_sel = sel.get("word_b")
-        wb = _pick(words, wb_sel) if wb_sel is not None else (similar_word(words, wa) or _pick(words, None, [(wa.start, wa.end)]))
+        if wb_sel is not None:
+            wb = _pick(words, wb_sel)
+        elif len(voice) > 1:
+            wb = voice[1]
+        else:
+            wb = similar_word(words, wa) or _pick(words, None, [(wa.start, wa.end)])
         bank.samples["word_a"] = tune_speech(make_speech(x, sr, wa, "word_a", "word", "word 1 (call)", 3.0), cfg)
         if wb is not None:
             bank.samples["word_b"] = tune_speech(make_speech(x, sr, wb, "word_b", "word", "word 2 (response)", 3.0), cfg)
