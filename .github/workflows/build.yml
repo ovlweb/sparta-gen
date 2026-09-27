@@ -59,7 +59,9 @@ jobs:
           echo "changed files:"; echo "$changed"
           desktop=$all
           android=$all
-          if echo "$changed" | grep -qE '^(packaging/|scripts/build_desktop\.py|spartagen/selftest\.py|spartagen/gui/launch\.py|\.github/workflows/build\.yml)'; then desktop=true; fi
+          # (Desktop apps cost the most runner time — macOS minutes count tenfold — so edits to this workflow
+          # alone do not rebuild them: tags and Run workflow do.)
+          if echo "$changed" | grep -qE '^(packaging/|scripts/build_desktop\.py|spartagen/selftest\.py|spartagen/gui/launch\.py)'; then desktop=true; fi
           if echo "$changed" | grep -qE '^(android/|spartagen/|\.github/workflows/build\.yml)'; then android=true; fi
           echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
           echo "android=$android" >> "$GITHUB_OUTPUT"
@@ -191,6 +193,13 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install numpy
           python android/test/make_source.py "$RUNNER_TEMP/source.mp4"
+      - name: Room for the emulator
+        # The emulator needs ~1.25x its data partition free: drop toolchains this job does not use.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            "$ANDROID_HOME/ndk" || true
+          df -h /
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -203,7 +212,7 @@ jobs:
           arch: x86_64
           target: google_apis
           ram-size: 4096M
-          disk-size: 6000M
+          disk-size: 3072M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: bash android/test/smoke.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ runner.temp }}/source.mp4 android-test
