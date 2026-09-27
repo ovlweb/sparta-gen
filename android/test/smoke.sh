@@ -60,6 +60,7 @@ job=$(curl -sf -X POST -H "Content-Type: application/json" -d '{"quality": "prev
 status=running
 start=$(date +%s)
 misses=0
+peak=0
 while [ "$status" = running ]; do
   sleep 3
   if ! curl -sf "$BASE/api/job/$job" > "$OUT/job.json"; then
@@ -72,10 +73,15 @@ while [ "$status" = running ]; do
   status=$(python3 -c "import json; j = json.load(open('$OUT/job.json')); print(j['status'])")
   line=$(python3 -c "import json; j = json.load(open('$OUT/job.json')); print(f\"{j['progress']*100:5.1f}%  {j['message']}\")")
   mem=""
-  if [ "$APK" != "-" ]; then
-    mem=$(adb shell dumpsys meminfo $PKG 2>/dev/null | awk '/TOTAL PSS:|TOTAL:/ {print $2 / 1024 " MB"; exit}' || true)
+  if [ "$APK" != "-" ]; then       # the app's memory (PSS: "TOTAL PSS: <kB>", older Android "TOTAL: <kB>")
+    adb shell dumpsys meminfo $PKG > "$OUT/meminfo-now.txt" 2>/dev/null || true
+    mem=$(tr -d , < "$OUT/meminfo-now.txt" | awk '/TOTAL PSS:/ {print int($3 / 1024); exit} /^ *TOTAL: / {print int($2 / 1024); exit}')
+    if [ -n "$mem" ] && [ "$mem" -gt "$peak" ]; then
+      peak=$mem
+      cp "$OUT/meminfo-now.txt" "$OUT/meminfo-peak.txt"
+    fi
   fi
-  echo "  $line  ${mem:+· app $mem}"
+  echo "  $line  ${mem:+· app $mem MB}"
   if [ $(( $(date +%s) - start )) -gt 2400 ]; then echo "timed out"; break; fi
 done
 if [ "$status" != done ]; then
@@ -85,6 +91,7 @@ fi
 url=$(python3 -c "import json; print(json.load(open('$OUT/job.json'))['result']['file_url'])")
 curl -sf "$BASE$url" -o "$OUT/remix-preview.mp4"
 echo "==> rendered in $(( $(date +%s) - start ))s: $(du -h "$OUT/remix-preview.mp4" | cut -f1)"
+if [ "$peak" -gt 0 ]; then echo "==> the app used at most ~$peak MB (PSS) while rendering"; fi
 ffprobe -v error -show_entries format=duration:stream=codec_name,width,height -of compact "$OUT/remix-preview.mp4"
 ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT/remix-preview.mp4" \
   | python3 -c "import sys; d = float(sys.stdin.read()); print('duration', d); assert d > 20"
