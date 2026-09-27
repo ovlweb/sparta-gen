@@ -430,16 +430,20 @@ def fft_convolve(x: np.ndarray, h: np.ndarray) -> np.ndarray:
     H = np.fft.rfft(h, nfft, axis=0)
     if x.ndim == 2 and H.ndim == 1:
         H = H[:, None]
-    y = np.zeros((n_out,) + x.shape[1:], dtype=np.float64)
+    y = np.zeros((n_out,) + x.shape[1:], dtype=np.float32)       # float32: long mixes on small devices
     for s in range(0, x.shape[0], block):
         seg = x[s:s + block]
         Y = np.fft.irfft(np.fft.rfft(seg, nfft, axis=0) * H, nfft, axis=0)
         e = min(n_out, s + nfft)
         y[s:e] += Y[: e - s]
-    return y.astype(np.float32)
+    return y
 
 
 # ── Envelope follower (block rate, then interpolated) ────────────────────────
+
+
+#: Samples per piece for per-sample work on long signals (a whole remix at once would not fit a phone).
+PIECE = 1 << 18
 
 
 def envelope(
@@ -462,8 +466,10 @@ def envelope(
         return np.zeros(0, dtype=np.float32)
     nb = (n + block - 1) // block
     padded = np.pad(mono, (0, nb * block - n))
+    del mono
     blocks = padded.reshape(nb, block)
-    level = blocks.max(axis=1) if mode == "peak" else np.sqrt(np.mean(np.square(blocks, dtype=np.float64), axis=1))
+    level = blocks.max(axis=1) if mode == "peak" else np.sqrt(np.mean(np.square(blocks), axis=1, dtype=np.float64))
+    del padded, blocks
     brate = sr / block
     ca = math.exp(-1.0 / max(attack_ms * 1e-3 * brate, 1e-6))
     cr = math.exp(-1.0 / max(release_ms * 1e-3 * brate, 1e-6))
@@ -476,7 +482,11 @@ def envelope(
         e = c * e + (1.0 - c) * v
         env[i] = e
     centers = np.arange(nb) * block + block / 2.0
-    return np.interp(np.arange(n), centers, env).astype(np.float32)
+    out = np.empty(n, dtype=np.float32)
+    for a in range(0, n, PIECE):                  # back to sample rate piece by piece (bounded memory)
+        b = min(n, a + PIECE)
+        out[a:b] = np.interp(np.arange(a, b), centers, env)
+    return out
 
 
 def running_max(x: np.ndarray, w: int) -> np.ndarray:

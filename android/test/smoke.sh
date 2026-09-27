@@ -11,7 +11,21 @@ SRC="$2"
 OUT="${3:-android-test}"
 PORT=8757
 BASE="http://127.0.0.1:$PORT"
+PKG=gen.sparta.remix
 mkdir -p "$OUT"
+
+on_exit() {                        # whatever happened: keep the device log, and show why it failed
+  code=$?
+  [ "$APK" = "-" ] && return
+  adb logcat -d > "$OUT/logcat.txt" 2>/dev/null || true
+  if [ "$code" != 0 ]; then
+    echo "==> failed ($code); app process: $(adb shell pidof $PKG 2>/dev/null || echo gone)"
+    adb shell dumpsys meminfo $PKG > "$OUT/meminfo.txt" 2>/dev/null || true
+    grep -aiE "FATAL|AndroidRuntime|lowmemorykiller|lmkd|am_kill|has died|died|SIGSEGV|SIGABRT|SIGKILL|Fatal signal|backtrace|Traceback|python|SpartaGen|chaquo" \
+      "$OUT/logcat.txt" | grep -v "^--------- beginning" | tail -120 || true
+  fi
+}
+trap on_exit EXIT
 
 if [ "$APK" != "-" ]; then
   adb logcat -c || true
@@ -45,14 +59,25 @@ job=$(curl -sf -X POST -H "Content-Type: application/json" -d '{"quality": "prev
       | python3 -c "import json, sys; print(json.load(sys.stdin)['id'])")
 status=running
 start=$(date +%s)
+misses=0
 while [ "$status" = running ]; do
   sleep 3
-  curl -sf "$BASE/api/job/$job" > "$OUT/job.json"
+  if ! curl -sf "$BASE/api/job/$job" > "$OUT/job.json"; then
+    misses=$((misses + 1))
+    echo "  (the engine did not answer: $misses)"
+    [ "$misses" -ge 3 ] && { echo "the engine stopped answering"; exit 1; }
+    continue
+  fi
+  misses=0
   status=$(python3 -c "import json; j = json.load(open('$OUT/job.json')); print(j['status'])")
-  python3 -c "import json; j = json.load(open('$OUT/job.json')); print(f\"  {j['progress']*100:5.1f}%  {j['message']}\")"
+  line=$(python3 -c "import json; j = json.load(open('$OUT/job.json')); print(f\"{j['progress']*100:5.1f}%  {j['message']}\")")
+  mem=""
+  if [ "$APK" != "-" ]; then
+    mem=$(adb shell dumpsys meminfo $PKG 2>/dev/null | awk '/TOTAL PSS:|TOTAL:/ {print $2 / 1024 " MB"; exit}' || true)
+  fi
+  echo "  $line  ${mem:+· app $mem}"
   if [ $(( $(date +%s) - start )) -gt 2400 ]; then echo "timed out"; break; fi
 done
-[ "$APK" = "-" ] || adb logcat -d > "$OUT/logcat.txt" || true
 if [ "$status" != done ]; then
   cat "$OUT/job.json"
   exit 1

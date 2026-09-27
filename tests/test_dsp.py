@@ -183,3 +183,27 @@ def test_a_pitch_candidate_grows_to_its_whole_held_note():
     g = grow_note(x, sr, c)
     assert abs(g.start - 0.3) < 0.04 and abs(g.end - 0.9) < 0.04     # the whole note, not the next one
     assert g.info["grown_from"] == [0.5, 0.65]
+
+
+def test_effects_work_piece_by_piece_with_the_same_result(monkeypatch):
+    """Long stems are processed in pieces (a phone has little memory): the pieces must not show."""
+    from spartagen.audio import dsp, fx
+    rng = np.random.RandomState(3)
+    x = (rng.randn(70_000, 2) * np.linspace(0.05, 0.6, 70_000)[:, None]).astype(np.float32)
+
+    def run():
+        return {
+            "compressor": fx.compressor(x, 44100, threshold_db=-20, ratio=4),
+            "transient": fx.transient(x, 44100, attack_db=4.0, sustain_db=-2.0),
+            "chorus": fx.chorus(x, 44100),
+            "ott": fx.ott(x, 44100, depth=0.5),
+            "apply_env": fx.apply_env(x, np.linspace(0, 1, 70_000)),
+            "saturate": fx.saturate(x, 6.0),
+        }
+    whole = run()
+    monkeypatch.setattr(fx, "CHUNK", 4096)            # a whole number of the effects' 16/32-sample blocks
+    monkeypatch.setattr(dsp, "PIECE", 3000)
+    pieces = run()
+    for name, y in whole.items():
+        assert y.dtype == np.float32 and y.shape == pieces[name].shape, name
+        assert np.max(np.abs(y - pieces[name])) < 1e-6, name

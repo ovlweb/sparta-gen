@@ -271,37 +271,24 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
             progress(p, m)
 
     n_ev = max(1, len(events))
-    ranges: dict[str, list[int]] = {}   # where each stem has content (saves scanning the buffers)
-    for i, e in enumerate(events):
+    # One stem at a time — its notes rendered, its FX run, then mixed in and let go: holding every stem of a
+    # long remix at once does not fit a phone.  Stems are summed in the order of their first note.
+    order: list[str] = []
+    by_stem: dict[str, list[NoteEvent]] = {}
+    for e in events:
         if e.stem in muted:
             continue
         if e.sample == "kick":
             kick_times.append(e.t)
-        y = voices.render(e)
-        if y is None or y.size == 0:
-            continue
-        g = dsp.db_to_gain(e.gain_db)
-        gl, gr = dsp.pan_gains(e.pan)
-        buf = stems.get(e.stem)
-        if buf is None:
-            buf = np.zeros((total, 2), dtype=np.float32)
-            stems[e.stem] = buf
-        s0 = int(round(e.t * sr))
-        seg = y * g
-        e_end = min(total, s0 + seg.shape[0])
-        if e_end > s0:
-            k = e_end - s0
-            buf[s0:e_end, 0] += seg[:k] * gl * math.sqrt(2)
-            buf[s0:e_end, 1] += seg[:k] * gr * math.sqrt(2)
-            r = ranges.setdefault(e.stem, [s0, e_end])
-            r[0] = min(r[0], s0)
-            r[1] = max(r[1], e_end)
-        if i % 200 == 0:
-            say(0.05 + 0.45 * i / n_ev, "rendering notes")
+        if e.stem not in by_stem:
+            by_stem[e.stem] = []
+            order.append(e.stem)
+        by_stem[e.stem].append(e)
 
-    # Section bus FX that target a single stem (e.g. the Madness low-pass on the soft pitch).
+    # Section bus FX (e.g. the Madness low-pass on the soft pitch), in section order.
     starts = arr.section_starts()
     tape_ranges = []
+    bus_fx: list[tuple[str, int, int, dict]] = []
     for si, sec in enumerate(arr.sections):
         t0 = starts[si]
         t1 = t0 + sec.bars * arr.bar_s
@@ -312,17 +299,8 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
             if name == "tape_stop":
                 tape_ranges.append((t0, t1, spec))
                 continue
-            names = list(stems) if target == "*" else [target]
-            for st in names:
-                if st not in stems:
-                    continue
-                a, b = int(t0 * sr), min(total, int(t1 * sr))
-                seg = stems[st][a:b]
-                if seg.shape[0] < 64:
-                    continue
-                stems[st][a:b] = fx.apply_chain(seg, sr, [dict(fx=name, **spec)])
+            bus_fx.append((target, int(t0 * sr), min(total, int(t1 * sr)), dict(fx=name, **spec)))
 
-    say(0.55, "processing stems")
     sidechain = None
     if kick_times and cfg.polish != "light":
         depth = 7.0 if cfg.polish == "hard" else 3.5
@@ -330,30 +308,73 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
     rev_bus = np.zeros((total, 2), dtype=np.float32)
     dly_bus = np.zeros((total, 2), dtype=np.float32)
     mix = np.zeros((total, 2), dtype=np.float32)
-    for name, buf in stems.items():
-        # Only process where the stem is active (plus room for effect tails).
-        rng = ranges.get(name)
-        if rng is None:
+    stem_names: list[str] = []
+    done = 0
+    for name in order:
+        buf = None
+        rng = None                                   # where the stem has content (saves scanning the buffer)
+        for e in by_stem.pop(name):
+            done += 1
+            y = voices.render(e)
+            if y is None or y.size == 0:
+                continue
+            if buf is None:
+                buf = np.zeros((total, 2), dtype=np.float32)
+            g = dsp.db_to_gain(e.gain_db)
+            gl, gr = dsp.pan_gains(e.pan)
+            s0 = int(round(e.t * sr))
+            seg = y * g
+            e_end = min(total, s0 + seg.shape[0])
+            if e_end > s0:
+                k = e_end - s0
+                buf[s0:e_end, 0] += seg[:k] * gl * math.sqrt(2)
+                buf[s0:e_end, 1] += seg[:k] * gr * math.sqrt(2)
+                rng = [s0, e_end] if rng is None else [min(rng[0], s0), max(rng[1], e_end)]
+            if done % 200 == 0:
+                say(0.05 + 0.6 * done / n_ev, f"rendering {name}")
+        if buf is None or rng is None:
             continue
+        for target, a, b, step in bus_fx:
+            if target not in ("*", name):
+                continue
+            seg = buf[a:b]
+            if seg.shape[0] < 64:
+                continue
+            buf[a:b] = fx.apply_chain(seg, sr, [step])
+        # Only process where the stem is active (plus room for effect tails).
         a = max(0, rng[0] - int(0.25 * sr))
         b = min(total, rng[1] + int(1.5 * sr))
         y = np.zeros_like(buf)
         y[a:b] = dsp.fit_length(fx.apply_chain(buf[a:b], sr, stem_chain(name, cfg.polish, sr)), b - a)
+        del buf
         if sidechain is not None and name in SIDECHAINED:
             amt = SIDECHAINED[name]
             y = fx.apply_env(y, 1.0 - amt * (1.0 - sidechain))
         lvl = STEM_LEVEL_DB.get(name, 0.0) + float(stem_gains.get(name, 0.0))
-        y = y * dsp.db_to_gain(lvl)
-        stems[name] = y
+        y *= dsp.db_to_gain(lvl)
         rv, dl = STEM_SENDS.get(name, (0.0, 0.0))
         if cfg.polish == "hard":
             dl *= 1.6
         if cfg.polish == "light":
             rv *= 0.6
             dl = 0.0
-        rev_bus += y * rv
-        dly_bus += y * dl
+        if rv:
+            rev_bus += y * rv
+        if dl:
+            dly_bus += y * dl
         mix += y
+        if stems_dir:
+            os.makedirs(stems_dir, exist_ok=True)
+            dsp.write_wav(os.path.join(stems_dir, f"{name}.wav"), np.clip(y, -1, 1), sr)
+        del y
+        stem_names.append(name)
+    stem_names.sort()
+    if stems_dir and os.path.isdir(stems_dir):
+        # Stems from an earlier render that this one no longer has must not linger in the folder.
+        for name in set(STEM_LEVEL_DB) - set(stem_names):
+            old = os.path.join(stems_dir, f"{name}.wav")
+            if os.path.isfile(old):
+                os.remove(old)
     say(0.7, "reverb & delay")
     if np.any(rev_bus):
         wet = fx.reverb(dsp.to_mono(rev_bus), sr, mix_amount=1.0, decay_s=1.4, predelay_ms=15.0, damping=0.55,
@@ -385,16 +406,7 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
     say(0.8, "mastering")
     mix = master(mix, sr, cfg.polish, cfg.target_lufs)
     info = {"lufs": round(dsp.loudness_lufs(mix, sr), 2), "peak_db": round(float(dsp.gain_to_db(dsp.peak(mix))), 2),
-            "duration": round(mix.shape[0] / sr, 3), "stems": sorted(stems)}
-    if stems_dir:
-        os.makedirs(stems_dir, exist_ok=True)
-        # Stems from an earlier render that this one no longer has must not linger in the folder.
-        for name in set(STEM_LEVEL_DB) - set(stems):
-            old = os.path.join(stems_dir, f"{name}.wav")
-            if os.path.isfile(old):
-                os.remove(old)
-        for name, y in stems.items():
-            dsp.write_wav(os.path.join(stems_dir, f"{name}.wav"), np.clip(y, -1, 1), sr)
+            "duration": round(mix.shape[0] / sr, 3), "stems": stem_names}
     say(1.0, "mix done")
     return mix.astype(np.float32), info
 

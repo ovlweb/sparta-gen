@@ -26,15 +26,20 @@ def _as2d(x: np.ndarray) -> tuple[np.ndarray, bool]:
     return (x[:, None], True) if x.ndim == 1 else (x, False)
 
 
+#: Samples per piece when an effect works through a long signal piece by piece (bounded memory:
+#: a whole remix's stems at once would not fit a phone).
+CHUNK = 1 << 18
+
+
 def _back(y: np.ndarray, was_mono: bool) -> np.ndarray:
-    return (y[:, 0] if was_mono else y).astype(np.float32)
+    return (y[:, 0] if was_mono else y).astype(np.float32, copy=False)
 
 
 def mix(dry: np.ndarray, wet: np.ndarray, amount: float) -> np.ndarray:
     if amount >= 1.0:
-        return wet.astype(np.float32)
+        return wet.astype(np.float32, copy=False)
     if amount <= 0.0:
-        return dry.astype(np.float32)
+        return dry.astype(np.float32, copy=False)
     n = min(dry.shape[0], wet.shape[0])
     out = wet.copy() if wet.shape[0] >= dry.shape[0] else dry.copy()
     out[:n] = dry[:n] * (1.0 - amount) + wet[:n] * amount
@@ -127,11 +132,13 @@ def compressor(x: np.ndarray, sr: int, threshold_db: float = -18.0, ratio: float
     x2, mono = _as2d(x)
     sc = x2 if sidechain is None else _as2d(sidechain)[0]
     env = dsp.envelope(sc, sr, attack_ms, release_ms, mode=detector, block=32)
-    lvl = dsp.gain_to_db(np.maximum(env, 1e-9))
-    g = dsp.db_to_gain(_gain_computer(lvl, threshold_db, ratio, knee_db) + makeup_db).astype(np.float32)
-    n = min(x2.shape[0], g.shape[0])
+    n = min(x2.shape[0], env.shape[0])
     y = x2.copy()
-    y[:n] *= g[:n, None]
+    for a in range(0, n, CHUNK):                 # the gain, piece by piece (same result, less memory)
+        b = min(n, a + CHUNK)
+        lvl = dsp.gain_to_db(np.maximum(env[a:b], 1e-9))
+        y[a:b] *= dsp.db_to_gain(_gain_computer(lvl, threshold_db, ratio, knee_db) + makeup_db).astype(
+            np.float32)[:, None]
     return _back(mix(x2, y, mix_amount), mono)
 
 
@@ -195,22 +202,26 @@ def ott(x: np.ndarray, sr: int, depth: float = 0.5, time: float = 0.5, xover_low
     lo_sos, hi_sos = dsp.linkwitz_riley(xover_low, sr)
     lo2_sos, hi2_sos = dsp.linkwitz_riley(xover_high, sr)
     ap = np.stack([dsp.biquad("allpass", xover_high, sr, 0.7071)] * 2)  # LR4 allpass phase match
-    low = dsp.sosfilt(ap, dsp.sosfilt(lo_sos, x2, sr), sr)
-    midhigh = dsp.sosfilt(hi_sos, x2, sr)
-    mid = dsp.sosfilt(lo2_sos, midhigh, sr)
-    high = dsp.sosfilt(hi2_sos, midhigh, sr)
-    bands = [low, mid, high]
     user = (gain_low, gain_mid, gain_high)
     tscale = max(time / 0.5, 0.002)
     blk = 16
+    n = x2.shape[0]
+    nb = (n + blk - 1) // blk
+    centers = np.arange(nb) * blk + blk / 2.0
+    in_gain = dsp.db_to_gain(_OTT_INPUT_DB)
     out = np.zeros_like(x2)
-    for b, band in enumerate(bands):
+
+    def compress(b: int, band: np.ndarray) -> None:
+        """One band's up/down compression, added to the output — band by band, piece by piece (memory)."""
         atk, rel, dth, dra, uth, ura, bgain = _OTT_BANDS[b]
-        sc = band * dsp.db_to_gain(_OTT_INPUT_DB)
-        sq = 0.5 * np.sum(sc * sc, axis=1) if sc.shape[1] > 1 else sc[:, 0] ** 2
-        n = sq.shape[0]
-        nb = (n + blk - 1) // blk
-        sqb = np.pad(sq, (0, nb * blk - n)).reshape(nb, blk).mean(axis=1)
+        sqb = np.empty(nb)
+        for a0 in range(0, n, CHUNK):                    # CHUNK is a whole number of blocks
+            a1 = min(n, a0 + CHUNK)
+            sc = band[a0:a1] * in_gain
+            sq = 0.5 * np.sum(sc * sc, axis=1) if sc.shape[1] > 1 else sc[:, 0] ** 2
+            k = a1 - a0
+            kb = (k + blk - 1) // blk
+            sqb[a0 // blk:a0 // blk + kb] = np.pad(sq, (0, kb * blk - k)).reshape(kb, blk).mean(axis=1)
         brate = sr / blk
         ac = math.exp(-1.0 / max(atk * tscale * 1e-3 * brate, 1e-6))
         rc = math.exp(-1.0 / max(rel * tscale * 1e-3 * brate, 1e-6))
@@ -227,9 +238,16 @@ def ott(x: np.ndarray, sr: int, depth: float = 0.5, time: float = 0.5, xover_low
         dn = env_db > dth
         g_db[dn] -= (env_db[dn] - dth) * (1.0 - 1.0 / dra)
         total_db = (g_db + bgain + _OTT_INPUT_DB) * depth + user[b]
-        centers = np.arange(nb) * blk + blk / 2.0
-        g = np.power(10.0, np.interp(np.arange(n), centers, total_db) / 20.0).astype(np.float32)
-        out += band * g[:, None]
+        for a0 in range(0, n, CHUNK):
+            a1 = min(n, a0 + CHUNK)
+            g = np.power(10.0, np.interp(np.arange(a0, a1), centers, total_db) / 20.0).astype(np.float32)
+            out[a0:a1] += band[a0:a1] * g[:, None]
+
+    compress(0, dsp.sosfilt(ap, dsp.sosfilt(lo_sos, x2, sr), sr))
+    midhigh = dsp.sosfilt(hi_sos, x2, sr)
+    compress(1, dsp.sosfilt(lo2_sos, midhigh, sr))
+    compress(2, dsp.sosfilt(hi2_sos, midhigh, sr))
+    del midhigh
     out *= dsp.db_to_gain(_OTT_MASTER_DB * depth + output_db)
     return _back(out, mono)
 
@@ -239,10 +257,12 @@ def transient(x: np.ndarray, sr: int, attack_db: float = 4.0, sustain_db: float 
     x2, mono = _as2d(x)
     fast = dsp.envelope(x2, sr, 0.5, 30.0, mode="peak", block=8)
     slow = dsp.envelope(x2, sr, 15.0, 120.0, mode="peak", block=8)
-    diff = np.clip((fast - slow) / np.maximum(fast, 1e-6), 0.0, 1.0)
-    g_db = attack_db * diff + sustain_db * (1.0 - diff)
-    g = dsp.db_to_gain(g_db).astype(np.float32)
-    return _back(x2 * g[:, None], mono)
+    y = x2.copy()
+    for a in range(0, y.shape[0], CHUNK):
+        b = min(y.shape[0], a + CHUNK)
+        diff = np.clip((fast[a:b] - slow[a:b]) / np.maximum(fast[a:b], 1e-6), 0.0, 1.0)
+        y[a:b] *= dsp.db_to_gain(attack_db * diff + sustain_db * (1.0 - diff)).astype(np.float32)[:, None]
+    return _back(y, mono)
 
 
 # ── Distortion ───────────────────────────────────────────────────────────────
@@ -253,9 +273,11 @@ def saturate(x: np.ndarray, drive_db: float = 6.0, mode: str = "tanh", mix_amoun
     """Waveshaper: tanh (warm), soft (cubic), hard (clip), fold (wavefolder), asym (tube-ish)."""
     x = np.asarray(x, dtype=np.float32)
     d = dsp.db_to_gain(drive_db)
-    u = x * d
+    u = x * np.float32(d)
     if mode == "tanh":
-        y = np.tanh(u) / max(math.tanh(d), 1e-6) if d > 1 else np.tanh(u)
+        y = np.tanh(u, out=u)                    # in place: a whole stem at a time
+        if d > 1:
+            y /= np.float32(max(math.tanh(d), 1e-6))
     elif mode == "soft":
         uc = np.clip(u, -1.5, 1.5)
         y = uc - (uc ** 3) / 6.75
@@ -267,8 +289,9 @@ def saturate(x: np.ndarray, drive_db: float = 6.0, mode: str = "tanh", mix_amoun
         y = np.where(u >= 0, np.tanh(u), np.tanh(0.7 * u) / 0.7 * 0.8)
     else:
         raise ValueError(f"unknown saturation mode {mode!r}")
-    y = y * dsp.db_to_gain(output_db)
-    return mix(x, y.astype(np.float32), mix_amount)
+    if output_db:
+        y = y * dsp.db_to_gain(output_db)
+    return mix(x, y.astype(np.float32, copy=False), mix_amount)
 
 
 def bitcrush(x: np.ndarray, sr: int, bits: int = 8, downsample: int = 4, mix_amount: float = 1.0) -> np.ndarray:
@@ -370,18 +393,23 @@ def delay(x: np.ndarray, sr: int, time_s: float = 0.2143, feedback: float = 0.35
 
 
 def _mod_delay(x: np.ndarray, sr: int, base_ms: float, depth_ms: float, rate_hz: float, phase: float = 0.0) -> np.ndarray:
-    """Read x through an LFO-swept delay line (linear interpolation)."""
+    """Read x through an LFO-swept delay line (linear interpolation), piece by piece."""
     n = x.shape[0]
-    t = np.arange(n, dtype=np.float32) / np.float32(sr)
-    d = (base_ms + depth_ms * 0.5 * (1.0 + np.sin(np.float32(2 * math.pi * rate_hz) * t + np.float32(phase)))) \
-        * np.float32(1e-3 * sr)
-    pos = np.arange(n, dtype=np.float32) - d
-    i0 = np.floor(pos).astype(np.int64)
-    frac = (pos - i0).astype(np.float32)
     xp = np.concatenate([np.zeros(1, dtype=np.float32), np.asarray(x, dtype=np.float32), np.zeros(1, dtype=np.float32)])
-    a = np.clip(i0 + 1, 0, n + 1)
-    b = np.clip(i0 + 2, 0, n + 1)
-    return (xp[a] * (1.0 - frac) + xp[b] * frac).astype(np.float32)
+    out = np.empty(n, dtype=np.float32)
+    for s0 in range(0, n, CHUNK):
+        s1 = min(n, s0 + CHUNK)
+        idx = np.arange(s0, s1, dtype=np.float32)
+        t = idx / np.float32(sr)
+        d = (base_ms + depth_ms * 0.5 * (1.0 + np.sin(np.float32(2 * math.pi * rate_hz) * t + np.float32(phase)))) \
+            * np.float32(1e-3 * sr)
+        pos = idx - d
+        i0 = np.floor(pos).astype(np.int64)
+        frac = (pos - i0).astype(np.float32)
+        a = np.clip(i0 + 1, 0, n + 1)
+        b = np.clip(i0 + 2, 0, n + 1)
+        out[s0:s1] = xp[a] * (1.0 - frac) + xp[b] * frac
+    return out
 
 
 def chorus(x: np.ndarray, sr: int, rate_hz: float = 0.8, depth_ms: float = 4.0, base_ms: float = 12.0,
@@ -482,7 +510,9 @@ def apply_env(x: np.ndarray, env: np.ndarray) -> np.ndarray:
     x2, mono = _as2d(x)
     n = min(x2.shape[0], env.shape[0])
     y = x2.copy()
-    y[:n] *= env[:n, None]
+    for a in range(0, n, CHUNK):
+        b = min(n, a + CHUNK)
+        y[a:b] *= np.asarray(env[a:b], dtype=np.float32)[:, None]
     return _back(y, mono)
 
 

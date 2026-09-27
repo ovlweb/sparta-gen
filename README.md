@@ -77,8 +77,9 @@ there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termu
 
 ## Using the app
 
-`spartagen gui` (or the desktop app) starts a local engine and opens the UI in your browser
-(`--window` opens a native window when `pywebview` is installed). It works on phone screens too.
+The desktop apps and the Android app open it in their own window; from a source install, `spartagen gui` starts the
+local engine and opens the UI in your browser (`--window` opens a native window when `pywebview` is installed). It
+works on phone screens too.
 
 1. **Source** — drop a video, paste a YouTube/other link (downloaded with yt-dlp), or give a local path.
    **One click:** add your Sparta base (optional) and press **⚡ Make my Sparta Remix** — the pitches, percussion,
@@ -133,8 +134,8 @@ the one-click remix renders a preview. Tags (`v*`) put the APK in the release wi
 
 `scripts/build_desktop.py` makes a one-folder app with PyInstaller — Python, numpy/scipy, the engine, the web app and
 a static ffmpeg inside — zipped as `SpartaGen-<version>-<os>-<arch>.zip`. On Windows (Edge WebView2) and macOS
-(WebKit) the app opens in **its own window** (pywebview); downloads from the app (renders, sample packs) go to your
-Downloads folder, and *Quit* closes the window. On Linux it opens your browser (`SpartaGen --browser` does that
+(WebKit) the app opens in **its own window** (pywebview); a download from the app (a render, a sample pack) opens a
+*Save* dialog in your Downloads folder, and *Quit* closes the window. On Linux it opens your browser (`SpartaGen --browser` does that
 everywhere). CI builds it on Windows, macOS (Apple silicon and Intel) and Linux and runs each built app's
 **self-test** before keeping it — `SpartaGen --selftest report.json`: a test video through the one-click remix,
 with the bundled ffmpeg (`spartagen selftest` does the same from a source install).
@@ -371,7 +372,7 @@ already tuned to D) **and** its video clip as an MP4 with the processed audio, i
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 212 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API, app engine
+pytest                 # 213 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API, app engine
 python scripts/build_desktop.py --test   # PyInstaller app with ffmpeg bundled + its self-test (what CI does per OS)
 spartagen selftest                       # this install: a test video through the one-click remix
 # Android: see android/README.md (NDK for ffmpeg, then ./gradlew assembleRelease in android/)
