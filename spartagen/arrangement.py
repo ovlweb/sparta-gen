@@ -185,11 +185,18 @@ def _drums(groove: str, start_bar: float = 0, end_bar: Optional[float] = None, g
 
 def _perc_layers(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, gain: float = 0.0,
                  suffix: str = "", hats: str = "hat.16ths_spaced") -> list[TrackSpec]:
-    """A percussion pattern (its 3s on the open hat) plus the repetitive closed hi-hat layer."""
+    """A percussion pattern (its 3s on the open hat), the repetitive closed hi-hat layer, and the
+    layers remixers add over it: a second hi-hat and an extra hit (as in Citrus's remix)."""
     return [_perc(pattern, start_bar, end_bar, gain, suffix),
             TrackSpec(f"chat{suffix}", "drum", hats, mode="index", slots=copy.deepcopy(lib.CLOSED_HAT_SLOTS),
                       gain_db=gain, pitched=False, start_bar=start_bar, end_bar=end_bar, visual="hat",
-                      flip="alternate", stem="drums")]
+                      flip="alternate", stem="drums"),
+            TrackSpec(f"hat2{suffix}", "drum", "text:" + lib.SECOND_HAT, mode="index",
+                      slots=copy.deepcopy(lib.SECOND_HAT_SLOTS), gain_db=gain, pitched=False, start_bar=start_bar,
+                      end_bar=end_bar, visual="hat2", flip="alternate", stem="drums"),
+            TrackSpec(f"xperc{suffix}", "drum", "text:" + lib.EXTRA_PERC, mode="index",
+                      slots=copy.deepcopy(lib.EXTRA_PERC_SLOTS), gain_db=gain, pitched=False, start_bar=start_bar,
+                      end_bar=end_bar, visual="perc", flip="alternate", stem="drums")]
 
 
 def _perc(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, gain: float = 0.0,
@@ -804,7 +811,7 @@ FALLBACKS = {
     "chorus_a": ("pitch1",), "chorus_b": ("pitch2", "pitch1"), "pitch2": ("pitch1",), "pitch3": ("pitch2", "pitch1"),
     "pitch4": ("pitch3", "pitch2", "pitch1"), "chorus_c": ("word_a", "word_b", "chorus_a"),
     "chorus_c_a": ("chorus_c", "chorus_a"), "chorus_c_b": ("chorus_c", "chorus_b"),
-    "quote1": ("quote2", "quote3", "phrase"),
+    "quote1": ("quote2", "quote3", "phrase"), "hat2": ("hat_closed",), "perc": ("snare", "clap"),
     "clap": ("snare",), "snare": ("clap",), "hat_open": ("hat_closed",), "word_b": ("word_a",),
 }
 

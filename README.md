@@ -25,7 +25,8 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
 5. **Polishes the mix with an Xleth-style FX rack** (3-band OTT, ChorusCrisp "Jario" pluck, compressor, limiter,
    saturation, reverb, delay, chorus, flanger, phaser, transient shaper, sidechain pump, filter sweeps, tape stop).
 6. **Renders the video**: every note shows its own clip, in sync — fullscreen hits, Madness split screen, 3×3/4×4
-   grids, flips on every hit, flashes, kick zoom-punch and the spinning *OMG TEH EPICNESS* text.
+   grids, flips on every hit, flashes, kick zoom-punch and the spinning *OMG TEH EPICNESS* text — over the source
+   itself, blurred and dimmed, behind the boxes.
 
 Everything happens in one app with a **preview before you save**, on **Windows, macOS, Linux and Android**.
 
@@ -117,7 +118,9 @@ Sections and what plays in them:
   it is left out; pick any other pitch pattern with the pattern list); ChorusCrisp pluck; the bass pitch on the
   offbeats; the wiki's *Normal Percussion* (kick every beat, clap on 2 and 4 with the kick paralleled — once —
   open hats on the off-beats: "open hi-hats are mostly used for in-pattern hi-hats … the closed one mostly used a
-  repetitive pattern") over a closed hi-hat layer on every 8th; a crash whose clip flashes fullscreen for an 8th on
+  repetitive pattern") over a closed hi-hat layer on every 8th, and the layers Citrus adds in his remix on the
+  extended base (measured over 24 chorus bars): a second hi-hat on the "a" of beat 3 (and the "and" of beat 4 every
+  other bar) and an extra hit on the "and"s of beats 3 and 4; a crash whose clip flashes fullscreen for an 8th on
   the downbeat. The main phrase big in the middle, a box per pitch (and the bass) along the top, drums along the
   bottom. On a base there are no fills of our own: the base has its fills, and the example remix on the same base
   keeps the plain pattern through every section. (A Chorus in the base's DunDunDenDen part instead, as one example
@@ -139,7 +142,7 @@ Sections and what plays in them:
   (`3_3__________3__3_3333_33`) before and over the closing roll. The wiki's ORIGINAL (its `1*` as a lead-in two
   16ths before the section) and all 14 edits (CatmanTeam, TheInfySpartan, majugarzett…) are in the library, and an
   edit can alternate with it. The Chorus's frame (the main phrase big in the middle, a box per pitch along the top)
-  with the spinning title.
+  with the spinning *OMG TEH EPICNESS* over its first two bars, one turn per bar.
 - **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
 - **Awesomeness 1 / 2** — the pattern on the main pitch, an octave below on the second, the chords on the second
   to fourth pitch, and the main phrase following its rhythm (part 1 in the first half of each bar, part 2 in the
@@ -207,6 +210,9 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
   how clearly they read as a note once isolated and tuned — voiced, harmonic, and sitting on the note (a singer
   bending into a note from its neighbour keeps some of the bend through the tuning), and keeping its level an
   octave up (a voice with hardly any overtones loses its high notes) — and longer held notes win.
+- **Whole held notes**: pitch candidates come from the full mix, where the band hides the voice now and then; each is
+  grown to the whole note on the isolated voice (same note within 60 cents, up to 0.9 s), so it needs less
+  stretching to fill an 8th or a held chord.
 - **A pitch is the held note**, not the sung word: each pitch is cut to its steady core (voiced, loud, on one
   pitch), dropping the consonant before it and the glide after it — the clip with it.
 - **Pitches that sound different**: after the main pitch, each pitch is picked for quality *and* for how far its
@@ -248,6 +254,8 @@ Remixes normally sit on a Sparta base. Add one in the *Remix* tab (or `--base`) 
 - **key and progression** from the chords of every half bar (triads above the bass — a base's kick is often tuned
   and would fool a bass reading), e.g. `key D, progression 0 1 -2 1`, and whether the key chord is **minor** (the
   pitch chords follow it: major or minor thirds);
+- **the Epicness by its roll**: the Epicness ends on a roll of 16ths, and a base's own Epicness carries it — a 4-bar
+  block ending on a roll is the Epicness (on the extended base, bars 21-24 at 0:34, after an 8-bar Chorus);
 - **sections**: the Chorus is the loud texture that keeps coming back; the Madness is the soft breakdown; the
   rest follow from their places as the wiki describes the structure — the DunDunDenDen after the first Chorus, an
   Epicness after the Chorus that follows it and after the Chorus that follows the Madness, Awesomeness 1 as the
@@ -283,7 +291,7 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 197 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 203 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 

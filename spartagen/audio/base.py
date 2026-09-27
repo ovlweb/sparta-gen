@@ -438,6 +438,54 @@ def label_sections(level: np.ndarray, shape: np.ndarray, rhythm: np.ndarray,
     return secs
 
 
+def roll_bars(x: np.ndarray, sr: int, offset: float, bar_s: float, bars: int, lo: float = 200.0,
+              hi: float = 4000.0) -> set[int]:
+    """Bars whose second half is a roll of 16ths — an attack on (nearly) every step.  The Epicness ends
+    on one ("…111_1111111111111111"), and a base's own Epicness carries it."""
+    n = 256
+    k_total = x.shape[0] // n
+    if k_total < 8:
+        return set()
+    fr = np.fft.rfftfreq(n, 1.0 / sr)
+    m = (fr >= lo) & (fr < hi)
+    frames = x[: k_total * n].reshape(k_total, n) * np.hanning(n)
+    env = 10.0 * np.log10((np.abs(np.fft.rfft(frames, axis=1)) ** 2)[:, m].sum(axis=1) + 1e-9)
+    step = bar_s / 16
+    out = set()
+    for b in range(bars):
+        hits = 0
+        for st in range(8, 16):
+            k = int((offset + b * bar_s + st * step) * sr / n)
+            if k - 4 < 0 or k + 2 > k_total:
+                continue
+            if env[k:k + 2].max() - env[k - 4:k - 1].mean() >= 3.0:
+                hits += 1
+        if hits >= 6:
+            out.add(b)
+    return out
+
+
+def epicness_by_roll(secs: list[BaseSection], rolls: set[int]) -> list[BaseSection]:
+    """The Epicness ends on its roll.  When the 4 bars after a block labelled Epicness end on a roll and
+    that block does not, the Epicness is the rolling block, and the one before it is the second half
+    of the Chorus it follows (the extended base: Chorus bars 13-20, Epicness 21-24)."""
+    out = list(secs)
+    i = 0
+    while i < len(out):
+        s = out[i]
+        if (s.kind == "epicness" and 0 < i < len(out) - 1 and out[i - 1].kind == "chorus"
+                and (s.start_bar + s.bars - 1) not in rolls):
+            nxt = out[i + 1]
+            if nxt.kind in ("awesomeness1", "awesomeness2", "epicness") and nxt.bars == 4 \
+                    and (nxt.start_bar + nxt.bars - 1) in rolls:
+                out[i - 1].bars += s.bars
+                nxt.kind = "epicness"
+                del out[i]
+                continue
+        i += 1
+    return out
+
+
 def intro_hits(spec: _Spec, on: Onsets, offset: float, bar_s: float, intro_bars: int,
                key_pc: int, kick_pc: Optional[int] = None) -> list[tuple[int, int]]:
     """Strong hits in the intro (step from bar 1, semitone from the key)."""
@@ -524,6 +572,9 @@ def analyze_base(x: np.ndarray, sr: int, progress: Progress = None, bpm_hint: Op
     minor = key_chord_is_minor(spec, offset, bar_s, roots, key_pc, loud)
     say(0.75, "mapping sections")
     secs = label_sections(level, shape, rhythm, low)
+    secs = epicness_by_roll(secs, roll_bars(x, SR, offset, bar_s, bars))
+    for sec in secs:
+        sec.level_db = round(float(level[sec.start_bar:sec.start_bar + sec.bars].mean()), 2)
     chorus_bars = [b for c in secs if c.kind == "chorus" for b in range(c.start_bar, c.start_bar + c.bars)]
     kick_pc = kick_pitch_class(spec, offset, bar_s, chorus_bars or [b for b in range(bars) if loud[b]])
     intro = next((s for s in secs if s.kind == "intro"), None)

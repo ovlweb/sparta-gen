@@ -27,7 +27,7 @@ POLISH_TARGET_LUFS = {"light": -12.0, "normal": -10.0, "hard": -8.5}
 # Gain staging: the source pitches lead (they ARE the remix), drums punch just
 # under them, the bass supports.  Measured on chorus sections after the stem chains.
 STEM_LEVEL_DB = {
-    "pitch": 5.5, "chorus": 4.5, "pitch_layers": 7.0, "pitch_soft": 3.0, "pad": -1.0, "bass": -4.0,
+    "pitch": 2.0, "chorus": 4.5, "pitch_layers": 5.0, "pitch_soft": 3.0, "pad": -1.0, "bass": -4.0,
     "drums": -3.5, "chop": 4.0, "quotes": 2.0, "misc": 0.0,
 }
 

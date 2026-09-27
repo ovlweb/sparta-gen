@@ -153,3 +153,14 @@ def test_stale_stems_do_not_linger(session, tmp_path):
     (d / "mine.wav").write_bytes(b"keep")         # not ours: left alone
     render_mix(arr, AR.compile_events(arr, set(bank.samples)), bank, MixConfig(tail_s=0.2), stems_dir=str(d))
     assert (d / "pitch.wav").is_file() and not (d / "chop.wav").exists() and (d / "mine.wav").exists()
+
+
+def test_extra_percussion_comes_from_other_moments(session):
+    bank = session.bank()
+    def clear(a, b):
+        return a.src_end + 0.5 <= b.src_start or a.src_start >= b.src_end + 0.5
+    if bank.get("hat2") is not None:
+        assert all(clear(bank.get("hat2"), bank.get(k)) for k in ("hat_closed", "hat_open") if bank.get(k))
+    if bank.get("perc") is not None:
+        assert all(clear(bank.get("perc"), bank.get(k)) for k in ("kick", "snare") if bank.get(k))
+    print("hat2" in bank.samples, "perc" in bank.samples)

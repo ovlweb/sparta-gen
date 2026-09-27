@@ -32,7 +32,9 @@ class VideoConfig:
     fps: float = 30.0
     crf: int = 20
     preset: str = "veryfast"
-    background: str = "dark"          # black | dark
+    background: str = "blur"          # blur (the source, blurred and dimmed) | black | dark
+    background_dim: float = 0.42
+    intro_title: bool = False         # the remix title over the first seconds
     flash: bool = True
     zoom_punch: bool = True
     gap: int = 4
@@ -92,8 +94,8 @@ LAYOUT_CELLS["main"] = {
 # Every pitch has its own box along the top — the several pitches are seen playing together — with the
 # bass at the end of the row; drums and quotes along the bottom.
 MAIN_PITCH = {"pitch1": "t0", "pitch2": "t1", "pitch3": "t2", "pitch4": "t3"}
-MAIN_FIXED = {"bass": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "crash": "b3", "corner": "b3", "quote": "b4",
-              "side": "l"}
+MAIN_FIXED = {"bass": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "crash": "b3", "corner": "b3", "perc": "b3",
+              "hat2": "b4", "quote": "b4", "side": "l"}
 
 # Snake order around the 4x4 border then the centre, for cycling pitch clips.
 GRID4_CYCLE = ["c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10"]
@@ -101,7 +103,7 @@ GRID3_PITCH = {"pitch1": "mc", "pitch2": "ml", "pitch3": "mr", "pitch4": "tc"}
 # Chord voices (one pitch sample per line) in the 4x4 grid's middle, one box each.
 GRID4_VOICES = {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21", "pitch1": "c22"}
 GRID3_FIXED = {"kick": "bl", "snare": "br", "hat": "tl", "crash": "tr", "bass": "bc", "corner": "tr",
-               "quote": "tc", "center": "mc"}
+               "quote": "tc", "center": "mc", "hat2": "tl", "perc": "br"}
 
 
 def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
@@ -109,7 +111,7 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
     if v == "none":
         return None
     if layout == "full":
-        if v in ("kick", "snare", "hat", "crash", "bass", "corner", "side", "voices"):
+        if v in ("kick", "snare", "hat", "hat2", "perc", "crash", "bass", "corner", "side", "voices"):
             return None
         return "main"
     if v == "hit":
@@ -168,6 +170,33 @@ def _apply_flip(frame: np.ndarray, state: str) -> np.ndarray:
     if state == "hv":
         return frame[::-1, ::-1]
     return frame
+
+
+# ── background ───────────────────────────────────────────────────────────────
+
+
+class BlurredSource:
+    """The source video, blurred, playing behind the remix (read a second at a time)."""
+
+    CHUNK_S = 1.0
+
+    def __init__(self, source: str, w: int, h: int, fps: float, duration: float):
+        self.source, self.w, self.h, self.fps = source, w, h, fps
+        self.duration = max(duration, 1.0)
+        self._chunk: Optional[int] = None
+        self._frames: Optional[np.ndarray] = None
+
+    def frame(self, t: float) -> Optional[np.ndarray]:
+        ts = t % self.duration
+        c = int(ts // self.CHUNK_S)
+        if c != self._chunk:
+            self._chunk = c
+            self._frames = ff.read_blurred(self.source, c * self.CHUNK_S, self.CHUNK_S + 1.0 / self.fps, self.fps,
+                                           self.w, self.h)
+        if self._frames is None or self._frames.shape[0] == 0:
+            return None
+        i = min(int((ts - c * self.CHUNK_S) * self.fps), self._frames.shape[0] - 1)
+        return self._frames[i]
 
 
 # ── clip cache ───────────────────────────────────────────────────────────────
@@ -362,6 +391,8 @@ def render_video(
     kicks.sort()
 
     bg_val = 0 if cfg.background == "black" else 14
+    blur_bg = BlurredSource(source, W, H, fps, info.duration) if (cfg.background == "blur" and info.has_video) \
+        else None
     ptr = 0
     active: list[tuple] = []
     last_in_cell: dict[tuple[int, str], tuple] = {}
@@ -374,7 +405,13 @@ def render_video(
             layout = sec.layout
             cells = LAYOUT_CELLS[layout]
             canvas = np.full((H, W, 3), bg_val, dtype=np.uint8)
-            if layout == "full" or bg_val == 0:
+            if blur_bg is not None and sec.kind not in cfg.blink_sections:
+                # Our source, blurred and dimmed, behind the boxes (the blink sections stay black
+                # between their hits — silence in between).
+                bg = blur_bg.frame(t)
+                if bg is not None:
+                    canvas = (bg.astype(np.uint16) * int(cfg.background_dim * 256) >> 8).astype(np.uint8)
+            elif layout == "full" or bg_val == 0:
                 canvas[:] = 0
             while ptr < len(vis) and vis[ptr][0] <= t:
                 active.append(vis[ptr])
@@ -420,7 +457,7 @@ def render_video(
                     z = 1.0 + 0.035 * (1.0 - dt / 0.12)
                     canvas = _zoom(canvas, z)
             if titles is not None and titles.ok:
-                _draw_titles(canvas, titles, arr, si, t - starts[si], W, H)
+                _draw_titles(canvas, titles, arr, si, t - starts[si], W, H, cfg.intro_title)
             vw.write(canvas)
             if progress and k % 48 == 0:
                 progress(k / n_frames, "rendering video")
@@ -438,15 +475,19 @@ def _zoom(canvas: np.ndarray, z: float) -> np.ndarray:
     return canvas[ys][:, xs]
 
 
-def _draw_titles(canvas: np.ndarray, titles: Titles, arr: Arrangement, si: int, t_in: float, W: int, H: int) -> None:
+def _draw_titles(canvas: np.ndarray, titles: Titles, arr: Arrangement, si: int, t_in: float, W: int, H: int,
+                 intro_title: bool = False) -> None:
     sec = arr.sections[si]
-    if sec.kind == "epicness" and t_in < arr.bar_s * min(sec.bars, 8) / 3.0:
-        # "OMG TEH EPICNESS" spinning text over the first third of the Epicness (Sparta Remix Wiki).
-        angle = (t_in * 360.0) % 360.0
-        spr = titles.render("OMG TEH EPICNESS", max(24, H // 10), angle)
+    if sec.kind == "epicness" and t_in < arr.bar_s * min(sec.bars, 2):
+        # "OMG TEH EPICNESS" spinning text (Sparta Remix Wiki) over the Epicness's first two bars, in
+        # time with the base: one turn per bar, a little bigger on every beat.
+        angle = (t_in / arr.bar_s * 360.0) % 360.0
+        beat = (t_in / (arr.bar_s / 4)) % 1.0
+        size = int(max(24, H // 10) * (1.0 + 0.12 * max(0.0, 1.0 - beat * 4.0)))
+        spr = titles.render("OMG TEH EPICNESS", size, angle)
         if spr is not None:
             _blit_rgba(canvas, spr, W // 2, H // 2)
-    elif sec.kind == "intro" and si == 0 and t_in < 2.5:
+    elif intro_title and sec.kind == "intro" and si == 0 and t_in < 2.5:
         spr = titles.render(arr.title, max(18, H // 16), 0.0, (255, 255, 255))
         if spr is not None:
             _blit_rgba(canvas, spr, W // 2, int(H * 0.88))

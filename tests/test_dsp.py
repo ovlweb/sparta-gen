@@ -169,3 +169,17 @@ def test_a_pitch_is_cut_to_its_held_note():
     x = np.concatenate([cons[: int(0.04 * sr)], held, glide]).astype(np.float32)
     a, b = steady_core(x, sr)
     assert abs(a / sr - 0.04) < 0.02 and abs(b / sr - 0.24) < 0.03
+
+
+def test_a_pitch_candidate_grows_to_its_whole_held_note():
+    from spartagen.samples import grow_note
+    from spartagen.audio.analysis import Candidate
+    from tests.conftest import harmonic_tone
+    sr = 44100
+    gap = np.zeros(int(0.3 * sr), np.float32)
+    x = np.concatenate([gap, harmonic_tone(293.66, 0.6, sr, vibrato_cents=30.0), gap,
+                        harmonic_tone(392.0, 0.4, sr)]).astype(np.float32)
+    c = Candidate("pitch", 0.50, 0.65, 0.8, {"f0": 293.66})      # the middle of the held note (0.3-0.9 s)
+    g = grow_note(x, sr, c)
+    assert abs(g.start - 0.3) < 0.04 and abs(g.end - 0.9) < 0.04     # the whole note, not the next one
+    assert g.info["grown_from"] == [0.5, 0.65]

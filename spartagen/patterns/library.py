@@ -648,6 +648,12 @@ PERC_SLOTS = {
 }
 #: The repetitive closed hi-hat layer under a percussion pattern.
 CLOSED_HAT_SLOTS = {"3": {"sample": "hat_closed", "gain": -10.0, "visual": "hat"}}
+#: Citrus's layers on the extended base (measured on his remix, 24 chorus bars): a second hi-hat on the
+#: "a" of beat 3 (and the "and" of beat 4 every other bar), and an extra hit on the "and"s of beats 3 and 4.
+SECOND_HAT = "___________3_______________3__3_"
+SECOND_HAT_SLOTS = {"3": {"sample": "hat2", "gain": -9.0, "visual": "hat2"}}
+EXTRA_PERC = "__________3___3_"
+EXTRA_PERC_SLOTS = {"3": {"sample": "perc", "gain": -7.0, "visual": "perc"}}
 
 
 # ── Rhythm patterns for the source-made percussion and bass (our own) ────────

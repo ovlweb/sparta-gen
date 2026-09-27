@@ -11,7 +11,8 @@ processed the way remixers prepare them by hand:
 * kick       — a thump from the source, pitched down for body, with a pitch
                sweep for punch and the original transient on top
 * snare/clap — a noisy "bang" from the source, EQ'd for body + snap
-* hat_closed / hat_open — sibilants or cymbal hiss, high-passed
+* hat_closed / hat_open — sibilants or cymbal hiss, high-passed; hat2 a second hi-hat
+* perc       — one more hit (another bang of the source) for the extra percussion layer
 * crash      — a loud noisy stretch with a long reverb tail
 * quote1..3  — speech phrases (intro, fills, ending)
 * phrase + syl1..N — the main phrase (the Chorus clip) and its syllables (DunDunDenDen chops)
@@ -162,6 +163,47 @@ def _target_midi(f0: float, key_pc: int, octave: Optional[int]) -> int:
 
 
 # ── designers ────────────────────────────────────────────────────────────────
+
+
+def grow_note(x: np.ndarray, sr: int, c: Candidate, before: float = 0.35, after: float = 0.8,
+              max_len: float = 0.9) -> Candidate:
+    """The whole held note a pitch candidate sits in.  Candidates come from the full mix, where the
+    band hides the voice now and then and cuts a note short; on the isolated voice the note often goes
+    on — and a longer note needs less stretching to fill an 8th or a held chord, so it sounds natural."""
+    f0 = c.info.get("f0")
+    if not f0 or not np.isfinite(f0):
+        return c
+    a = max(0.0, c.start - before)
+    seg = dsp.highpass(_cut(x, sr, a, c.end + after), sr, 60.0, order=2)
+    if seg.shape[0] < int(0.1 * sr):
+        return c
+    iso, _ = harmonic_filter(seg, sr, f0_hint=f0)
+    tr = yin_track(iso, sr, fmin=70.0, fmax=1000.0, frame=1024, hop=128, threshold=0.3)
+    ok = tr.voiced & np.isfinite(tr.f0)
+    if ok.sum() < 4:
+        return c
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cents = np.abs(1200.0 * np.log2(tr.f0 / f0))
+    on = ok & (cents < 60.0) & (tr.rms > float(np.max(tr.rms)) * 10 ** (-15.0 / 20.0))
+    centre = int(np.argmin(np.abs(tr.times - ((c.start + c.end) / 2 - a))))
+    if not on[centre]:
+        near = np.flatnonzero(on)
+        if near.size == 0:
+            return c
+        centre = int(near[np.argmin(np.abs(near - centre))])
+    i0 = i1 = centre
+    while i0 > 0 and (on[i0 - 1] or (i0 > 1 and on[i0 - 2])):        # one-frame dropouts don't end it
+        i0 -= 1
+    while i1 < on.size - 1 and (on[i1 + 1] or (i1 < on.size - 2 and on[i1 + 2])):
+        i1 += 1
+    t0 = a + float(tr.times[i0]) - 0.012
+    t1 = a + float(tr.times[i1]) + 0.012
+    t0, t1 = min(t0, c.start), max(t1, c.end)
+    if t1 - t0 > max_len:                                                # the loudest part of a long note
+        t1 = t0 + max_len
+    if t1 - t0 <= c.duration + 0.02:
+        return c
+    return Candidate(c.kind, max(0.0, t0), t1, c.score, dict(c.info, grown_from=[round(c.start, 4), round(c.end, 4)]))
 
 
 def steady_core(seg: np.ndarray, sr: int, min_len: float = 0.1, pad: float = 0.004) -> Optional[tuple[int, int]]:
@@ -619,6 +661,9 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
     # ── pitches ──
     used: list[tuple[float, float]] = []
     pitches = C.get("pitch", [])
+    if pitches:
+        step(0.02, "finding whole held notes")
+        pitches = [grow_note(x, sr, c) for c in pitches[:20]] + list(pitches[20:])    # same order and indices
     # Auto picks go by how the note comes out once isolated and tuned: a steady note buried in the
     # band is no pitch at all.  (Explicit picks index the analysis list as shown in the app.)
     made: dict[int, Sample] = {}
@@ -761,6 +806,25 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
     cr = _pick(C.get("crash", []), sel.get("crash")) or ho or snare_c
     if cr:
         bank.samples["crash"] = make_crash(x, sr, cr)
+    # Layers remixers add over the pattern (Citrus's remix on the extended base): a second hi-hat —
+    # another hiss of the source — and one more hit, both from other moments than the kit above.
+    taken = [(c.start, c.end) for c in (hc, ho) if c is not None]
+    h2 = _pick(hats, sel.get("hat2"), taken, 0.5)
+    if h2 is not None and sel.get("hat2") is None and not _clear_of(h2, taken, 0.5):
+        h2 = None
+    if h2 is not None:
+        smp = make_hat(x, sr, h2, open_hat=False)
+        smp.id, smp.label = "hat2", "second hi-hat"
+        bank.samples["hat2"] = smp
+    bangs = sorted(C.get("snare", []) + C.get("hit", []), key=lambda c: -c.score)
+    used_bangs = [(c.start, c.end) for c in (kick_c, snare_c, hc, ho, h2) if c is not None]
+    pc = _pick(bangs, sel.get("perc"), used_bangs, 0.5)
+    if pc is not None and sel.get("perc") is None and not _clear_of(pc, used_bangs, 0.5):
+        pc = None
+    if pc is not None:
+        smp = make_snare(x, sr, pc)
+        smp.id, smp.label = "perc", "percussion hit"
+        bank.samples["perc"] = smp
 
     # ── quotes, phrase, syllables, words ──
     step(0.65, "cutting quotes")

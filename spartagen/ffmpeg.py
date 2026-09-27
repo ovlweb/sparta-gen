@@ -299,6 +299,25 @@ def read_frames(
     return frames
 
 
+def read_blurred(path: str, start: float, duration: float, fps: float, width: int, height: int,
+                 small: int = 40) -> np.ndarray:
+    """A time range as heavily blurred frames (shrunk to ``small`` pixels wide, then smoothly scaled
+    back up): a background layer behind the boxes.  (n, h, w, 3) uint8."""
+    sh = max(2, int(round(small * height / width / 2)) * 2)
+    n_expected = max(1, int(round(duration * fps)))
+    vf = (f"fps={fps:.6f},scale={small}:{sh}:force_original_aspect_ratio=increase:flags=area,crop={small}:{sh},"
+          f"scale={width}:{height}:flags=bicubic")
+    cmd = [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(start, 0.0):.6f}",
+           "-i", path, "-t", f"{max(duration, 1.0 / fps):.6f}", "-an", "-vf", vf, "-pix_fmt", "rgb24",
+           "-f", "rawvideo", "pipe:1"]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_CREATIONFLAGS)
+    fb = width * height * 3
+    n = len(proc.stdout) // fb
+    if n == 0:
+        return np.zeros((0, height, width, 3), dtype=np.uint8)
+    return np.frombuffer(proc.stdout[: n * fb], dtype=np.uint8).reshape(n, height, width, 3)[:n_expected]
+
+
 def shot_cuts(path: str, start: float, end: float, fps: float = 25.0, threshold: float = 30.0,
               hist_threshold: float = 0.4) -> list[float]:
     """Camera cuts between ``start`` and ``end``: the times where a new shot begins — the colours

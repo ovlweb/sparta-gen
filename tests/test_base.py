@@ -316,7 +316,7 @@ def test_shot_cuts_finds_a_camera_cut(tmp_path):
 
 
 AVAIL_ALL = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "chorus_c", "chorus_c_a",
-             "chorus_c_b", "bass", "kick", "clap",
+             "chorus_c_b", "bass", "kick", "clap", "hat2", "perc",
              "snare", "hat_closed", "hat_open", "crash", "quote1", "quote2", "quote3", "phrase", "word_a", "word_b"}
 
 
@@ -464,3 +464,64 @@ def test_dundundenden_steps_through_the_main_phrase_with_the_pitches():
     assert drums and min(drums) == 32.0                          # bar 3 of 6 (0:13.7 on the extended base)
     first = lambda tid: min(at(e) for e in ev if e.section == si and e.track_id == tid)   # noqa: E731
     assert first("chords") == 64.0 and first("bass") == 66.0      # bar 5 (0:17.1); the bass on the off-beat
+
+
+def test_the_epicness_is_the_block_that_ends_on_the_roll():
+    """The Epicness ends on a roll of 16ths; when the labels put it one block early (the extended base:
+    its roll is in bar 24), the rolling block becomes the Epicness and the earlier one joins the Chorus."""
+    S = B.BaseSection
+    secs = [S("intro", 0, 2), S("chorus", 2, 4), S("dundundenden", 6, 6), S("chorus", 12, 4), S("epicness", 16, 4),
+            S("awesomeness1", 20, 4), S("chorus", 24, 8)]
+    out = B.epicness_by_roll(secs, {23})
+    assert [(s.kind, s.start_bar, s.bars) for s in out] == [
+        ("intro", 0, 2), ("chorus", 2, 4), ("dundundenden", 6, 6), ("chorus", 12, 8), ("epicness", 20, 4),
+        ("chorus", 24, 8)]
+    # An Epicness that ends on its own roll stays where it is.
+    secs = [S("chorus", 0, 4), S("epicness", 4, 4), S("awesomeness1", 8, 4)]
+    assert [s.kind for s in B.epicness_by_roll(secs, {7, 11})] == ["chorus", "epicness", "awesomeness1"]
+
+
+def test_roll_bars_finds_a_roll_of_16ths():
+    sr = SR
+    bar = 240.0 / 140.0
+    x = np.zeros(int(4 * bar * sr), np.float32)
+    rng = np.random.default_rng(1)
+    def hit(t):
+        a = int(t * sr)
+        n = int(0.03 * sr)
+        x[a:a + n] += (0.5 * rng.standard_normal(n) * np.exp(-np.arange(n) / (0.006 * sr))).astype(np.float32)
+    for b in range(4):
+        for st in (0, 4, 8, 12):
+            hit(b * bar + st * bar / 16)
+    for st in range(8, 16):                                  # bar 3's second half: a 16th roll
+        hit(2 * bar + st * bar / 16)
+    assert B.roll_bars(x, sr, 0.0, bar, 4) == {2}
+
+
+def test_the_background_is_the_source_blurred(tmp_path):
+    from spartagen import ffmpeg as ff
+    src = str(tmp_path / "src.mp4")
+    ff.run([ff.ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+            "-i", "testsrc2=s=320x180:r=25:d=2", "-pix_fmt", "yuv420p", src])
+    sharp = ff.read_frames(src, 0.5, 0.2, 25.0, 320, 180).astype(np.float32)
+    soft = ff.read_blurred(src, 0.5, 0.2, 25.0, 320, 180).astype(np.float32)
+    assert soft.shape == sharp.shape
+    edges = lambda f: float((np.diff(f, axis=2) ** 2).mean())    # noqa: E731  (edge energy)
+    assert edges(soft) < 0.25 * edges(sharp)
+    assert abs(float(soft.mean()) - float(sharp.mean())) < 25       # the same picture, just soft
+
+
+def test_citrus_layers_second_hat_and_extra_hit():
+    """Measured on Citrus's remix on the extended base: a second hi-hat on the "a" of beat 3 (and the "and"
+    of beat 4 every other bar), an extra hit on the "and"s of beats 3 and 4 — over the plain pattern."""
+    from spartagen.render_video import cell_for
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    si = next(i for i, s in enumerate(arr.sections) if s.kind == "chorus")
+    t0 = arr.section_starts()[si]
+    at = lambda tid: sorted(round((e.t - t0) / arr.step_s) for e in ev if e.section == si and e.track_id == tid)  # noqa: E731
+    assert at("hat2")[:3] == [11, 27, 30] and at("xperc")[:4] == [10, 14, 26, 30]
+    h2 = next(e for e in ev if e.section == si and e.track_id == "hat2")
+    xp = next(e for e in ev if e.section == si and e.track_id == "xperc")
+    assert h2.sample == "hat2" and xp.sample == "perc"
+    assert cell_for(h2, "main") == "b4" and cell_for(xp, "main") == "b3" and cell_for(h2, "full") is None
