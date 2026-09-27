@@ -15,7 +15,7 @@ import numpy as np
 
 from . import SAMPLE_RATE, __version__
 from . import ffmpeg as ff
-from .arrangement import Arrangement, build_arrangement, build_from_base, compile_events, VARIANTS
+from .arrangement import Arrangement, build_arrangement, build_from_base, compile_events, variant_def
 from .audio import dsp
 from .audio.analysis import Analysis, analyze
 from .render_audio import MixConfig, muted_stems, render_mix
@@ -205,13 +205,50 @@ class Session:
             dsp.write_wav(out, dsp.apply_fades(seg, SAMPLE_RATE, 3, 6), SAMPLE_RATE)
         return out
 
+    # ── key ──
+    def follow_key(self, key: Optional[str]) -> None:
+        """Tune the pitch samples to a base's (or template's, or MIDI's) key — unless the user chose the
+        key themselves (``options["key_mode"] == "manual"``)."""
+        if not key or self.project.options.get("key_mode") == "manual":
+            return
+        with self.lock:
+            if self.project.samples.get("key") != key:
+                self.project.samples["key"] = key
+
+    def set_key(self, key: Optional[str]) -> None:
+        """The user's own key (None or "auto": follow the base again)."""
+        with self.lock:
+            if key in (None, "", "auto"):
+                self.project.options["key_mode"] = "auto"
+            else:
+                from .audio.pitch import pitch_class
+                pitch_class(key)
+                self.project.options["key_mode"] = "manual"
+                self.project.samples["key"] = key
+
     # ── base ──
-    def set_base(self, path: str, progress: Progress = None, fit: bool = True) -> dict:
+    def base_template(self):
+        """The base template the base file is played as (None: read everything from the file)."""
+        tid = self.project.options.get("base_template")
+        if not tid:
+            return None
+        from .bases import get_template
+        try:
+            return get_template(tid)
+        except KeyError:
+            return None
+
+    def set_base(self, path: str, progress: Progress = None, fit: bool = True,
+                 template: Optional[str] = None) -> dict:
         """Load a Sparta base: map its tempo, bars, chords and sections, line bar 1 up with the remix
-        and (``fit``) build the remix on the base's own structure."""
+        and (``fit``) build the remix on the base's own structure.  ``template`` names the base
+        template it is (its tempo guides the analysis, its patterns go on the parts)."""
         from .audio.base import analyze_base_file
         path = os.path.abspath(path)
-        bm = analyze_base_file(path, progress)
+        if template is not None:
+            self.project.options["base_template"] = template or ""
+        tpl = self.base_template()
+        bm = analyze_base_file(path, progress, bpm_hint=tpl.bpm if tpl else None)
         with self.lock:
             self.project.base = bm.to_dict()
             self.project.mix.update({"base_path": path, "base_offset": bm.offset,
@@ -221,6 +258,7 @@ class Session:
             if fit:
                 self.project.variant = "base"
                 self.project.arrangement = None
+        self.follow_key(bm.key)
         return self.project.base
 
     def clear_base(self) -> None:
@@ -238,21 +276,29 @@ class Session:
             if self.project.arrangement:
                 return Arrangement.from_dict(self.project.arrangement)
             o = self.project.options
+            key = self.project.samples.get("key") or None
             if self.project.variant == "base" and self.project.base:
-                arr = build_from_base(self.project.base, pitching=o.get("pitching") or "normal",
-                                      polish=o.get("polish") or "normal",
+                tpl = self.base_template()
+                extra = dict(tpl.options) if tpl else {}
+                extra.update(o.get("patterns") or {})
+                arr = build_from_base(self.project.base, pitching=o.get("pitching") or (tpl.pitching if tpl else "normal"),
+                                      polish=o.get("polish") or (tpl.polish if tpl else "normal"),
                                       minor=None if o.get("minor") is None else bool(o.get("minor")),
                                       title=o.get("title") or None, chorus_pattern=o.get("chorus_pattern"),
-                                      progression=o.get("progression"),
-                                      chorus_pitch=bool(o.get("chorus_pitch")))
+                                      progression=o.get("progression") or (tpl.progression if tpl else None) or None,
+                                      chorus_pitch=bool(o.get("chorus_pitch")), extra=extra,
+                                      plan=tpl.plan if tpl and o.get("base_structure") == "template" else None)
+                if key:
+                    arr.key = key
                 if not o.get("title"):
                     arr.title = f"{self.project.name} has a Sparta Remix" if self.project.source_path else arr.title
                 return arr
             arr = build_arrangement(
-                self.project.variant, bpm=o.get("bpm"), key=o.get("key", "D"), progression=o.get("progression"),
+                self.project.variant, bpm=o.get("bpm"), key=key, progression=o.get("progression"),
                 pitching=o.get("pitching"), polish=o.get("polish"), minor=o.get("minor"),
                 intro_pattern=o.get("intro_pattern"), chorus_pattern=o.get("chorus_pattern"),
                 title=o.get("title") or None, chorus_pitch=bool(o.get("chorus_pitch")),
+                options=o.get("patterns") or None,
             )
             if o.get("title"):
                 arr.title = o["title"]
@@ -262,15 +308,22 @@ class Session:
             return arr
 
     def set_variant(self, variant: str, options: Optional[dict] = None) -> Arrangement:
-        if variant == "base" and not self.project.base:
-            raise ValueError("load a Sparta base first to fit the remix to it")
-        if variant not in VARIANTS and variant != "base":
-            raise ValueError(f"unknown variant {variant}")
+        """Build the remix on a base template (or a variant; "base": on the loaded base file)."""
+        key = None
+        if variant == "base":
+            if not self.project.base:
+                raise ValueError("load a Sparta base first to fit the remix to it")
+        else:
+            key = variant_def(variant).get("key")         # raises for an unknown template
         with self.lock:
             self.project.variant = variant
             if options is not None:
-                self.project.options = dict(options)
+                keep = {k: self.project.options[k] for k in ("key_mode", "base_template", "base_structure")
+                        if k in self.project.options}
+                self.project.options = dict(keep, **options)
             self.project.arrangement = None
+        if key:
+            self.follow_key(key)
         return self.arrangement()
 
     # ── render ──

@@ -1,4 +1,4 @@
-"""Command line: `spartagen gui`, `make`, `analyze`, `base`, `pack`, `patterns`, `variants`, `selftest`."""
+"""Command line: `spartagen gui`, `make`, `analyze`, `base`, `pack`, `patterns`, `templates`, `selftest`."""
 
 from __future__ import annotations
 
@@ -67,13 +67,18 @@ def cmd_make(a: argparse.Namespace) -> int:
         "minor": True if a.minor else None, "title": a.title, "chorus_pattern": a.chorus_pattern,
         "intro_pattern": a.intro_pattern, "chorus_pitch": True if a.chorus_pitch else None,
     }.items() if v is not None}
-    s.project.samples["key"] = a.key
+    opts.pop("key", None)
+    if a.key:
+        s.set_key(a.key)                 # otherwise the pitches follow the base's (or template's) key
     if a.pitch_octave:
         s.project.samples["pitch_octave"] = a.pitch_octave
     variant = a.variant or ("base" if a.base else "unextended")
+    if a.base_structure:
+        opts["base_structure"] = a.base_structure
     if a.base:
         s.project.options = dict(opts)
-        bm = s.set_base(a.base, _progress_printer(a.quiet), fit=variant == "base")
+        bm = s.set_base(a.base, _progress_printer(a.quiet), fit=variant == "base",
+                        template=a.base_template if a.base_template is not None else None)
         if not a.quiet:
             from .audio.base import BaseMap, describe
             print("base: " + describe(BaseMap.from_dict(bm)).replace("\n", "\n      "))
@@ -137,12 +142,20 @@ def cmd_patterns(a: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_variants(a: argparse.Namespace) -> int:
-    from .arrangement import VARIANTS, build_arrangement
-    for k, v in VARIANTS.items():
-        arr = build_arrangement(k)
-        print(f"{k:14s} {v['title']:32s} {arr.bpm:.0f} BPM  {arr.total_bars} bars  {arr.duration:6.1f}s")
-        print(f"               {v['description']}")
+def cmd_templates(a: argparse.Namespace) -> int:
+    from . import bases
+    if a.import_file:
+        t = bases.import_template(a.import_file)
+        print(f"imported {t.name!r} as {t.id} ({t.path})")
+        return 0
+    for g in bases.catalog()["groups"]:
+        print(f"\n{g['name']}")
+        for t in g["templates"]:
+            bpm = f"{t['bpm']:.0f}" + ("" if t["bpm_known"] else "?")
+            print(f"  {t['id']:18s} {t['name']:40s} {bpm:>4s} BPM  {t['key']:3s} {t['bars']:3d} bars  "
+                  f"{t['duration']:6.1f}s")
+            if a.verbose:
+                print(f"  {'':18s} {t['description']}")
     return 0
 
 
@@ -174,13 +187,14 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("make", help="build a remix from a video file or URL")
     m.add_argument("source", help="video/audio file or URL")
     m.add_argument("-o", "--output")
-    m.add_argument("--variant", default=None,
-                   choices=["unextended", "semi_extended", "extended", "hyper", "minor", "classic", "base"],
-                   help="structure; with --base the default is 'base' (follow the base's own sections)")
+    m.add_argument("--template", "--variant", dest="variant", default=None,
+                   help="base template (see `spartagen templates`: unextended, extended, nemesis, …); with --base "
+                        "the default is 'base' (follow the base file's own sections)")
     m.add_argument("--quality", default="720p", choices=["preview", "720p", "1080p"])
     m.add_argument("--audio-only", action="store_true")
     m.add_argument("--bpm", type=float)
-    m.add_argument("--key", default="D", help="note the pitch samples are tuned to (default D)")
+    m.add_argument("--key", default=None,
+                   help="note the pitch samples are tuned to (default: the base's or template's key, else D)")
     m.add_argument("--pitch-octave", type=int, help="force the pitch octave (3, 4 or 5)")
     m.add_argument("--progression", help='chord roots, e.g. "0 1 -2 1" or "0 1 3 1 | -2"')
     m.add_argument("--pitching", choices=["classic", "normal", "hard"])
@@ -193,6 +207,11 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--title")
     m.add_argument("--base", help="a Sparta base (backing track): its tempo, bars, chords and sections are "
                    "detected and the remix is built on them")
+    m.add_argument("--base-template", default=None,
+                   help="which base template the --base file is: its tempo guides the analysis, its patterns "
+                        "go on the base's parts")
+    m.add_argument("--base-structure", choices=["detected", "template"], default=None,
+                   help="follow the base's detected parts (default) or the --base-template's layout")
     m.add_argument("--base-offset", type=float, default=None,
                    help="seconds into the base where bar 1 starts (default: detected)")
     m.add_argument("--base-mode", default=None, choices=["replace", "remix", "layer"],
@@ -235,8 +254,10 @@ def main(argv: list[str] | None = None) -> int:
     pt.add_argument("--mode", default="auto", choices=["auto", "semitone", "compact", "index"])
     pt.set_defaults(fn=cmd_patterns)
 
-    vv = sub.add_parser("variants", help="list the base variants")
-    vv.set_defaults(fn=cmd_variants)
+    vv = sub.add_parser("templates", aliases=["variants"], help="list the base templates (or import one)")
+    vv.add_argument("--import", dest="import_file", help="add a shared .spartabase.json to my templates")
+    vv.add_argument("-v", "--verbose", action="store_true", help="show each template's description")
+    vv.set_defaults(fn=cmd_templates)
 
     st = sub.add_parser("selftest", help="check this install: a test video through the one-click remix")
     st.add_argument("--out", help="write the report (JSON) here")
