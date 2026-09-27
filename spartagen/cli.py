@@ -218,6 +218,13 @@ def cmd_selftest(a: argparse.Namespace) -> int:
     return 0 if run(a.out, a.quality)["ok"] else 1
 
 
+def cmd_engine(a: argparse.Namespace) -> int:
+    from .gui.server import serve_engine
+    serve_engine(port=a.port, token=a.token or os.environ.get("SPARTAGEN_TOKEN"), parent_pid=a.parent_pid,
+                 workspace=a.workspace)
+    return 0
+
+
 def cmd_gui(a: argparse.Namespace) -> int:
     from .gui.server import serve
     serve(host=a.host, port=a.port, open_browser=not a.no_browser, window=a.window, workspace=a.workspace)
@@ -237,6 +244,13 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--window", action="store_true", help="open in a native window (needs pywebview)")
     g.add_argument("--workspace", default=None)
     g.set_defaults(fn=cmd_gui)
+
+    en = sub.add_parser("engine", help="run the engine behind the Sparta Gen app (no window; used by the app)")
+    en.add_argument("--port", type=int, default=0, help="0 = pick a free port (printed on stdout)")
+    en.add_argument("--token", default=None, help="every call must send it (X-Sparta-Token); default $SPARTAGEN_TOKEN")
+    en.add_argument("--parent-pid", type=int, default=None, help="quit when this process ends")
+    en.add_argument("--workspace", default=None)
+    en.set_defaults(fn=cmd_engine)
 
     m = sub.add_parser("make", help="build a remix from a video file or URL")
     m.add_argument("source", help="video/audio file or URL")

@@ -40,10 +40,15 @@ STATIC = os.path.join(os.path.dirname(__file__), "static")
 # ── jobs ─────────────────────────────────────────────────────────────────────
 
 
+class JobCancelled(Exception):
+    """Raised inside a job's progress callback once the user cancelled it."""
+
+
 class Job:
     def __init__(self, kind: str):
         self.id = uuid.uuid4().hex[:12]
         self.kind = kind
+        self.cancel_requested = False
         self.status = "running"
         self.progress = 0.0
         self.message = "starting"
@@ -74,6 +79,8 @@ class App:
         self.jobs[job.id] = job
 
         def progress(p: float, msg: str) -> None:
+            if job.cancel_requested:
+                raise JobCancelled()
             job.progress = max(job.progress, min(1.0, float(p)))
             job.message = msg
 
@@ -88,6 +95,9 @@ class App:
                 job.status = "done"
                 job.progress = 1.0
                 job.message = "done"
+            except JobCancelled:
+                job.status = "cancelled"
+                job.message = "cancelled"
             except Exception as exc:  # reported to the UI
                 job.status = "error"
                 job.error = str(exc) or exc.__class__.__name__
@@ -129,6 +139,11 @@ class App:
             o["file_url"] = self.media_url(out.get("file", ""))
             o["audio_url"] = self.media_url(out.get("audio", ""))
             d["outputs"][q] = o
+        if p.source_path:
+            d["source"]["path"] = p.source_path
+        d["base_path"] = p.mix.get("base_path")
+        from .native_api import extra_view
+        d.update(extra_view(self.session))
         return d
 
     def bank_view(self) -> dict:
@@ -276,6 +291,11 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         path = url.path
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        token = getattr(self.server, "token", None)
+        if token and self.headers.get("X-Sparta-Token") != token and q.get("token") != token:
+            return self._error("not allowed", 401)
+        if not getattr(self.server, "web_ui", True) and (path in ("/", "/index.html") or path.startswith("/static/")):
+            return self._error("this engine serves the Sparta Gen app only", 404)
 
         if method == "GET" and path in ("/", "/index.html"):
             return self._send_file(os.path.join(STATIC, "index.html"))
@@ -539,6 +559,13 @@ class Handler(BaseHTTPRequestHandler):
             if job is None:
                 return self._error("unknown job", 404)
             return self._json(job.to_dict())
+        from .native_api import route as native_route
+        try:
+            if native_route(self, method, path, q):
+                return None
+        except (ValueError, KeyError, FileNotFoundError) as exc:     # bad input: the app shows the message
+            msg = exc.args[0] if isinstance(exc, KeyError) and exc.args else str(exc)
+            return self._error(str(msg), 400)
         return self._error(f"no route for {method} {path}", 404)
 
 
@@ -605,15 +632,58 @@ class _WindowApi:
             w.destroy()
 
 
-def make_server(host: str = "127.0.0.1", port: int = 0, workspace: Optional[str] = None) -> tuple[ThreadingHTTPServer, str]:
+def make_server(host: str = "127.0.0.1", port: int = 0, workspace: Optional[str] = None,
+                token: Optional[str] = None, web_ui: bool = True) -> tuple[ThreadingHTTPServer, str]:
     app = App(workspace)
     Handler.app = app
     if port == 0:
         port = _free_port(host)
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
+    httpd.token = token or None                     # type: ignore[attr-defined]
+    httpd.web_ui = web_ui                           # type: ignore[attr-defined]
     shown = "127.0.0.1" if host in ("0.0.0.0", "") else host
     return httpd, f"http://{shown}:{port}/"
+
+
+def _parent_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        k32 = ctypes.windll.kernel32                # type: ignore[attr-defined]
+        h = k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not h:
+            return False
+        try:
+            return k32.WaitForSingleObject(h, 0) == 0x102   # WAIT_TIMEOUT: still running
+        finally:
+            k32.CloseHandle(h)
+    return os.getppid() == pid
+
+
+def serve_engine(port: int = 0, token: Optional[str] = None, parent_pid: Optional[int] = None,
+                 workspace: Optional[str] = None, host: str = "127.0.0.1") -> None:
+    """The engine behind the native app: no browser, no web page, a token on every call, and gone as
+    soon as the app that started it is."""
+    httpd, url = make_server(host, port, workspace, token=token, web_ui=False)
+    real_port = httpd.server_address[1]
+    try:
+        print(f"SPARTAGEN_ENGINE_READY port={real_port}", flush=True)
+    except Exception:                               # no console (windowed build): the app polls instead
+        pass
+    if parent_pid:
+        def watch() -> None:
+            while _parent_alive(parent_pid):
+                time.sleep(1.0)
+            httpd.shutdown()
+            time.sleep(0.5)
+            os._exit(0)
+        threading.Thread(target=watch, daemon=True).start()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
 
 
 def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True, window: bool = False,
