@@ -100,6 +100,13 @@ def cmd_make(a: argparse.Namespace) -> int:
         if not a.quiet:
             _print_midi(s.midi_song(), s.project.midi["mapping"])
     s.set_variant(variant, opts)
+    if a.style:
+        s.project.video["style"] = a.style
+    for item in a.look or []:
+        k, _, v = item.partition("=")
+        v = v.strip()
+        s.project.video[k.strip()] = (float(v) if v.replace(".", "", 1).isdigit() else
+                                      {"on": True, "off": False}.get(v, v))
     out = a.output
     quality = "audio" if a.audio_only else a.quality
     if out is None:
@@ -265,6 +272,11 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--no-auto-phrase", action="store_true",
                    help="do not put the main phrase on the Chorus pattern when no MIDI part plays it")
     m.add_argument("--export-midi", help="also write the remix's notes as a MIDI file")
+    m.add_argument("--style", help="visual style: classic, clean, xleth, retro, neon, cinematic, mirror")
+    m.add_argument("--look", action="append", metavar="OPTION=VALUE",
+                   help="a visual option on top of the style, e.g. --look border=glow --look shake=0.5 "
+                        "(flip_mode, hit_anim, punch, shake, rgb_split, border, color_fx, tint, scanlines, grain, "
+                        "vignette, letterbox, transition, background)")
     m.add_argument("--stems", action="store_true", help="also write the stems")
     m.add_argument("--pack", help="also export the sample pack to this folder")
     m.add_argument("--project", help="save the project JSON here")

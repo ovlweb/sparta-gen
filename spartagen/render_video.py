@@ -6,6 +6,11 @@ Madness call & response, the Chorus with the main phrase big in the middle,
 pitches along the top and drums along the bottom, and 3x3 / 4x4 grids for the
 Epicness and Awesomeness.  Clips flip on every hit (alternate or
 rotate), flash on the attack, and the frame punches with the kick.
+
+A visual *style* (``VideoConfig.style``) sets the look — classic, clean, Xleth,
+retro VHS, neon, cinematic, mirror — and every option it sets (flips, hit
+animations, punch, shake, RGB split, borders, colour FX, tint, scanlines, grain,
+vignette, letterbox, section transitions, background) can be changed on its own.
 """
 
 from __future__ import annotations
@@ -24,6 +29,36 @@ from .render_audio import audible_length
 from .samples import SampleBank
 
 Progress = Optional[Callable[[float, str], None]]
+
+
+#: Visual styles: what each sets (anything chosen by hand wins).
+STYLES: dict[str, dict] = {
+    "classic": {},
+    "clean": {"flip_mode": "none", "flash": False, "punch": 0.0, "background": "black", "border": "line",
+              "hit_anim": "none", "gap": 6},
+    "xleth": {"flip_mode": "rotate", "flash": True, "punch": 0.07, "rgb_split": 0.5, "shake": 0.35,
+              "border": "glow", "hit_anim": "pop", "transition": "flash", "color_fx": "invert_crash"},
+    "retro": {"scanlines": 0.35, "grain": 0.35, "rgb_split": 0.3, "tint": "warm", "vignette": 0.55,
+              "hit_anim": "none", "punch": 0.03, "transition": "fade"},
+    "neon": {"background": "dark", "border": "glow", "color_fx": "hue_cycle", "flash": True, "hit_anim": "pop",
+             "vignette": 0.35, "tint": "vivid", "punch": 0.05},
+    "cinematic": {"letterbox": 0.11, "vignette": 0.6, "flip_mode": "none", "punch": 0.015, "transition": "fade",
+                  "tint": "cold", "hit_anim": "slide", "flash": False},
+    "mirror": {"background": "mirror", "flip_mode": "mirror", "hit_anim": "pop", "transition": "zoom",
+               "punch": 0.05},
+}
+STYLE_NAMES = {"classic": "Classic (Vegas grid)", "clean": "Clean", "xleth": "Xleth (hard)",
+               "retro": "Retro VHS", "neon": "Neon", "cinematic": "Cinematic", "mirror": "Mirror"}
+#: The options a style sets and their choices (for pickers).
+STYLE_OPTIONS = {
+    "flip_mode": ["auto", "none", "alternate", "rotate", "mirror"],
+    "hit_anim": ["none", "pop", "slide"],
+    "border": ["none", "line", "glow"],
+    "color_fx": ["none", "hue_cycle", "invert_crash", "mono"],
+    "tint": ["none", "warm", "cold", "sepia", "vivid"],
+    "transition": ["cut", "flash", "fade", "zoom"],
+    "background": ["blur", "black", "dark", "mirror", "gradient"],
+}
 
 
 @dataclass
@@ -45,6 +80,22 @@ class VideoConfig:
     blink_sections: tuple = ("dundundenden", "intro_hits", "ending")  # these stay black between hits
     titles: bool = False              # the spinning "OMG TEH EPICNESS" over the Epicness (off; needs Pillow)
     memory_mb: int = 700
+    # ── style (see STYLES) ──
+    style: str = "classic"
+    flip_mode: str = "auto"           # auto (each track's own) | none | alternate | rotate | mirror
+    hit_anim: str = "none"            # none | pop (the box grows on the hit) | slide (it slides in)
+    punch: float = 0.035              # zoom punch on every kick (0 = off)
+    shake: float = 0.0                # 0-1: the frame shakes on kicks and crashes
+    rgb_split: float = 0.0            # 0-1: red and blue split on kicks
+    border: str = "none"              # none | line | glow (in the part's colour)
+    border_color: str = "auto"        # auto (by part) or #rrggbb
+    color_fx: str = "none"            # none | hue_cycle (every hit a new hue) | invert_crash | mono (all but the phrase)
+    tint: str = "none"                # none | warm | cold | sepia | vivid
+    scanlines: float = 0.0            # 0-1
+    grain: float = 0.0                # 0-1
+    vignette: float = 0.0             # 0-1
+    letterbox: float = 0.0            # bar height as a fraction of the frame (cinematic ~0.1)
+    transition: str = "cut"           # at each part: cut | flash | fade | zoom
 
     @staticmethod
     def preset_of(name: str) -> "VideoConfig":
@@ -56,10 +107,23 @@ class VideoConfig:
 
     @staticmethod
     def from_dict(d: dict) -> "VideoConfig":
+        """A quality preset, then the style's settings, then the options chosen by hand."""
+        d = d or {}
         c = VideoConfig.preset_of(d.get("preset_name", "720p")) if d else VideoConfig()
-        for k, v in (d or {}).items():
-            if hasattr(c, k):
+        style = d.get("style") or "classic"
+        if style not in STYLES:
+            raise ValueError(f"unknown visual style {style!r} (styles: {', '.join(STYLES)})")
+        for k, v in STYLES[style].items():
+            setattr(c, k, v)
+        c.style = style
+        for k, v in d.items():
+            if hasattr(c, k) and k not in ("preset_name",):
                 setattr(c, k, v)
+        if d.get("zoom_punch") is False:
+            c.punch = 0.0
+        for k, choices in STYLE_OPTIONS.items():
+            if getattr(c, k) not in choices:
+                raise ValueError(f"{k} must be one of {', '.join(choices)}")
         return c
 
 
@@ -163,7 +227,25 @@ def flip_state(e: NoteEvent) -> str:
     return "none"
 
 
+def flip_for(e: NoteEvent, mode: str) -> str:
+    """The flip of a clip: each track's own (auto), or one rule for every clip."""
+    if mode == "auto":
+        return flip_state(e)
+    if mode == "none":
+        return "none"
+    if mode == "mirror":
+        return "mirror"
+    if mode == "alternate":
+        return "h" if e.index % 2 else "none"
+    return FLIP_CYCLE[e.index % 4]
+
+
 def _apply_flip(frame: np.ndarray, state: str) -> np.ndarray:
+    if state == "mirror":                       # the left half mirrored onto the right
+        out = frame.copy()
+        w = frame.shape[1]
+        out[:, w - w // 2:] = frame[:, :w // 2][:, ::-1]
+        return out
     if state == "h":
         return frame[:, ::-1]
     if state == "v":
@@ -339,6 +421,215 @@ def _blit_rgba(canvas: np.ndarray, sprite: np.ndarray, cx: int, cy: int) -> None
     canvas[ay0:ay1, ax0:ax1] = (region * (1 - alpha) + sp[..., :3].astype(np.float32) * alpha).astype(np.uint8)
 
 
+# ── style effects ────────────────────────────────────────────────────────────
+
+#: Border colours by part: the phrase gold, pitches red, bass purple, drums cyan, quotes white.
+PART_COLORS = {"phrase": (231, 182, 44), "pitch": (235, 45, 75), "bass": (150, 70, 215), "drums": (40, 195, 235),
+               "quote": (240, 240, 240)}
+
+
+def part_of(e: NoteEvent) -> str:
+    v = e.visual
+    if v in ("main", "madness") or e.sample.startswith(("chorus", "word", "phrase", "syl")):
+        return "phrase"
+    if v in ("kick", "snare", "hat", "hat2", "perc", "crash", "corner", "hit"):
+        return "drums"
+    if v == "bass" or e.sample == "bass":
+        return "bass"
+    if v in ("center", "center_late") or e.sample.startswith("quote"):
+        return "quote"
+    return "pitch"
+
+
+def _hex_rgb(text: str) -> Optional[tuple[int, int, int]]:
+    t = text.strip().lstrip("#")
+    if len(t) != 6:
+        return None
+    try:
+        return int(t[0:2], 16), int(t[2:4], 16), int(t[4:6], 16)
+    except ValueError:
+        return None
+
+
+def _resize_nn(fr: np.ndarray, w: int, h: int) -> np.ndarray:
+    ys = np.minimum((np.arange(h) * fr.shape[0]) // max(h, 1), fr.shape[0] - 1)
+    xs = np.minimum((np.arange(w) * fr.shape[1]) // max(w, 1), fr.shape[1] - 1)
+    return fr[ys][:, xs]
+
+
+def _hue_matrix(deg: float) -> np.ndarray:
+    """RGB hue rotation (luma kept)."""
+    a = math.radians(deg)
+    c, s_ = math.cos(a), math.sin(a)
+    return np.array([
+        [0.213 + c * 0.787 - s_ * 0.213, 0.715 - c * 0.715 - s_ * 0.715, 0.072 - c * 0.072 + s_ * 0.928],
+        [0.213 - c * 0.213 + s_ * 0.143, 0.715 + c * 0.285 + s_ * 0.140, 0.072 - c * 0.072 - s_ * 0.283],
+        [0.213 - c * 0.213 - s_ * 0.787, 0.715 - c * 0.715 + s_ * 0.715, 0.072 + c * 0.928 + s_ * 0.072],
+    ], dtype=np.float32)
+
+
+#: Colour swaps for the hue cycle: every hit of a clip gets the next one (cheap: channels only).
+HUE_ORDERS = ([0, 1, 2], [1, 2, 0], [2, 0, 1], [0, 2, 1], [2, 1, 0], [1, 0, 2])
+
+
+def cell_fx(fr: np.ndarray, e: NoteEvent, cfg: "VideoConfig", fresh: bool) -> np.ndarray:
+    """A clip's colour effect."""
+    if cfg.color_fx == "hue_cycle" and part_of(e) != "phrase":
+        order = HUE_ORDERS[e.index % len(HUE_ORDERS)]
+        if order != [0, 1, 2]:
+            fr = fr[..., order]
+    elif cfg.color_fx == "invert_crash" and fresh and e.visual in ("crash", "hit"):
+        fr = 255 - fr
+    elif cfg.color_fx == "mono" and part_of(e) != "phrase":
+        g = (fr[..., 0].astype(np.uint16) * 77 + fr[..., 1].astype(np.uint16) * 150 + fr[..., 2] * 29) >> 8
+        fr = np.repeat(g.astype(np.uint8)[..., None], 3, axis=2)
+    return fr
+
+
+def anim_rect(x0: int, y0: int, cw: int, ch: int, e: NoteEvent, age: float, cfg: "VideoConfig",
+              W: int, H: int) -> tuple[int, int, int, int]:
+    """Where a clip is drawn while its hit animation plays (pop: it grows, slide: it slides in)."""
+    if cfg.hit_anim == "pop" and age < 0.12:
+        k = 1.0 + 0.16 * (1.0 - age / 0.12) ** 2
+        nw, nh = int(cw * k) // 2 * 2, int(ch * k) // 2 * 2
+        return x0 - (nw - cw) // 2, y0 - (nh - ch) // 2, nw, nh
+    if cfg.hit_anim == "slide" and age < 0.1:
+        d = int((1.0 - age / 0.1) ** 2 * 0.35 * cw) * (1 if e.index % 2 else -1)
+        return x0 + d, y0, cw, ch
+    return x0, y0, cw, ch
+
+
+def blit(canvas: np.ndarray, fr: np.ndarray, x0: int, y0: int) -> None:
+    """Paste a frame, clipped to the canvas."""
+    H, W = canvas.shape[:2]
+    h, w = fr.shape[:2]
+    ax0, ay0, ax1, ay1 = max(0, x0), max(0, y0), min(W, x0 + w), min(H, y0 + h)
+    if ax1 > ax0 and ay1 > ay0:
+        canvas[ay0:ay1, ax0:ax1] = fr[ay0 - y0:ay1 - y0, ax0 - x0:ax1 - x0]
+
+
+_GLOW = 10
+#: Glow strength from the box edge outwards (px 0 … 9).
+_GLOW_ALPHA = np.array([0.9, 0.75, 0.6, 0.47, 0.36, 0.27, 0.19, 0.13, 0.08, 0.04], dtype=np.float32)
+
+
+def draw_border(canvas: np.ndarray, x0: int, y0: int, w: int, h: int, color: tuple, kind: str,
+                bright: float = 1.0) -> None:
+    """A 2 px line around a box, or (glow) a line fading out over 10 px — four strips per box."""
+    H, W = canvas.shape[:2]
+    col = np.array(color, dtype=np.float32) * bright
+    if kind == "glow":
+        g = _GLOW
+        strips = (  # (y slice, x slice, alpha along y or x)
+            (slice(y0 - g, y0), slice(x0 - g, x0 + w + g), _GLOW_ALPHA[::-1][:, None, None]),
+            (slice(y0 + h, y0 + h + g), slice(x0 - g, x0 + w + g), _GLOW_ALPHA[:, None, None]),
+            (slice(y0, y0 + h), slice(x0 - g, x0), _GLOW_ALPHA[::-1][None, :, None]),
+            (slice(y0, y0 + h), slice(x0 + w, x0 + w + g), _GLOW_ALPHA[None, :, None]),
+        )
+        for ys, xs, alpha in strips:
+            a0, a1 = max(0, ys.start), min(H, ys.stop)
+            b0, b1 = max(0, xs.start), min(W, xs.stop)
+            if a1 <= a0 or b1 <= b0:
+                continue
+            al = alpha
+            if al.shape[0] > 1:
+                al = al[a0 - ys.start:a1 - ys.start]
+            if al.shape[1] > 1:
+                al = al[:, b0 - xs.start:b1 - xs.start]
+            region = canvas[a0:a1, b0:b1].astype(np.float32)
+            canvas[a0:a1, b0:b1] = (region + (col - region) * al * bright).astype(np.uint8)
+    c = col.astype(np.uint8)
+    for ys, xs in ((slice(y0, y0 + 2), slice(x0, x0 + w)), (slice(y0 + h - 2, y0 + h), slice(x0, x0 + w)),
+                   (slice(y0, y0 + h), slice(x0, x0 + 2)), (slice(y0, y0 + h), slice(x0 + w - 2, x0 + w))):
+        a0, a1, b0, b1 = max(0, ys.start), min(H, ys.stop), max(0, xs.start), min(W, xs.stop)
+        if a1 > a0 and b1 > b0:
+            canvas[a0:a1, b0:b1] = c
+
+
+class PostFX:
+    """Whole-frame effects, precomputed once: tint, vignette and scanlines are one multiply; grain comes
+    from a few noise tiles; punch, shake, RGB split and part transitions follow the music."""
+
+    def __init__(self, cfg: "VideoConfig", W: int, H: int):
+        self.cfg, self.W, self.H = cfg, W, H
+        mul = np.ones((H, W, 3), dtype=np.float32)
+        if cfg.vignette > 0:
+            yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+            r = np.sqrt(((xx - W / 2) / (W / 2)) ** 2 + ((yy - H / 2) / (H / 2)) ** 2) / math.sqrt(2)
+            mul *= (1.0 - cfg.vignette * np.clip(r, 0, 1) ** 2 * 1.3).clip(0.15, 1.0)[..., None]
+        if cfg.scanlines > 0:
+            rows = np.ones(H, dtype=np.float32)
+            rows[1::3] = 1.0 - 0.6 * cfg.scanlines
+            mul *= rows[:, None, None]
+        tints = {"warm": (1.08, 1.0, 0.86), "cold": (0.88, 0.98, 1.1), "vivid": (1.0, 1.0, 1.0)}
+        if cfg.tint in tints:
+            mul *= np.array(tints[cfg.tint], dtype=np.float32)
+        self.mul = None if np.allclose(mul, 1.0) else (mul * 256).astype(np.uint16)
+        self.noise = None
+        if cfg.grain > 0:
+            rng = np.random.RandomState(7)
+            amp = 40 * cfg.grain
+            self.noise = [(rng.randn(H, W, 1) * amp).astype(np.int16) for _ in range(4)]
+        self.lb = int(round(cfg.letterbox * H)) if cfg.letterbox > 0 else 0
+
+    def apply(self, canvas: np.ndarray, k: int, t: float, kick_dt: float, crash_dt: float,
+              section_dt: float) -> np.ndarray:
+        cfg = self.cfg
+        if cfg.transition == "zoom" and 0 <= section_dt < 0.22:
+            canvas = _zoom(canvas, 1.0 + 0.12 * (1.0 - section_dt / 0.22))
+        if cfg.shake > 0:
+            dt = min(kick_dt, crash_dt * 0.6)
+            if 0 <= dt < 0.14:
+                amp = cfg.shake * 0.018 * self.W * (1.0 - dt / 0.14)
+                rng = np.random.RandomState(int(t * 1000) % 100000)
+                dx, dy = (int(v) for v in rng.uniform(-amp, amp, 2))
+                canvas = np.roll(canvas, (dy, dx), axis=(0, 1))
+        if cfg.rgb_split > 0 and 0 <= kick_dt < 0.1:
+            d = max(1, int(cfg.rgb_split * 0.012 * self.W * (1.0 - kick_dt / 0.1)))
+            out = canvas.copy()
+            out[:, d:, 0] = canvas[:, :-d, 0]
+            out[:, :-d, 2] = canvas[:, d:, 2]
+            canvas = out
+        if cfg.tint == "sepia":
+            g = (canvas[..., 0].astype(np.uint16) * 77 + canvas[..., 1].astype(np.uint16) * 150
+                 + canvas[..., 2] * 29) >> 8
+            canvas = np.stack([np.minimum(g * 275 >> 8, 255), np.minimum(g * 225 >> 8, 255), g * 170 >> 8],
+                              axis=2).astype(np.uint8)
+        elif cfg.tint == "vivid":
+            c16 = canvas.astype(np.int16)
+            g = c16.mean(axis=2, keepdims=True).astype(np.int16)
+            canvas = np.clip(g + (c16 - g) * 3 // 2, 0, 255).astype(np.uint8)
+        if self.mul is not None:
+            canvas = np.minimum((canvas.astype(np.uint16) * self.mul) >> 8, 255).astype(np.uint8)
+        if self.noise is not None:
+            canvas = np.clip(canvas.astype(np.int16) + self.noise[k % len(self.noise)], 0, 255).astype(np.uint8)
+        if cfg.transition == "flash" and 0 <= section_dt < 0.18:
+            a = int(140 * (1.0 - section_dt / 0.18))
+            canvas = (canvas.astype(np.uint16) + ((255 - canvas.astype(np.uint16)) * a >> 8)).astype(np.uint8)
+        elif cfg.transition == "fade" and 0 <= section_dt < 0.2:
+            canvas = (canvas.astype(np.uint16) * int(256 * section_dt / 0.2) >> 8).astype(np.uint8)
+        if self.lb:
+            canvas[:self.lb] = 0
+            canvas[-self.lb:] = 0
+        return canvas
+
+
+def _gradient(W: int, H: int) -> np.ndarray:
+    """A dark red-to-black backdrop."""
+    yy = np.linspace(0.0, 1.0, H, dtype=np.float32)[:, None, None]
+    top = np.array((70, 8, 18), dtype=np.float32)
+    return np.broadcast_to(top * (1.0 - yy) + 8 * yy, (H, W, 3)).astype(np.uint8).copy()
+
+
+def _mirror_bg(bg: np.ndarray) -> np.ndarray:
+    """Kaleidoscope: the frame's left half mirrored, then the top half mirrored down."""
+    out = bg.copy()
+    h, w = out.shape[:2]
+    out[:, w - w // 2:] = out[:, :w // 2][:, ::-1]
+    out[h - h // 2:] = out[:h // 2][::-1]
+    return out
+
+
 # ── compositor ───────────────────────────────────────────────────────────────
 
 
@@ -391,16 +682,24 @@ def render_video(
             length = min(length, 2 * arr.step_s)      # the opening hit: an 8th, then the section's frame
         vis.append((e.t, e.t + length, cell, e, s.video_rate))
     vis.sort(key=lambda z: z[0])
-    kicks = [e.t for e in events if e.sample == "kick"]
-    kicks.sort()
+    kicks = sorted(e.t for e in events if e.sample == "kick")
+    crashes = sorted(e.t for e in events if e.sample == "crash")
 
     bg_val = 0 if cfg.background == "black" else 14
-    blur_bg = BlurredSource(source, W, H, fps, info.duration) if (cfg.background == "blur" and info.has_video) \
+    blur_bg = BlurredSource(source, W, H, fps, info.duration) \
+        if (cfg.background in ("blur", "mirror") and info.has_video) else None
+    gradient = _gradient(W, H) if cfg.background == "gradient" or (cfg.background == "mirror" and blur_bg is None) \
         else None
+    post = PostFX(cfg, W, H)
+    user_color = _hex_rgb(cfg.border_color) if cfg.border_color != "auto" else None
     ptr = 0
     active: list[tuple] = []
     last_in_cell: dict[tuple[int, str], tuple] = {}
-    kick_ptr = 0
+
+    def since(times: list, t: float) -> float:
+        i = int(np.searchsorted(times, t, side="right")) - 1
+        return t - times[i] if i >= 0 else 1e9
+
     with ff.VideoWriter(out_path, W, H, fps, audio_path=audio_wav, crf=cfg.crf, preset=cfg.preset) as vw:
         for k in range(n_frames):
             t = k / fps
@@ -414,7 +713,11 @@ def render_video(
                 # between their hits — silence in between).
                 bg = blur_bg.frame(t)
                 if bg is not None:
+                    if cfg.background == "mirror":
+                        bg = _mirror_bg(bg)
                     canvas = (bg.astype(np.uint16) * int(cfg.background_dim * 256) >> 8).astype(np.uint8)
+            elif gradient is not None and sec.kind not in cfg.blink_sections:
+                canvas = gradient.copy()
             elif layout == "full" or bg_val == 0:
                 canvas[:] = 0
             while ptr < len(vis) and vis[ptr][0] <= t:
@@ -428,6 +731,8 @@ def render_video(
                     prev = current.get(a[2])
                     if prev is None or a[0] >= prev[0]:
                         current[a[2]] = a
+            on_top: list[tuple] = []            # popping clips go over their neighbours
+            borders: list[tuple] = []
             for cell_name in cells:
                 a = current.get(cell_name)
                 dim = 1.0
@@ -442,24 +747,41 @@ def render_video(
                     last_in_cell[(si, cell_name)] = a
                 x0, y0, cw, ch = _px(cells[cell_name], W, H, cfg.gap if layout != "full" else 0)
                 e = a[3]
-                t_src = (t - a[0]) * a[4] if dim == 1.0 else (a[1] - a[0]) * a[4]
+                age = t - a[0]
+                t_src = age * a[4] if dim == 1.0 else (a[1] - a[0]) * a[4]
                 fr = cache.frame(e.sample, cw, ch, t_src)
                 if fr is None:
                     continue
-                fr = _apply_flip(fr, flip_state(e))
-                if cfg.flash and dim == 1.0 and t - a[0] < 1.6 / fps:
+                fr = _apply_flip(fr, flip_for(e, cfg.flip_mode))
+                fresh = dim == 1.0 and age < 1.6 / fps
+                if cfg.color_fx != "none":
+                    fr = cell_fx(fr, e, cfg, fresh)
+                if cfg.flash and fresh:
                     fr = np.minimum(fr.astype(np.uint16) * 3 // 2 + 20, 255).astype(np.uint8)
                 elif dim != 1.0:
                     fr = (fr.astype(np.uint16) * int(dim * 256) >> 8).astype(np.uint8)
-                canvas[y0:y0 + ch, x0:x0 + cw] = fr[:ch, :cw]
+                fr = fr[:ch, :cw]
+                ax, ay, aw, ah = (x0, y0, cw, ch)
+                if dim == 1.0 and cfg.hit_anim != "none" and layout != "full":
+                    ax, ay, aw, ah = anim_rect(x0, y0, cw, ch, e, age, cfg, W, H)
+                    if (aw, ah) != (cw, ch):
+                        fr = _resize_nn(fr, aw, ah)
+                if (ax, ay, aw, ah) != (x0, y0, cw, ch):
+                    on_top.append((fr, ax, ay))
+                else:
+                    canvas[y0:y0 + ch, x0:x0 + cw] = fr
+                if cfg.border != "none" and layout != "full":
+                    color = user_color or PART_COLORS[part_of(e)]
+                    borders.append((ax, ay, aw, ah, color, 1.0 if dim == 1.0 else 0.45))
+            for fr, ax, ay in on_top:
+                blit(canvas, fr, ax, ay)
+            for bx, by, bw, bh, color, bright in borders:
+                draw_border(canvas, bx, by, bw, bh, color, cfg.border, bright)
             # Kick punch: a short zoom bounce on every kick.
-            if cfg.zoom_punch and kicks:
-                while kick_ptr + 1 < len(kicks) and kicks[kick_ptr + 1] <= t:
-                    kick_ptr += 1
-                dt = t - kicks[kick_ptr]
-                if 0 <= dt < 0.12 and layout != "full":
-                    z = 1.0 + 0.035 * (1.0 - dt / 0.12)
-                    canvas = _zoom(canvas, z)
+            kick_dt = since(kicks, t)
+            if cfg.punch > 0 and 0 <= kick_dt < 0.12 and layout != "full":
+                canvas = _zoom(canvas, 1.0 + cfg.punch * (1.0 - kick_dt / 0.12))
+            canvas = post.apply(canvas, k, t, kick_dt, since(crashes, t), t - starts[si])
             if titles is not None and titles.ok:
                 _draw_titles(canvas, titles, arr, si, t - starts[si], W, H, cfg.intro_title)
             vw.write(canvas)
