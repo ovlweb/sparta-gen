@@ -117,7 +117,8 @@ inside.
   the gallery. Add your base, press **⚡ Make my Sparta Remix**. Tapping a download saves it on the phone: videos in
   **Movies/SpartaGen**, audio in **Music/SpartaGen**, sample packs in **Download/SpartaGen**.
 - The engine runs as a foreground service ("Sparta Gen engine" notification) so a render goes on with the screen
-  off; *Quit* in the app stops it. Projects live in the app's own storage
+  off; *Quit* in the app stops it. If Android closes the app's page to free memory, the render goes on and the
+  page comes back when you open the app. Projects live in the app's own storage
   (`Android/data/gen.sparta.remix/files/SpartaGen`).
 - A phone is slower than a computer: a 2-minute remix's preview takes a few minutes, the 720p render longer.
 - Updates install over the previous version (every build is signed with the same key; see
@@ -128,7 +129,8 @@ How it is built (`android/`, jobs *ffmpeg for Android*, *Android app* and *Andro
 the Android NDK and packages the program as `libffmpeg.so` (Android only lets an app run programs from its
 native-library folder); Gradle + Chaquopy package the repository's `spartagen` package with Python 3.12, numpy and
 yt-dlp. The APK is built, and an x86_64 build is run on an Android emulator: the engine starts, its ffmpeg runs and
-the one-click remix renders a preview. Tags (`v*`) put the APK in the release with the desktop apps.
+the one-click remix renders a preview, still going when the page's own process is ended halfway; the arm64 ffmpeg
+is checked to run on phones. Tags (`v*`) put the APK in the release with the desktop apps.
 
 ## Desktop apps
 

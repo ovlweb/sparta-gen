@@ -2,6 +2,7 @@ package gen.sparta.remix;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -19,6 +20,7 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -45,20 +47,18 @@ public class MainActivity extends Activity {
     private static final String BG = "#0e0909";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private FrameLayout root;
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
     private boolean appLoaded = false;
+    private boolean resumed = false;
+    private boolean reloadOnResume = false;
 
-    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(0xff0e0909);
-        web = new WebView(this);
-        web.setBackgroundColor(0xff0e0909);
-        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
         // Android 15 draws apps under the system bars: keep the page clear of them (and of the keyboard).
         root.setOnApplyWindowInsetsListener((View v, WindowInsets insets) -> {
@@ -68,14 +68,29 @@ public class MainActivity extends Activity {
             }
             return insets;
         });
+        web = newWebView();
 
-        WebSettings s = web.getSettings();
+        showMessage(getString(R.string.starting));
+        askPermissions();
+        startEngine();
+        handleShared(getIntent());
+    }
+
+    /** The page's WebView, in the window. */
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private WebView newWebView() {
+        WebView page = new WebView(this);
+        page.setBackgroundColor(0xff0e0909);
+        root.addView(page, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        WebSettings s = page.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
-        web.setWebViewClient(new WebViewClient() {
+        page.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 Uri u = req.getUrl();
@@ -89,8 +104,15 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
+
+            @TargetApi(26)
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                pageGone(view, detail.didCrash());
+                return true;
+            }
         });
-        web.setWebChromeClient(new WebChromeClient() {
+        page.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) {
@@ -120,13 +142,41 @@ public class MainActivity extends Activity {
             }
         });
         // Renders, audio and sample packs: saved to the phone's Movies / Music / Download folders.
-        web.setDownloadListener((url, agent, disposition, mime, length) -> Saver.save(this, url, disposition, mime));
-        web.addJavascriptInterface(new Bridge(), "SpartaAndroid");
+        page.setDownloadListener((url, agent, disposition, mime, length) -> Saver.save(this, url, disposition, mime));
+        page.addJavascriptInterface(new Bridge(), "SpartaAndroid");
+        return page;
+    }
 
-        showMessage(getString(R.string.starting));
-        askPermissions();
-        startEngine();
-        handleShared(getIntent());
+    /**
+     * The page's own process is gone: Android ended it to reclaim memory (often while the app is in the
+     * background), or it crashed.  The engine — and a render it is making — lives on in this process, so only
+     * the page is made again; left unhandled, Android would end the whole app with it.
+     */
+    private void pageGone(WebView dead, boolean crashed) {
+        if (dead != web || isDestroyed()) {
+            return;                                             // a page already replaced, or the app is closing
+        }
+        Log.w(EngineService.TAG, "page process gone (" + (crashed ? "crashed" : "ended by the system")
+                + "): the page is made again");
+        root.removeView(dead);
+        dead.destroy();
+        fileCallback = null;                                    // a file picker opened by that page: pick again
+        web = newWebView();
+        if (resumed) {
+            reloadPage();
+        } else {
+            reloadOnResume = true;                              // in the background: when the app is back in front
+        }
+    }
+
+    private void reloadPage() {
+        if (EngineService.port() > 0) {
+            appLoaded = true;
+            web.loadUrl("http://127.0.0.1:" + EngineService.port() + "/");
+        } else {
+            showMessage(getString(R.string.starting));
+            startEngine();
+        }
     }
 
     @Override
@@ -138,11 +188,21 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (appLoaded && EngineService.port() == 0) {      // the system stopped the engine: bring it back
+        resumed = true;
+        if (reloadOnResume) {
+            reloadOnResume = false;
+            reloadPage();
+        } else if (appLoaded && EngineService.port() == 0) {      // the system stopped the engine: bring it back
             appLoaded = false;
             showMessage(getString(R.string.starting));
             startEngine();
         }
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        super.onPause();
     }
 
     private void startEngine() {

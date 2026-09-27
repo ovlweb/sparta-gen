@@ -9,7 +9,7 @@ ffmpeg built for Android. Nothing else to install on the phone.
 | App shell (WebView, file picker, downloads → Movies/Music/Download, "Share → Sparta Gen") | `app/src/main/java/gen/sparta/remix/MainActivity.java`, `Saver.java` |
 | Engine service (starts Python and the local server, keeps renders going with the screen off) | `EngineService.java` → `spartagen/android.py` |
 | ffmpeg + x264 for Android, packaged as `jniLibs/<abi>/libffmpeg.so` | `ffmpeg/build.sh` |
-| Emulator test: engine up, ffmpeg usable, one-click remix rendered | `test/smoke.sh`, `test/make_source.py` |
+| Emulator test: engine up, ffmpeg usable, one-click remix rendered — and still rendering after the page's own process is ended halfway (as Android does to free memory) | `test/smoke.sh`, `test/make_source.py` |
 
 Android lets an app run programs only from its native-library folder, so ffmpeg ships as `libffmpeg.so`
 (`useLegacyPackaging` keeps it extracted there) and the engine is pointed at it (`SPARTAGEN_FFMPEG`).
