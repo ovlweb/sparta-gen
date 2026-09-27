@@ -1,4 +1,4 @@
-"""Command line: `spartagen gui`, `make`, `analyze`, `base`, `pack`, `patterns`, `variants`."""
+"""Command line: `spartagen gui`, `make`, `analyze`, `base`, `pack`, `patterns`, `variants`, `selftest`."""
 
 from __future__ import annotations
 
@@ -146,6 +146,11 @@ def cmd_variants(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_selftest(a: argparse.Namespace) -> int:
+    from .selftest import run
+    return 0 if run(a.out, a.quality)["ok"] else 1
+
+
 def cmd_gui(a: argparse.Namespace) -> int:
     from .gui.server import serve
     serve(host=a.host, port=a.port, open_browser=not a.no_browser, window=a.window, workspace=a.workspace)
@@ -232,6 +237,11 @@ def main(argv: list[str] | None = None) -> int:
 
     vv = sub.add_parser("variants", help="list the base variants")
     vv.set_defaults(fn=cmd_variants)
+
+    st = sub.add_parser("selftest", help="check this install: a test video through the one-click remix")
+    st.add_argument("--out", help="write the report (JSON) here")
+    st.add_argument("--quality", default="preview", choices=["audio", "preview", "720p"])
+    st.set_defaults(fn=cmd_selftest)
 
     a = ap.parse_args(argv)
     if not getattr(a, "cmd", None):

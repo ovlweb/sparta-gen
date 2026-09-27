@@ -758,6 +758,7 @@ $("#btn-quit").addEventListener("click", async () => {
   try { await api("/api/quit", { body: {} }); } catch (e) { /* server already gone */ }
   document.body.innerHTML = "<main><div class='card'><h2>Sparta Gen stopped</h2><p class='hint'>You can close this tab.</p></div></main>";
   if (window.SpartaAndroid) window.SpartaAndroid.quit();       // the Android app: close it
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.quit) window.pywebview.api.quit();  // desktop window
 });
 
 // ── boot ─────────────────────────────────────────────────────────────────────

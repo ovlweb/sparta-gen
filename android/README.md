@@ -16,8 +16,8 @@ Android lets an app run programs only from its native-library folder, so ffmpeg 
 
 ## Get the APK
 
-GitHub → **Actions** → **android** → latest run → **Artifacts** → `SpartaGen-Android-APK`, or the release of a
-`v*` tag. Every push that touches `spartagen/` or `android/` builds it.
+GitHub → **Actions** → **test & build** → a run → **Artifacts** → `SpartaGen-Android-APK`, or the release of a
+`v*` tag (with the desktop apps). Pushes that change `spartagen/` or `android/` build it, and so does *Run workflow*.
 
 ## Build it yourself
 

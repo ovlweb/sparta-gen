@@ -52,7 +52,7 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 
 ## Contents
 
-- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Using the app](#using-the-app) · [Android app](#android-app) · [Command line](#command-line)
+- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Using the app](#using-the-app) · [Android app](#android-app) · [Desktop apps](#desktop-apps) · [Command line](#command-line)
 - [Base variants](#base-variants) · [Pattern notation](#pattern-notation) · [How samples are made](#how-samples-are-made)
 - [FX polishing](#fx-polishing) · [Using a real Sparta base](#using-a-real-sparta-base) · [Sample pack export](#sample-pack-export)
 - [Development](#development) · [Credits](#credits) · [Known limitations](#known-limitations)
@@ -61,12 +61,18 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 
 | Platform | Easiest way |
 |---|---|
-| **Windows / macOS / Linux** | Download `SpartaGen-<os>.zip` (ffmpeg included), unzip, run `SpartaGen` (`SpartaGen.app` on macOS). The zips are built by CI: push a tag like `v0.1.0` (they are attached to the release) or run the *test & build* workflow from the Actions tab (they appear as run artifacts). |
+| **Windows / macOS / Linux** | Download `SpartaGen-<version>-<Windows\|macOS\|Linux>-<arch>.zip` (ffmpeg included), unzip, run **SpartaGen** (`SpartaGen.exe` on Windows, `SpartaGen.app` on macOS — `arm64` for Apple silicon, `x64` for Intel Macs). On Windows and macOS it opens in its own window; on Linux in your browser. First start of an unsigned app: Windows → *More info → Run anyway*; macOS → *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine SpartaGen.app`). |
 | **From source (any desktop)** | Install Python 3.9+, then double-click `scripts/run_windows.bat`, `scripts/run_macos.command`, or run `scripts/run_unix.sh`. First start creates a virtual environment and installs everything (ffmpeg comes from `imageio-ffmpeg` if you have none). |
-| **Android** | Install the APK (`SpartaGen-<version>-android.apk`, ffmpeg included): GitHub → *Actions* → *android* → the latest run → *Artifacts* → **SpartaGen-Android-APK** (or the release of a `v*` tag). Open it on the phone and allow installing from that source. See [Android app](#android-app). *Alternative:* [Termux](https://termux.dev) + `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`, then `spartagen gui` (opens in the phone's browser). |
+| **Android** | Install the APK (`SpartaGen-<version>-Android.apk`, ffmpeg included), open it on the phone and allow installing from that source. See [Android app](#android-app). *Alternative:* [Termux](https://termux.dev) + `curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh \| bash`, then `spartagen gui` (opens in the phone's browser). |
 | **pip** | `pip install -e ".[all]"` (needs ffmpeg on PATH or the `imageio-ffmpeg` extra), then `spartagen gui`. |
 
-Requirements: **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
+**Where the apps are**: every app — Windows, macOS, Linux, Android — is built and tested by one workflow. Push a
+tag like `v0.2.0` and they all land in **one GitHub release**; or GitHub → *Actions* → *test & build* → *Run
+workflow*, then download them from that run's *Artifacts* (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`,
+`SpartaGen-macOS-X64`, `SpartaGen-Linux-X64`, `SpartaGen-Android-APK`). It is the same app everywhere: same engine,
+same screens, same one-click remix.
+
+Requirements (from source): **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
 there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termux without scipy) still work.
 
 ## Using the app
@@ -103,7 +109,7 @@ The APK is the whole thing on the phone — no Termux, no computer: the same eng
 [Chaquopy](https://chaquo.com/chaquopy/)) and the same app, in a full-screen WebView, with ffmpeg built for Android
 inside.
 
-- **Install**: download `SpartaGen-<version>-android.apk` (see [Install](#install)), open it, allow installing apps
+- **Install**: download `SpartaGen-<version>-Android.apk` (see [Install](#install)), open it, allow installing apps
   from your browser/file manager when Android asks. Needs Android 7.0+ on a 64-bit ARM phone (nearly every phone
   since 2017).
 - **Use**: *Drop a video here* opens the phone's picker (gallery, files, Drive…); or **Share → Sparta Gen** from
@@ -116,11 +122,22 @@ inside.
 - Updates install over the previous version (every build is signed with the same key; see
   [android/README.md](android/README.md) to sign with your own).
 
-How it is built (`android/`, CI workflow `android.yml`): `android/ffmpeg/build.sh` cross-compiles x264 + ffmpeg with
+How it is built (`android/`, jobs *ffmpeg for Android*, *Android app* and *Android app on an emulator* in
+`build.yml`): `android/ffmpeg/build.sh` cross-compiles x264 + ffmpeg with
 the Android NDK and packages the program as `libffmpeg.so` (Android only lets an app run programs from its
 native-library folder); Gradle + Chaquopy package the repository's `spartagen` package with Python 3.12, numpy and
-yt-dlp. Every push builds the APK, and an x86_64 build is run on an Android emulator: the engine starts, its ffmpeg
-runs and the one-click remix renders a preview. Tags (`v*`) attach the APK to the release.
+yt-dlp. The APK is built, and an x86_64 build is run on an Android emulator: the engine starts, its ffmpeg runs and
+the one-click remix renders a preview. Tags (`v*`) put the APK in the release with the desktop apps.
+
+## Desktop apps
+
+`scripts/build_desktop.py` makes a one-folder app with PyInstaller — Python, numpy/scipy, the engine, the web app and
+a static ffmpeg inside — zipped as `SpartaGen-<version>-<os>-<arch>.zip`. On Windows (Edge WebView2) and macOS
+(WebKit) the app opens in **its own window** (pywebview); downloads from the app (renders, sample packs) go to your
+Downloads folder, and *Quit* closes the window. On Linux it opens your browser (`SpartaGen --browser` does that
+everywhere). CI builds it on Windows, macOS (Apple silicon and Intel) and Linux and runs each built app's
+**self-test** before keeping it — `SpartaGen --selftest report.json`: a test video through the one-click remix,
+with the bundled ffmpeg (`spartagen selftest` does the same from a source install).
 
 ## Command line
 
@@ -354,17 +371,20 @@ already tuned to D) **and** its video clip as an MP4 with the processed audio, i
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 210 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API, app engine
-python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
+pytest                 # 212 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API, app engine
+python scripts/build_desktop.py --test   # PyInstaller app with ffmpeg bundled + its self-test (what CI does per OS)
+spartagen selftest                       # this install: a test video through the one-click remix
 # Android: see android/README.md (NDK for ffmpeg, then ./gradlew assembleRelease in android/)
 ```
 
 Layout: `spartagen/ffmpeg.py` (media I/O) · `audio/` (dsp, pitch, psola, harmonic, analysis, base, fx) · `samples.py` ·
 `patterns/` (notation parser, wiki library) · `arrangement.py` (variants, sections, note compiler) ·
 `render_audio.py` · `render_video.py` · `project.py` (pipeline) · `cli.py` · `gui/` (server + static UI).
-`spartagen/android.py` (the engine inside the APK) · `android/` (the Android app, ffmpeg build script, emulator test).
-CI (`.github/workflows/build.yml`) runs the tests with and without scipy on every push and builds the desktop apps
-for tags (`v*`) or on manual dispatch; `.github/workflows/android.yml` builds and emulator-tests the APK.
+`spartagen/android.py` (the engine inside the APK) · `android/` (the Android app, ffmpeg build script, emulator test) ·
+`spartagen/selftest.py` + `packaging/` + `scripts/build_desktop.py` (the desktop apps).
+CI (`.github/workflows/build.yml`) runs the tests with and without scipy on every push; the apps (desktop and
+Android, each tested) are built for tags (`v*` — one release with all of them), on manual dispatch, and for pushes
+that change them.
 
 ## Credits
 

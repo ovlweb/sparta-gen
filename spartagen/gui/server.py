@@ -596,6 +596,15 @@ def _open_url(url: str) -> None:
     webbrowser.open(url)
 
 
+class _WindowApi:
+    """window.pywebview.api in the desktop app's own window."""
+
+    def quit(self) -> None:
+        import webview  # type: ignore
+        for w in list(webview.windows):
+            w.destroy()
+
+
 def make_server(host: str = "127.0.0.1", port: int = 0, workspace: Optional[str] = None) -> tuple[ThreadingHTTPServer, str]:
     app = App(workspace)
     Handler.app = app
@@ -616,8 +625,13 @@ def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True, win
     if window:
         try:
             import webview  # type: ignore
+            try:                                  # renders and sample packs are downloads
+                webview.settings["ALLOW_DOWNLOADS"] = True
+            except Exception:
+                pass
             threading.Thread(target=httpd.serve_forever, daemon=True).start()
-            webview.create_window("Sparta Gen", url, width=1280, height=860, min_size=(420, 600))
+            webview.create_window("Sparta Gen", url, width=1280, height=860, min_size=(420, 600),
+                                  background_color="#0e0909", js_api=_WindowApi())
             webview.start()
             httpd.shutdown()
             return
