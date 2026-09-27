@@ -130,3 +130,28 @@ def test_harmonic_filter_keeps_the_voice_and_drops_the_band():
     assert level(mix, 392.0) - level(y, 392.0) > 20.0
     assert voiced > 0.8
     assert np.corrcoef(y[2000:-2000], voice[2000:-2000])[0, 1] > 0.97
+
+
+def test_a_hum_keeps_its_level_an_octave_up():
+    """A voice with hardly any overtones (a hum) loses its high notes when the formants are kept; the
+    quality score sees it and the renderer plays such notes the sampler way instead."""
+    from spartagen.audio import psola, dsp as D
+    from spartagen.samples import Sample, octave_up_drop_db
+    from spartagen.render_audio import VoiceRenderer, MixConfig
+    from spartagen.samples import SampleBank
+    from tests.conftest import harmonic_tone
+    sr = 44100
+    t = np.arange(int(0.2 * sr)) / sr
+    hum = (0.3 * np.sin(2 * np.pi * 293.66 * t) * np.minimum(1, np.minimum(t / 0.01, (0.2 - t) / 0.02))).astype(np.float32)
+    rich = harmonic_tone(293.66, 0.2, sr)
+    samples = {}
+    for name, x in (("hum", hum), ("rich", rich)):
+        ts = psola.tune_to_note(x, sr, 293.66)
+        samples[name] = Sample(name, "pitch", name, 0.0, 0.2, ts.audio, sr, 62.0, ts)
+    assert octave_up_drop_db(samples["hum"]) > 9.0 > octave_up_drop_db(samples["rich"])
+    bank = SampleBank(sr)
+    bank.samples.update(samples)
+    vr = VoiceRenderer(bank, MixConfig())
+    for name in ("hum", "rich"):
+        y = vr._shifted(samples[name], 12.0, int(0.2 * sr))
+        assert 20 * np.log10(D.rms(samples[name].audio) / D.rms(y)) < 9.0, name

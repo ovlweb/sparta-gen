@@ -629,13 +629,16 @@ HIHATS: list[PatternDef] = [
     P("hat.333_v2", "333 pattern 2.0", "hihat", "333_333_333_333_333_333_333_333_", mode="index", progression=None),
 ]
 
-#: Default sounds for the percussion slots: the kick is paralleled with the
-#: snare, closed hats sit well under the kick.
+#: Default sounds for the percussion slots: the kick is paralleled with the snare, and "open hi-hats are
+#: mostly used for in-pattern hi-hats … while the closed one mostly used a repetitive pattern"
+#: (Percussion, Sparta Remix Wiki) — so a pattern's 3s are open hats; closed hats play their own layer.
 PERC_SLOTS = {
     "1": {"sample": "kick", "visual": "kick"},
     "2": [{"sample": "clap", "visual": "snare"}, {"sample": "kick", "gain": -2.0, "visual": "none"}],
-    "3": {"sample": "hat_closed", "gain": -9.0, "visual": "hat"},
+    "3": {"sample": "hat_open", "gain": -11.0, "visual": "hat"},
 }
+#: The repetitive closed hi-hat layer under a percussion pattern.
+CLOSED_HAT_SLOTS = {"3": {"sample": "hat_closed", "gain": -10.0, "visual": "hat"}}
 
 
 # ── Rhythm patterns for the source-made percussion and bass (our own) ────────

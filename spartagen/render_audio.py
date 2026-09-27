@@ -129,6 +129,12 @@ class VoiceRenderer:
         else:
             out_len = max(length, tuned.audio.shape[0])
             y = psola.shift(tuned, semis, out_len=out_len)
+            if semis > 0 and dsp.rms(y) < dsp.rms(tuned.audio) * 10 ** (-9.0 / 20.0):
+                # Keeping the formants left the note all but silent (a voice with too few overtones
+                # for this jump): play it the way a sampler does instead, so it is still heard.
+                y = dsp.varispeed(tuned.audio, semis)
+                if length > y.shape[0]:
+                    y = psola.stretch_raw(y, self.sr, length)
         self._shift_cache[key] = y
         return y
 
@@ -382,6 +388,11 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
             "duration": round(mix.shape[0] / sr, 3), "stems": sorted(stems)}
     if stems_dir:
         os.makedirs(stems_dir, exist_ok=True)
+        # Stems from an earlier render that this one no longer has must not linger in the folder.
+        for name in set(STEM_LEVEL_DB) - set(stems):
+            old = os.path.join(stems_dir, f"{name}.wav")
+            if os.path.isfile(old):
+                os.remove(old)
         for name, y in stems.items():
             dsp.write_wav(os.path.join(stems_dir, f"{name}.wav"), np.clip(y, -1, 1), sr)
     say(1.0, "mix done")

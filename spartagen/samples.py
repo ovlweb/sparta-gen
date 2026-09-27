@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 import numpy as np
@@ -308,6 +308,32 @@ def _main_candidates(C: dict, x: Optional[np.ndarray] = None, sr: int = 44100, t
     return [c for _, c in pool]
 
 
+def sample_timbre(s: Sample) -> np.ndarray:
+    """The sound of a sample regardless of its note: mean MFCCs over its loud frames (vowel, voice,
+    instrument).  Tuned pitches all sit on D, so this is what tells them apart by ear."""
+    from .audio.analysis import compute_features
+    y = np.asarray(s.audio, dtype=np.float32)
+    f = compute_features(y, s.sr)
+    if f.mfcc.shape[0] == 0:
+        return np.zeros(13, dtype=np.float32)
+    loud = f.rms_db > float(np.max(f.rms_db)) - 20.0
+    return f.mfcc[loud].mean(axis=0) if loud.any() else f.mfcc.mean(axis=0)
+
+
+def timbre_distance(a: np.ndarray, b: np.ndarray, scale: np.ndarray) -> float:
+    return float(np.linalg.norm((a - b) / scale))
+
+
+def _timbre_scale(ts: list[np.ndarray]) -> Optional[tuple[np.ndarray, float]]:
+    """(per-coefficient spread, median pairwise distance) over a set of timbres."""
+    if len(ts) < 3:
+        return None
+    m = np.stack(ts)
+    scale = m.std(axis=0) + 1e-6
+    d = [timbre_distance(m[i], m[j], scale) for i in range(len(ts)) for j in range(i + 1, len(ts))]
+    return scale, float(np.median(d)) or 1.0
+
+
 def pitch_quality(s: Sample) -> float:
     """How clearly a tuned sample reads as a note: voiced share × harmonic purity × the share of it
     that sits on the note (a singer bending into the note from a neighbour keeps some of the bend
@@ -330,7 +356,22 @@ def pitch_quality(s: Sample) -> float:
     harm = (k >= 1) & (np.abs(fr - k * f) < np.maximum(15.0, 0.03 * k * f))
     purity_db = 10.0 * math.log10(float(S[harm & band].sum()) / max(float(S[~harm & band].sum()), 1e-12))
     return (max(0.05, voiced) * float(np.clip((purity_db - 3.0) / 15.0, 0.1, 1.0))
-            * float(np.clip((on_note - 0.5) / 0.45, 0.1, 1.0)))
+            * float(np.clip((on_note - 0.5) / 0.45, 0.1, 1.0)) * octave_up_factor(s))
+
+
+def octave_up_drop_db(s: Sample) -> float:
+    """How much quieter the pitch gets an octave up (the Chorus lines reach +12 … +20).  A voice with
+    hardly any overtones — a hum, a low breathy note — has nothing left there once its formants are
+    kept, and its high notes all but vanish."""
+    if s.tuned is None or s.tuned.audio.shape[0] < 1024:
+        return 0.0
+    from .audio.psola import shift
+    y = shift(s.tuned, 12.0, out_len=int(0.22 * s.sr))
+    return float(20.0 * np.log10(max(dsp.rms(s.tuned.audio), 1e-9) / max(dsp.rms(y), 1e-9)))
+
+
+def octave_up_factor(s: Sample) -> float:
+    return float(np.clip(1.0 - (octave_up_drop_db(s) - 6.0) / 10.0, 0.2, 1.0))
 
 
 def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
@@ -525,23 +566,45 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
     # band is no pitch at all.  (Explicit picks index the analysis list as shown in the app.)
     made: dict[int, Sample] = {}
     ranked = pitches
+    worth: dict[int, float] = {}
+    timbres: dict[int, np.ndarray] = {}
     if pitches:
         step(0.03, "trying pitch candidates")
         scored = []
-        for c in pitches[:12]:
+        for c in pitches[:20]:
             smp = make_pitch(x, sr, c, "try", cfg)
             made[id(c)] = smp
+            timbres[id(c)] = sample_timbre(smp)
             # Longer held notes make better pitches (they carry 8ths and held notes without looping).
             held = float(np.clip((c.duration - 0.08) / 0.17, 0.35, 1.0))
-            scored.append((c.score * pitch_quality(smp) * held, c))
+            worth[id(c)] = c.score * pitch_quality(smp) * held
+            scored.append((worth[id(c)], c))
         scored.sort(key=lambda z: -z[0])
-        ranked = [c for _, c in scored] + pitches[12:]
+        ranked = [c for _, c in scored] + pitches[20:]
+    # Several pitches must sound different — another voice, vowel or instrument — not the same note
+    # four times: after the main pitch, candidates far in timbre from the ones already chosen win.
+    spread = _timbre_scale(list(timbres.values()))
+    chosen_timbres: list[np.ndarray] = []
+
+    def by_difference(pool: list[Candidate]) -> list[Candidate]:
+        if not chosen_timbres or spread is None:
+            return pool
+        scale, ref = spread
+
+        def key(c: Candidate) -> float:
+            tb = timbres.get(id(c))
+            if tb is None:
+                return -0.5 * c.score
+            d = min(float(np.linalg.norm((tb - o) / scale)) for o in chosen_timbres)
+            return worth.get(id(c), c.score) * float(np.clip(d / ref, 0.25, 1.6))
+        return sorted(pool, key=key, reverse=True)
+
     cut_away: set[int] = set()           # auto picks the video cuts away from too soon
     for i, sid in enumerate(PITCH_ROLES):
         explicit = sel.get(sid) is not None
         cand = first = None
         for _attempt in range(6):
-            pool = pitches if explicit else [c for c in ranked if id(c) not in cut_away]
+            pool = pitches if explicit else by_difference([c for c in ranked if id(c) not in cut_away])
             # Second/third pitch: prefer another moment of the source (another word,
             # speaker or note) so the call & response between slots is audible.
             cand = _pick(pool, sel.get(sid), used, 2.0) if i > 0 else None
@@ -568,11 +631,19 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
             continue
         step(0.05 + 0.1 * i, f"tuning {sid} to {cfg.key}")
         pre = made.get(id(cand))
-        s = make_pitch(x, sr, cand, sid, cfg) if pre is None else pre
+        cfg_i = cfg
+        if i > 0 and cfg.pitch_octave is None and "pitch1" in bank.samples:
+            # The pitches play chord lines together: they share the main pitch's octave (a note cut
+            # nearer the D above would otherwise sound an octave over the others).
+            cfg_i = replace(cfg, pitch_octave=int(round(bank.samples["pitch1"].root_midi)) // 12 - 1)
+            if pre is not None and int(round(pre.root_midi)) != int(round(bank.samples["pitch1"].root_midi)):
+                pre = None
+        s = make_pitch(x, sr, cand, sid, cfg_i) if pre is None else pre
         s.id, s.label = sid, s.label.replace("try", sid)
         s.meta["_cand"] = cand
         bank.samples[sid] = s
         used.append((cand.start, cand.end))
+        chosen_timbres.append(timbres[id(cand)] if id(cand) in timbres else sample_timbre(s))
     # ── the Chorus: the main phrase cut into two parts ──
     mains = _main_candidates(C, x, sr)
     csel = sel.get("chorus")                  # a word candidate index, a {"start", "end"} range, or auto

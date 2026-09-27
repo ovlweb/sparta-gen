@@ -87,6 +87,7 @@ LAYOUT_CELLS["main"] = {
     **{f"t{i}": (0.2 * i, 0.0, 0.2, 0.2) for i in range(5)},
     **{f"b{i}": (0.2 * i, 0.8, 0.2, 0.2) for i in range(5)},
     "l": (0.0, 0.2, 0.2, 0.6), "r": (0.8, 0.2, 0.2, 0.6),
+    "full": (0.0, 0.0, 1.0, 1.0),        # a section's opening hit, over everything, for an 8th
 }
 # Every pitch has its own box along the top — the several pitches are seen playing together — with the
 # bass at the end of the row; drums and quotes along the bottom.
@@ -111,6 +112,8 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
         if v in ("kick", "snare", "hat", "crash", "bass", "corner", "side", "voices"):
             return None
         return "main"
+    if v == "hit":
+        return "full" if layout == "main" else GRID3_FIXED.get("crash") if layout == "grid3" else None
     if layout == "split2":
         if v == "main":
             return "left" if e.index % 2 == 0 else "right"
@@ -351,6 +354,8 @@ def render_video(
         length = max(audible_length(e, s), cfg.min_hold_s)
         if e.choke:
             length = min(length, max(e.max_len, 1.0 / fps))
+        if cell == "full":
+            length = min(length, 2 * arr.step_s)      # the opening hit: an 8th, then the section's frame
         vis.append((e.t, e.t + length, cell, e, s.video_rate))
     vis.sort(key=lambda z: z[0])
     kicks = [e.t for e in events if e.sample == "kick"]
@@ -386,7 +391,7 @@ def render_video(
                 a = current.get(cell_name)
                 dim = 1.0
                 if a is None:
-                    if not cfg.hold_last or sec.kind in cfg.blink_sections:
+                    if not cfg.hold_last or sec.kind in cfg.blink_sections or cell_name == "full":
                         continue
                     a = last_in_cell.get((si, cell_name))
                     if a is None:

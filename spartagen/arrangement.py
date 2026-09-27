@@ -183,6 +183,15 @@ def _drums(groove: str, start_bar: float = 0, end_bar: Optional[float] = None, g
     return out
 
 
+def _perc_layers(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, gain: float = 0.0,
+                 suffix: str = "", hats: str = "hat.16ths_spaced") -> list[TrackSpec]:
+    """A percussion pattern (its 3s on the open hat) plus the repetitive closed hi-hat layer."""
+    return [_perc(pattern, start_bar, end_bar, gain, suffix),
+            TrackSpec(f"chat{suffix}", "drum", hats, mode="index", slots=copy.deepcopy(lib.CLOSED_HAT_SLOTS),
+                      gain_db=gain, pitched=False, start_bar=start_bar, end_bar=end_bar, visual="hat",
+                      flip="alternate", stem="drums")]
+
+
 def _perc(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, gain: float = 0.0,
           suffix: str = "") -> TrackSpec:
     """A wiki percussion pattern (1 kick, 2 clap/snare with the kick paralleled, 3 hi-hat)."""
@@ -198,10 +207,12 @@ def _once(text: str, total: int) -> str:
                      for line in text.split("\n"))
 
 
-def _crash(bar: float = 0.0, gain: float = -6.0, tid: str = "crash") -> TrackSpec:
+def _crash(bar: float = 0.0, gain: float = -6.0, tid: str = "crash", visual: str = "crash") -> TrackSpec:
+    """The section's crash.  ``visual="hit"``: its clip flashes fullscreen for an 8th on the downbeat,
+    the way remixers open a section (then the section's frame takes over)."""
     return TrackSpec(tid, "oneshot", "text:" + _placements(STEPS_PER_BAR, [(0, "1")]), mode="index",
                      slots={"1": "crash"}, sample="crash", gain_db=gain, pitched=False, oneshot=True,
-                     start_bar=bar, end_bar=bar + 1, visual="crash", choke=False, stem="drums")
+                     start_bar=bar, end_bar=bar + 1, visual=visual, choke=False, stem="drums")
 
 
 def _bass(style: str = "offbeat", start_bar: float = 0, end_bar: Optional[float] = None, gain: float = -2.0,
@@ -269,22 +280,22 @@ def sec_chorus(bars: int, opts: dict, final: bool = False, name: str = "Chorus")
                   visual="main", flip="alternate", stem="chorus"),
         # The voices sum up: each sits a little lower so the main phrase still leads the Chorus.
         TrackSpec("pitch", "pitch", pitch_pat, sample="pitch1", voice_samples=voices, crisp=True, sustain=True,
-                  gain_db=-6.0, visual="pitch_cycle", flip="alternate"),
+                  gain_db=-8.0, visual="pitch_cycle", flip="alternate"),
         _bass("offbeat"),
-        _crash(0.0),
+        _crash(0.0, visual="hit"),
     ]
     if final or hard:
         # A fourth pitch doubles the root line an octave down — weight, not the seventh line's
         # clash (a major seventh and a raised eleventh over the base's major chords) nor an
         # octave-up copy two octaves above the samples' own notes.
         tracks.append(TrackSpec("pitch_low", "pitch", "chorus.0_12", sample="pitch4", octave=-1, crisp=True,
-                                sustain=True, gain_db=-5.0, visual="pitch_cycle", flip="alternate"))
+                                sustain=True, gain_db=-7.0, visual="pitch_cycle", flip="alternate"))
     if hard:
         tracks.append(TrackSpec("chords", "pitch", "chords.minor" if minor else "chords.major",
                                 sample="pitch3", voice_samples=list(PITCH_VOICES[:3]), gain_db=-16.0, sustain=True,
                                 visual="none", stem="pad"))
     if opts.get("base"):
-        tracks.append(_perc("perc.vitro" if hard else "perc.normal"))
+        tracks += _perc_layers("perc.vitro" if hard else "perc.normal")
     elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.vitro" if hard else "perc.normal", end_bar=bars - 1))
         tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
@@ -317,7 +328,7 @@ def sec_dundundenden(bars: int, opts: dict) -> SectionSpec:
             _crash(first),
         ]
         if opts.get("base"):
-            tracks.append(_perc("perc.normal", start_bar=first, suffix="_b"))
+            tracks += _perc_layers("perc.normal", start_bar=first, suffix="_b")
         else:
             tracks += _drums("four_on_floor_16", start_bar=first, end_bar=bars - 1, suffix="_b")
             tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
@@ -357,10 +368,10 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
                   voice_samples=["pitch2", "pitch3", "pitch4"], gain_db=-12.0, sustain=True, visual="voices",
                   flip="alternate", stem="pitch_layers"),
         _bass("rolling"),
-        _crash(0.0),
+        _crash(0.0, visual="hit"),
     ]
     if opts.get("base"):
-        tracks.append(_perc("perc.normal"))
+        tracks += _perc_layers("perc.normal")
     elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.sparta_crash_mix", end_bar=bars - 1))
         tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
@@ -383,7 +394,7 @@ def sec_chords(bars: int, opts: dict) -> SectionSpec:
         _crash(0.0),
     ]
     if opts.get("base"):
-        tracks.append(_perc("perc.normal"))
+        tracks += _perc_layers("perc.normal")
     elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.generic", end_bar=bars - 1))
         tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
@@ -425,9 +436,11 @@ def sec_awesomeness(which: int, opts: dict, bars: int = 4) -> SectionSpec:
                   voice_samples=["pitch2", "pitch3", "pitch4"], gain_db=-14.0, sustain=True, visual="voices",
                   flip="alternate", stem="pitch_layers"),
         _bass("offbeat"),
-        _crash(0.0),
+        _crash(0.0, visual="hit"),
     ]
-    if opts.get("wiki_perc", False):
+    if opts.get("base"):
+        tracks += _perc_layers("perc.normal")
+    elif opts.get("wiki_perc", False):
         tracks.append(_perc("perc.normal"))
     else:
         tracks += _drums("four_on_floor_16", hat_open=True)
@@ -449,7 +462,7 @@ def sec_madness(bars: int, opts: dict) -> SectionSpec:
                   gain_db=-11.0 if opts.get("base") else -5.0, sustain=True, visual="none"),   # the soft part
     ]
     if opts.get("base"):
-        tracks.append(_perc("perc.normal", gain=-3.0))
+        tracks += _perc_layers("perc.normal", gain=-3.0)
     else:
         tracks += _drums("breakdown", end_bar=half)
         tracks += _drums("half_time", start_bar=half, end_bar=bars - 1, suffix="_h")
@@ -673,7 +686,7 @@ def build_from_base(base_map, pitching: str = "normal", polish: str = "normal", 
     """An arrangement that follows a base's own bars: each section of the base gets its remix part
     (see ``spartagen.audio.base``).  ``base_map`` is a BaseMap or its dict.  ``minor`` defaults to the
     base's own key chord, so the pitch chords match it."""
-    from .audio.base import BaseMap
+    from .audio.base import BaseMap, BaseSection
     bm = base_map if isinstance(base_map, BaseMap) else BaseMap.from_dict(base_map)
     if minor is None:
         minor = bool(getattr(bm, "minor", False))
@@ -682,11 +695,16 @@ def build_from_base(base_map, pitching: str = "normal", polish: str = "normal", 
     if chorus_pattern:
         opts["chorus_pattern"] = chorus_pattern
     opts.update(extra or {})
-    kinds = [s.kind for s in bm.sections]
+    # The base's DunDunDenDen part: remixers on it keep the Chorus going there (the example remix on
+    # the extended base plays its chorus samples from bar 7 on, after one fullscreen hit).
+    dun_part = (extra or {}).get("dundundenden_part", "chorus")
+    sections_in = [BaseSection(("chorus" if s.kind == "dundundenden" and dun_part == "chorus" else s.kind),
+                               s.start_bar, s.bars, getattr(s, "level_db", 0.0)) for s in bm.sections]
+    kinds = [s.kind for s in sections_in]
     n_chorus_total = kinds.count("chorus")
     sections: list[SectionSpec] = []
     n_chorus = 0
-    for sec in bm.sections:
+    for sec in sections_in:
         k, bars = sec.kind, int(sec.bars)
         if bars <= 0:
             continue

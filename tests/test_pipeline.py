@@ -34,6 +34,9 @@ def test_bank_tunes_pitches_to_d(session):
         assert bank.get(sid) is not None, sid
     p1 = bank.get("pitch1")
     assert int(round(p1.root_midi)) % 12 == 2          # D
+    # The pitches play chord lines together, so they share the main pitch's octave.
+    assert {int(round(bank.get(k).root_midi)) for k in ("pitch1", "pitch2", "pitch3", "pitch4") if bank.get(k)} \
+        == {int(round(p1.root_midi))}
     tr = yin_track(p1.audio, p1.sr, hop=256)
     got = hz_to_midi(float(np.median(tr.f0[tr.voiced])))
     assert abs(got - p1.root_midi) < 0.15
@@ -137,3 +140,16 @@ def test_the_epicness_third_word_is_another_moment_of_the_voice(session):
     assert c is not None and c.role == "chorus" and c.meta["plays"] == "as is"
     # Not a piece of the main phrase: another word, clear of it.
     assert c.src_end + 0.3 <= a.src_start or c.src_start >= b.src_end + 0.3
+
+
+def test_stale_stems_do_not_linger(session, tmp_path):
+    from spartagen.render_audio import render_mix, MixConfig
+    bank = session.bank()
+    arr = AR.Arrangement("t", "custom", sections=[AR.SectionSpec("chorus", 1, [
+        AR.TrackSpec("p", "pitch", "chorus.0_12", sample="pitch1")])])
+    d = tmp_path / "stems"
+    d.mkdir()
+    (d / "chop.wav").write_bytes(b"old")          # a stem from an earlier render
+    (d / "mine.wav").write_bytes(b"keep")         # not ours: left alone
+    render_mix(arr, AR.compile_events(arr, set(bank.samples)), bank, MixConfig(tail_s=0.2), stems_dir=str(d))
+    assert (d / "pitch.wav").is_file() and not (d / "chop.wav").exists() and (d / "mine.wav").exists()

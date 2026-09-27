@@ -139,9 +139,13 @@ def test_fit_to_base_follows_its_bars():
     bm = _classic_map()
     arr = AR.build_from_base(bm)
     assert arr.total_bars == bm.bars and arr.bpm == 140.0 and arr.progression == "0 1 -2 1"
-    assert [s.kind for s in arr.sections] == ["intro", "chorus", "dundundenden", "chorus", "epicness", "awesomeness",
+    # The base's DunDunDenDen part gets a Chorus (as remixers on it do); the DunDunDenDen is one option away.
+    assert [s.kind for s in arr.sections] == ["intro", "chorus", "chorus", "chorus", "epicness", "awesomeness",
                                               "chorus", "madness", "chorus", "epicness", "awesomeness", "chorus",
                                               "ending"]
+    assert arr.sections[2].bars == 6 and arr.sections[2].name == "Chorus 2"
+    dun = AR.build_from_base(bm, extra={"dundundenden_part": "dundundenden"})
+    assert dun.sections[2].kind == "dundundenden"
     avail = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "kick", "clap", "snare", "hat_closed",
              "hat_open", "crash", "quote1", "quote2", "quote3", "phrase", "word_a", "word_b", "bass"}
     ev = AR.compile_events(arr, avail)
@@ -393,7 +397,7 @@ def test_percussion_on_a_base_is_the_normal_pattern_without_fills_or_doubles():
         if sec.kind not in ("chorus", "epicness", "awesomeness", "madness"):
             continue
         assert not any("fill" in tr.id for tr in sec.tracks), sec.kind
-        drums = [e for e in ev if e.section == si and e.stem == "drums" and e.track_id.startswith("perc")]
+        drums = [e for e in ev if e.section == si and e.stem == "drums" and e.track_id == "perc"]
         for bar in range(sec.bars):
             hits = {}
             for e in drums:
@@ -401,4 +405,37 @@ def test_percussion_on_a_base_is_the_normal_pattern_without_fills_or_doubles():
                 if 0 <= st < 16:
                     hits.setdefault(e.sample, []).append(st)
             assert sorted(hits["kick"]) == [0, 4, 8, 12], (sec.kind, bar, hits)
-            assert sorted(hits["clap"]) == [4, 12] and sorted(hits["hat_closed"]) == [2, 6, 10, 14]
+            # "Open hi-hats are mostly used for in-pattern hi-hats … the closed one mostly used a repetitive
+            # pattern" (Percussion, Sparta Remix Wiki): the pattern's 3s are open hats, closed hats on every 8th.
+            assert sorted(hits["clap"]) == [4, 12] and sorted(hits["hat_open"]) == [2, 6, 10, 14]
+            at = [round((e.t - starts[si]) / arr.step_s - 16 * bar, 3) for e in ev
+                  if e.section == si and e.track_id == "chat"]
+            closed = sorted(st for st in at if 0 <= st < 16)
+            assert closed == [0, 2, 4, 6, 8, 10, 12, 14]
+
+
+def test_chorus_frame_sections_open_with_a_fullscreen_hit():
+    from spartagen.render_video import cell_for, LAYOUT_CELLS
+    arr = AR.build_from_base(_classic_map())
+    ev = AR.compile_events(arr, AVAIL_ALL)
+    starts = arr.section_starts()
+    for si, sec in enumerate(arr.sections):
+        if sec.layout != "main":
+            continue
+        hit = [e for e in ev if e.section == si and e.track_id == "crash"]
+        assert [round((e.t - starts[si]) / arr.step_s) for e in hit] == [0], sec.kind
+        assert cell_for(hit[0], "main") == "full"
+    # The hit's cell is drawn last (over the frame).
+    assert list(LAYOUT_CELLS["main"])[-1] == "full" and LAYOUT_CELLS["main"]["full"] == (0.0, 0.0, 1.0, 1.0)
+
+
+def test_timbre_tells_voices_apart_whatever_the_note():
+    from spartagen.samples import Sample, sample_timbre, timbre_distance
+    from tests.conftest import harmonic_tone
+    sr = 44100
+    def smp(f0, formant):
+        return Sample("t", "pitch", "t", 0.0, 0.3, harmonic_tone(f0, 0.3, sr, formant=formant), sr, 62.0)
+    a, a2 = sample_timbre(smp(293.7, 700.0)), sample_timbre(smp(293.7 * 1.02, 700.0))
+    b = sample_timbre(smp(293.7, 2200.0))
+    scale = np.ones_like(a)
+    assert timbre_distance(a, b, scale) > 3 * timbre_distance(a, a2, scale)

@@ -116,9 +116,12 @@ Sections and what plays in them:
   down (the pattern's seventh line — a major seventh and a raised eleventh — clashes with a base's major chords, so
   it is left out; pick any other pitch pattern with the pattern list); ChorusCrisp pluck; the bass pitch on the
   offbeats; the wiki's *Normal Percussion* (kick every beat, clap on 2 and 4 with the kick paralleled — once —
-  hats on the off-beats); crash. The main phrase big in the middle, a box per pitch (and the bass) along the top,
-  drums along the bottom. On a base there are no fills of our own: the base has its fills, and the example remix
-  on the same base keeps the plain pattern through every section.
+  open hats on the off-beats: "open hi-hats are mostly used for in-pattern hi-hats … the closed one mostly used a
+  repetitive pattern") over a closed hi-hat layer on every 8th; a crash whose clip flashes fullscreen for an 8th on
+  the downbeat. The main phrase big in the middle, a box per pitch (and the bass) along the top, drums along the
+  bottom. On a base there are no fills of our own: the base has its fills, and the example remix on the same base
+  keeps the plain pattern through every section. On a base, its DunDunDenDen part gets a Chorus too — remixers on
+  it keep the chorus going there (the DunDunDenDen part is an option: `dundundenden_part`).
 - **DunDunDenDen** — `0*__0*__1*__1*__-2*__-2*__1*__1*__`: loud quarter notes with silence in between, each hit a
   syllable of the **main phrase** pitched to the note, all drums hitting with it. Fullscreen, black between hits.
 - **Madness** — the call & response (the Madness article's *Original Pattern*: `1` = first person's word, `2` = the
@@ -199,7 +202,12 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
   (the detected pitch stands in where the band hides it from the tracker) and pushes everything between them
   ~30 dB down — the source's own audio, filtered, like Melodyne's note separation. Pitch candidates are ranked by
   how clearly they read as a note once isolated and tuned — voiced, harmonic, and sitting on the note (a singer
-  bending into a note from its neighbour keeps some of the bend through the tuning) — and longer held notes win.
+  bending into a note from its neighbour keeps some of the bend through the tuning), and keeping its level an
+  octave up (a voice with hardly any overtones loses its high notes) — and longer held notes win.
+- **Pitches that sound different**: after the main pitch, each pitch is picked for quality *and* for how far its
+  sound (mean MFCCs once tuned — vowel, voice, instrument) is from the pitches already chosen, so the several
+  pitches are not the same note four times. They all share the main pitch's octave (they play chord lines
+  together), and a note that still loses its level when shifted far up is played the sampler way.
 - **One shot per pitch** (music videos): a note the video cuts away from is shortened at the camera cut (colour
   histogram / picture jump), audio with the picture, so each pitch's box shows one shot; an automatic pick that the
   video cuts too short is passed over.
@@ -270,7 +278,7 @@ prefer to finish by hand.
 
 ```bash
 pip install -e ".[dev]"
-pytest                 # 189 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
+pytest                 # 193 tests: notation, DSP, pitch accuracy, base mapping, full pipeline, HTTP API
 python scripts/build_desktop.py   # PyInstaller build with ffmpeg bundled (what CI does per OS)
 ```
 
