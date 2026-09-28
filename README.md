@@ -178,9 +178,9 @@ library ([FFmpegKit](https://github.com/sk3llo/ffmpeg_kit_flutter), the full-gpl
 starting ffmpeg.
 
 - **Install**: `SpartaGen-<version>-iOS.ipa` is not signed — Apple only lets an iPhone run apps signed for it. Install it
-  with [AltStore](https://altstore.io) or [SideStore](https://sidestore.io) (a free Apple ID: the app has to be
-  refreshed every 7 days, which they do for you), [Sideloadly](https://sideloadly.io) from a computer, or sign it with
-  your own Apple developer account (a year, or TestFlight). iOS 15 or later.
+  with [AltStore](https://altstore.io) or [SideStore](https://sidestore.io) (with a free Apple ID the app has to be
+  refreshed every 7 days — they can do that for you), [Sideloadly](https://sideloadly.io) from a computer, or sign it
+  with your own Apple developer account (a year, or TestFlight). iOS 15 or later.
 - **Use**: *Open video…* → **From Photos** or **From Files**; **Save video…** / **Save audio…** open the share sheet
   (*Save Video* to Photos, *Save to Files*, AirDrop …).
 - **Keep SpartaGen in front while it renders**: the screen stays on while it works, but iOS pauses an app that is
