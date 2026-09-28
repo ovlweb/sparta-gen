@@ -148,6 +148,70 @@ def test_a_chorus_channel_plays_the_main_phrase(tmp_path):
     assert not any(e.track_id == "main_auto" for e in ev)             # no Chorus pattern over it
 
 
+def _with_intro(intro_bars: int, bars: int = 12) -> list[dict]:
+    """The classic base with an intro: only the chords and the bass play before the lead and the beat."""
+    tracks = classic_base(bars=bars)
+    for tr in tracks:
+        if tr["name"] in ("Lead", "Drums"):
+            tr["notes"] = [n for n in tr["notes"] if n[0] >= 4 * intro_bars]
+    return tracks
+
+
+@pytest.mark.parametrize("intro_bars", [1, 4])
+def test_the_chorus_comes_in_where_the_base_s_chorus_does(tmp_path, intro_bars):
+    path = M.write_midi(str(tmp_path / "intro.mid"), _with_intro(intro_bars), bpm=150)
+    song = M.read_midi(path)
+    parts = [(s.kind, s.start, s.bars) for s in M.song_structure(song)]
+    assert parts[0] == ("intro", 0, intro_bars) and parts[1][:2] == ("chorus", intro_bars)
+    arr = M.build_from_midi(song)
+    assert [s.kind for s in arr.sections][:2] == ["intro", "chorus"]
+    ev = compile_events(arr)
+    bar = 4 * 60.0 / 150
+    phrase = [e.t for e in ev if e.sample in ("chorus_a", "chorus_b")]
+    assert min(phrase) == pytest.approx(intro_bars * bar)              # not from 0:00
+    lead = min(e.t for e in ev if e.sample == "pitch1")
+    assert lead == pytest.approx(intro_bars * bar)                     # the base's own parts where it has them
+
+
+def test_a_doubled_channel_starts_off(tmp_path):
+    tracks = classic_base(bars=4, drums=False)
+    lead = tracks[0]["notes"]
+    tracks.append({"name": "Lead copy", "channel": 3, "program": 81,
+                   "notes": [(t, d, p + 12, v) for t, d, p, v in lead]})       # the same line an octave up
+    song = M.read_midi(M.write_midi(str(tmp_path / "dbl.mid"), tracks))
+    names = {p.name: p for p in song.parts}
+    assert names["Lead copy"].double_of == names["Lead"].id and not names["Lead"].double_of
+    roles = {song.part(pid).name: m["role"] for pid, m in M.suggest_roles(song).items()}
+    assert roles["Lead"] == "pitch1" and roles["Lead copy"] == "off"
+
+
+def test_a_midi_chord_is_one_picture_and_every_line_has_its_own_box(base_mid):
+    from spartagen.render_video import line_cells
+    song = M.read_midi(base_mid)
+    arr = M.build_from_midi(song)
+    ev = compile_events(arr)
+    chords = [e for e in ev if e.track_id.startswith("midi_") and e.sample in ("pitch2", "pitch3", "pitch4")]
+    by_onset: dict[float, list] = {}
+    for e in chords:
+        by_onset.setdefault(round(e.t, 6), []).append(e)
+    assert by_onset and all(len(v) == 3 for v in by_onset.values())
+    assert all(sum(e.visual != "none" for e in v) == 1 for v in by_onset.values())
+    lines = line_cells(arr, ev)
+    for si in range(len(arr.sections)):
+        boxes = [c for (s, _line), c in lines.items() if s == si]
+        assert len(boxes) == len(set(boxes))
+    assert all(s.layout == "main" for s in arr.sections if s.kind in ("intro", "chorus", "ending"))
+
+
+def test_auto_percussion_is_the_sparta_percussion(tmp_path):
+    path = M.write_midi(str(tmp_path / "nodrums.mid"), classic_base(bars=8, drums=False), bpm=150)
+    arr = M.build_from_midi(M.read_midi(path))
+    ids = {t.id for s in arr.sections for t in s.tracks}
+    assert {"perc_auto", "chat_auto", "hat2_auto", "snl_auto"} <= ids
+    perc = next(t for s in arr.sections for t in s.tracks if t.id == "perc_auto")
+    assert perc.pattern == "perc.sparta"
+
+
 def test_session_follows_a_midi_base(tmp_path, base_mid):
     from spartagen.project import Session
     s = Session(workspace=str(tmp_path / "w"))

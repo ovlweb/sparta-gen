@@ -15,7 +15,7 @@ import numpy as np
 
 from . import SAMPLE_RATE, __version__
 from . import ffmpeg as ff
-from .arrangement import Arrangement, build_arrangement, build_from_base, compile_events, variant_def
+from .arrangement import PERC_DEFAULT, Arrangement, build_arrangement, build_from_base, compile_events, variant_def
 from .audio import dsp
 from .audio.analysis import Analysis, analyze
 from .render_audio import MixConfig, muted_stems, render_mix
@@ -349,7 +349,7 @@ class Session:
                                       bool(m.get("auto_phrase", True)), key=key,
                                       pitching=o.get("pitching") or "normal", polish=o.get("polish") or "normal",
                                       section_bars=int(m.get("section_bars", 8)),
-                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern") or "perc.normal")
+                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern") or PERC_DEFAULT)
                 arr.title = o.get("title") or (f"{self.project.name} has a Sparta Remix" if self.project.source_path
                                                else "Sparta Remix")
                 return arr

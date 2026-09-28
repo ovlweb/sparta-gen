@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -156,9 +157,12 @@ LAYOUT_CELLS["main"] = {
     "l": (0.0, 0.2, 0.2, 0.6), "r": (0.8, 0.2, 0.2, 0.6),
     "full": (0.0, 0.0, 1.0, 1.0),        # a section's opening hit, over everything, for an 8th
 }
-# Every pitch has its own box along the top — the several pitches are seen playing together — with the
-# bass at the end of the row; drums and quotes along the bottom.
+# Every pitch line has its own box along the top — the several pitches are seen playing together — with
+# the bass at the end of the row; drums and quotes along the bottom.  A line is a track: a chord's voices
+# (one pitch sample each) are one line, seen in one box.
 MAIN_PITCH = {"pitch1": "t0", "pitch2": "t1", "pitch3": "t2", "pitch4": "t3"}
+#: Where a line goes when its pitch's own box is another line's (main: the top row, then the sides).
+MAIN_LINE_CELLS = ["t0", "t1", "t2", "t3", "r", "l"]
 MAIN_FIXED = {"bass": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "crash": "b3", "corner": "b3", "perc": "b3",
               "hat2": "b4", "quote": "b4", "side": "l"}
 
@@ -169,6 +173,50 @@ GRID3_PITCH = {"pitch1": "mc", "pitch2": "ml", "pitch3": "mr", "pitch4": "tc"}
 GRID4_VOICES = {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21", "pitch1": "c22"}
 GRID3_FIXED = {"kick": "bl", "snare": "br", "hat": "tl", "crash": "tr", "bass": "bc", "corner": "tr",
                "quote": "tc", "center": "mc", "hat2": "tl", "perc": "br"}
+GRID3_LINE_CELLS = ["mc", "ml", "mr", "tc", "bc", "tl", "tr", "bl", "br"]
+LINE_VISUALS = ("pitch_cycle", "voices")
+
+
+def line_of(e: NoteEvent) -> tuple[int, str]:
+    """The line an event belongs to: its track in its section (an Epicness's 4-bar blocks — "pitch",
+    "pitch_1" … — are one line)."""
+    return e.section, re.sub(r"_\d+$", "", e.track_id)
+
+
+def line_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[tuple[int, str], str]:
+    """A box for each pitch line of each section (main and 3x3 layouts): the line's own pitch box when it
+    is free, else the next free one — two lines never share a box, so none hides another."""
+    firsts: dict[tuple[int, str], tuple] = {}
+    used: dict[int, set] = {}
+    for e in events:
+        layout = arr.sections[e.section].layout
+        if layout not in ("main", "grid3") or e.visual == "none":
+            continue
+        if e.visual in LINE_VISUALS:
+            key = line_of(e)
+            # Pitch lines take their boxes before held chords, then in the order they start.
+            rank = (0 if e.visual == "pitch_cycle" else 1, e.t)
+            if key not in firsts or rank < firsts[key][0]:
+                firsts[key] = (rank, e.sample)
+        else:
+            c = cell_for(e, layout)
+            if c is not None:
+                used.setdefault(e.section, set()).add(c)
+    out: dict[tuple[int, str], str] = {}
+    for key, (_rank, sample) in sorted(firsts.items(), key=lambda kv: (kv[0][0], kv[1][0])):
+        si = key[0]
+        layout = arr.sections[si].layout
+        taken = used.setdefault(si, set())
+        if layout == "main" and sample.startswith("chorus"):
+            out[key] = "main"                       # the main phrase's own clips stay in the middle
+            continue
+        own = (MAIN_PITCH if layout == "main" else GRID3_PITCH).get(sample)
+        free = [c for c in (MAIN_LINE_CELLS if layout == "main" else GRID3_LINE_CELLS) if c not in taken]
+        cell = own if own is not None and own not in taken else (free[0] if free else own)
+        if cell is not None:
+            out[key] = cell
+            taken.add(cell)
+    return out
 
 
 def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
@@ -665,11 +713,12 @@ def render_video(
     n_frames = int(math.ceil(total * fps))
     titles = Titles(W, H) if cfg.titles else None
 
-    # Visible events with their cell, sorted by start.
+    # Visible events with their cell, sorted by start.  Each pitch line has a box of its own.
+    lines = line_cells(arr, events)
     vis = []
     for e in events:
         sec = arr.sections[e.section]
-        cell = cell_for(e, sec.layout)
+        cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or cell_for(e, sec.layout)
         if cell is None:
             continue
         s = bank.get(e.sample)

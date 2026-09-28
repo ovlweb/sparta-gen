@@ -264,30 +264,51 @@ def test_a_looping_lead_in_replaces_the_end_of_the_previous_loop():
     assert min(steps) == 2.0     # a lead-in before the song starts is dropped; "__1*" follows it
 
 
-def test_each_pitch_voice_gets_its_own_box():
-    from spartagen.render_video import cell_for
-    bm = _classic_map()
-    arr = AR.build_from_base(bm)
+def test_a_chord_is_one_picture_and_lines_never_share_a_box():
+    """A chord's voices (0/3/7 lines, a pitch sample each) all sound, but the chord is seen once, in its
+    line's box — not one box per voice, which covered the other lines' boxes."""
+    from spartagen.render_video import cell_for, line_cells, line_of, LINE_VISUALS
+    arr = AR.build_from_base(_classic_map())
     avail = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "bass", "kick", "clap", "hat_closed"}
     ev = AR.compile_events(arr, avail)
-    layout = {i: s.layout for i, s in enumerate(arr.sections)}
-    boxes: dict[str, set] = {}
-    for e in ev:
-        if e.section_kind == "chorus" and e.track_id == "pitch":
-            boxes.setdefault(e.section_kind + ":" + e.sample, set()).add(cell_for(e, layout[e.section]))
-    # Chorus: main phrase in the middle, a box per pitch along the top.
-    assert boxes["chorus:pitch1"] == {"t0"} and boxes["chorus:pitch2"] == {"t1"}
-    assert boxes["chorus:pitch3"] == {"t2"}
-    low = [e for e in ev if e.section_kind == "chorus" and e.track_id == "pitch_low"]
-    assert low and {cell_for(e, layout[e.section]) for e in low} == {"t3"}
-    # Epicness: the Chorus's frame — the chord voices get the pitches' boxes along the top.
-    chords = [e for e in ev if e.section_kind == "epicness" and e.track_id == "chords"]
-    assert {e.sample: cell_for(e, layout[e.section]) for e in chords} == {"pitch2": "t1", "pitch3": "t2", "pitch4": "t3"}
-    # In a 4x4 grid (custom layouts) they hold its middle, one box each.
-    assert {e.sample: cell_for(e, "grid4") for e in chords} == {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21"}
-    # Each voice's box flips on its own notes.
-    p2 = [e for e in chords if e.sample == "pitch2"]
-    assert [e.index for e in p2[:4]] == [0, 1, 2, 3]
+    lines = line_cells(arr, ev)
+    si = next(i for i, s in enumerate(arr.sections) if s.kind == "chorus")
+    chorus = [e for e in ev if e.section == si and e.track_id == "pitch"]
+    by_onset: dict[float, list] = {}
+    for e in chorus:
+        by_onset.setdefault(round(e.t, 6), []).append(e)
+    assert by_onset and all(len(v) == 3 for v in by_onset.values())           # root, third and fifth sound …
+    for v in by_onset.values():
+        shown = [e for e in v if e.visual != "none"]
+        assert [e.sample for e in shown] == ["pitch1"]                          # … the root is the one seen
+    assert lines[(si, "pitch")] == "t0"
+    fc = max(i for i, s in enumerate(arr.sections) if s.kind == "chorus")
+    assert lines[(fc, "pitch")] == "t0" and lines[(fc, "pitch_low")] == "t3"
+    # Epicness: the melody (pitches 1-3) in pitch 1's box; the held chords are seen once per chord, through
+    # the one pitch the melody does not show (their root is on pitch 4), in that pitch's box.
+    ep = next(i for i, s in enumerate(arr.sections) if s.kind == "epicness")
+    assert lines[(ep, "pitch")] == "t0" and lines[(ep, "chords")] == "t3"
+    melody = {e.sample for e in ev if e.section == ep and e.track_id == "pitch"}
+    chords = [e for e in ev if e.section == ep and e.track_id == "chords"]
+    seen = [e for e in chords if e.visual != "none"]
+    assert melody == {"pitch1", "pitch2", "pitch3"}
+    assert {e.sample for e in chords} == {"pitch2", "pitch3", "pitch4"} and {e.sample for e in seen} == {"pitch4"}
+    assert [e.index for e in seen[:4]] == [0, 1, 2, 3]                          # the box flips chord by chord
+    assert cell_for(seen[0], "grid4") == "c21"
+    # Where the melody shows only pitch 1 (the Awesomeness), the chords keep their own order.
+    aw = next(i for i, s in enumerate(arr.sections) if s.kind == "awesomeness")
+    assert {e.sample for e in ev if e.section == aw and e.track_id == "chords" and e.visual != "none"} == {"pitch2"}
+    # No two lines share a box in any part.
+    for s, sec in enumerate(arr.sections):
+        mine = {v for k, v in lines.items() if k[0] == s}
+        assert len(mine) == sum(1 for k in lines if k[0] == s), sec.name
+        drums = {cell_for(e, sec.layout) for e in ev if e.section == s and e.visual not in LINE_VISUALS}
+        assert not (mine - {"main"}) & drums, sec.name
+    # A 12-bar Epicness plays its pattern in 4-bar blocks ("pitch", "pitch_1" …): one line, one box.
+    long_ep = max((i for i, s in enumerate(arr.sections) if s.kind == "epicness"), key=lambda i: arr.sections[i].bars)
+    blocks = {e.track_id for e in ev if e.section == long_ep and e.track_id.startswith("pitch")}
+    assert blocks == {"pitch", "pitch_1", "pitch_2"} and {line_of(e) for e in ev if e.track_id in blocks
+                                                             and e.section == long_ep} == {(long_ep, "pitch")}
 
 
 def test_a_pitch_is_cut_where_the_video_cuts_away():
@@ -387,9 +408,10 @@ def test_a_crash_hits_once_on_its_downbeat():
         assert all(st % 16 == 0 for st in steps) and len(steps) == len(set(steps)), (sec.kind, steps)
 
 
-def test_percussion_on_a_base_is_the_normal_pattern_without_fills_or_doubles():
-    """Like the example remix on the same base: kick on every beat, clap on 2 and 4, hats on the
-    off-beats, in every section with drums — no fills of our own over the base's, no double kicks."""
+def test_percussion_on_a_base_is_the_sparta_percussion_without_fills_or_doubles():
+    """The kick line 1_332_331_332_33 (kick on 1 and 3, snare with the kick paralleled on 2 and 4, open
+    hats between) and hi-hat 1 on every 8th, in every section with drums — no fills of our own over the
+    base's, no double kicks."""
     arr = AR.build_from_base(_classic_map())
     ev = AR.compile_events(arr, AVAIL_ALL)
     starts = arr.section_starts()
@@ -407,7 +429,8 @@ def test_percussion_on_a_base_is_the_normal_pattern_without_fills_or_doubles():
             assert sorted(hits["kick"]) == [0, 4, 8, 12], (sec.kind, bar, hits)
             # "Open hi-hats are mostly used for in-pattern hi-hats … the closed one mostly used a repetitive
             # pattern" (Percussion, Sparta Remix Wiki): the pattern's 3s are open hats, closed hats on every 8th.
-            assert sorted(hits["clap"]) == [4, 12] and sorted(hits["hat_open"]) == [2, 6, 10, 14]
+            assert sorted(hits["clap"]) == [4, 12]
+            assert sorted(hits["hat_open"]) == [2, 3, 6, 7, 10, 11, 14, 15]
             at = [round((e.t - starts[si]) / arr.step_s - 16 * bar, 3) for e in ev
                   if e.section == si and e.track_id == "chat"]
             closed = sorted(st for st in at if 0 <= st < 16)
@@ -519,17 +542,22 @@ def test_no_text_over_the_video_by_default():
     assert VideoConfig.from_dict({"titles": True}).titles is True      # still there for whoever wants it
 
 
-def test_citrus_layers_second_hat_and_extra_hit():
-    """Measured on Citrus's remix on the extended base: a second hi-hat on the "a" of beat 3 (and the "and"
-    of beat 4 every other bar), an extra hit on the "and"s of beats 3 and 4 — over the plain pattern."""
+def test_sparta_percussion_layers_hats_and_snare_line():
+    """Under the kick line: hi-hat 2 on every 16th, the snare line on dotted 8ths for a bar and a half
+    (snare and a second hit taking turns, 1__2__1__2__…), and an extra hit on the "and"s of beats 3 and 4."""
     from spartagen.render_video import cell_for
     arr = AR.build_from_base(_classic_map())
     ev = AR.compile_events(arr, AVAIL_ALL)
     si = next(i for i, s in enumerate(arr.sections) if s.kind == "chorus")
     t0 = arr.section_starts()[si]
     at = lambda tid: sorted(round((e.t - t0) / arr.step_s) for e in ev if e.section == si and e.track_id == tid)  # noqa: E731
-    assert at("hat2")[:3] == [11, 27, 30] and at("xperc")[:4] == [10, 14, 26, 30]
+    assert at("hat2")[:32] == list(range(32))
+    assert at("snl")[:9] == [0, 3, 6, 9, 12, 15, 18, 21, 32]           # then half a bar of rest, and again
+    assert at("xperc")[:4] == [10, 14, 26, 30]
+    snl = sorted((e for e in ev if e.section == si and e.track_id == "snl"), key=lambda e: e.t)
+    assert [e.sample for e in snl[:4]] == ["snare", "perc", "snare", "perc"]
     h2 = next(e for e in ev if e.section == si and e.track_id == "hat2")
     xp = next(e for e in ev if e.section == si and e.track_id == "xperc")
     assert h2.sample == "hat2" and xp.sample == "perc"
     assert cell_for(h2, "main") == "b4" and cell_for(xp, "main") == "b3" and cell_for(h2, "full") is None
+    assert cell_for(snl[0], "main") == "b1"

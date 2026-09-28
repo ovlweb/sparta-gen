@@ -184,20 +184,38 @@ def _drums(groove: str, start_bar: float = 0, end_bar: Optional[float] = None, g
     return out
 
 
-def _perc_layers(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, gain: float = 0.0,
-                 suffix: str = "", hats: str = "hat.16ths_spaced") -> list[TrackSpec]:
-    """A percussion pattern (its 3s on the open hat), the repetitive closed hi-hat layer, and the
-    layers remixers add over it: a second hi-hat and an extra hit (as in Citrus's remix)."""
-    return [_perc(pattern, start_bar, end_bar, gain, suffix),
-            TrackSpec(f"chat{suffix}", "drum", hats, mode="index", slots=copy.deepcopy(lib.CLOSED_HAT_SLOTS),
-                      gain_db=gain, pitched=False, start_bar=start_bar, end_bar=end_bar, visual="hat",
-                      flip="alternate", stem="drums"),
-            TrackSpec(f"hat2{suffix}", "drum", "text:" + lib.SECOND_HAT, mode="index",
-                      slots=copy.deepcopy(lib.SECOND_HAT_SLOTS), gain_db=gain, pitched=False, start_bar=start_bar,
-                      end_bar=end_bar, visual="hat2", flip="alternate", stem="drums"),
-            TrackSpec(f"xperc{suffix}", "drum", "text:" + lib.EXTRA_PERC, mode="index",
-                      slots=copy.deepcopy(lib.EXTRA_PERC_SLOTS), gain_db=gain, pitched=False, start_bar=start_bar,
-                      end_bar=end_bar, visual="perc", flip="alternate", stem="drums")]
+#: The percussion a remix plays unless a base or template names its own: the Sparta Percussion.
+PERC_DEFAULT = "perc.sparta"
+
+
+def _perc_layers(pattern: str = PERC_DEFAULT, start_bar: float = 0, end_bar: Optional[float] = None,
+                 gain: float = 0.0, suffix: str = "") -> list[TrackSpec]:
+    """A percussion pattern (1 kick, 2 snare, 3 open hat) with the layers under it: hi-hat 1 in 8ths,
+    hi-hat 2 in 16ths, the snare line on dotted 8ths (with the Sparta Percussion) and an extra hit."""
+
+    def layer(tid: str, text: str, slots: dict, visual: str) -> TrackSpec:
+        return TrackSpec(f"{tid}{suffix}", "drum", "text:" + text, mode="index", slots=copy.deepcopy(slots),
+                         gain_db=gain, pitched=False, start_bar=start_bar, end_bar=end_bar, visual=visual,
+                         flip="alternate", stem="drums")
+
+    out = [_perc(pattern, start_bar, end_bar, gain, suffix),
+           layer("chat", lib.CLOSED_HAT, lib.CLOSED_HAT_SLOTS, "hat"),
+           layer("hat2", lib.SECOND_HAT, lib.SECOND_HAT_SLOTS, "hat2")]
+    if pattern == PERC_DEFAULT:
+        out.append(layer("snl", lib.SNARE_LINE, lib.SNARE_LINE_SLOTS, "snare"))
+    out.append(layer("xperc", lib.EXTRA_PERC, lib.EXTRA_PERC_SLOTS, "perc"))
+    return out
+
+
+def _section_perc(opts: dict, bars: int, start_bar: float = 0, gain: float = 0.0, fill: bool = True,
+                  suffix: str = "") -> list[TrackSpec]:
+    """A part's percussion: the base's or template's own pattern, else the Sparta Percussion, with its
+    layers; on a template (no base under it) a snare build in the part's last bar leads into the next."""
+    pattern = _perc_pattern(opts, PERC_DEFAULT)
+    if opts.get("base") or not fill or bars - start_bar < 2:
+        return _perc_layers(pattern, start_bar=start_bar, gain=gain, suffix=suffix)
+    return (_perc_layers(pattern, start_bar=start_bar, end_bar=bars - 1, gain=gain, suffix=suffix)
+            + _drums("build", start_bar=bars - 1, gain=gain, suffix="_fill" + suffix))
 
 
 def _perc(pattern: str, start_bar: float = 0, end_bar: Optional[float] = None, gain: float = 0.0,
@@ -312,14 +330,7 @@ def sec_chorus(bars: int, opts: dict, final: bool = False, name: str = "Chorus")
         tracks.append(TrackSpec("chords", "pitch", _held_chords(opts),
                                 sample="pitch3", voice_samples=list(PITCH_VOICES[:3]), gain_db=-16.0, sustain=True,
                                 visual="none", stem="pad"))
-    if opts.get("base"):
-        tracks += _perc_layers(_perc_pattern(opts, "perc.vitro" if hard else "perc.normal"))
-    elif opts.get("wiki_perc", False):
-        tracks.append(_perc(_perc_pattern(opts, "perc.vitro" if hard else "perc.normal"), end_bar=bars - 1))
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
-    else:
-        tracks += _drums("four_on_floor_16" if hard else "four_on_floor", end_bar=bars - 1, hat_open=hard)
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
+    tracks += _section_perc(opts, bars)
     return SectionSpec("chorus", bars, tracks, name, layout="main")
 
 
@@ -348,10 +359,7 @@ def sec_dundundenden(bars: int, opts: dict) -> SectionSpec:
         tracks[1] = TrackSpec("pitch", "pitch", opts["dun_pitch_pattern"], sample="pitch1", crisp=True, sustain=True,
                               gain_db=-3.0, visual="pitch_cycle", flip="alternate")
     if perc_from < bars:
-        if opts.get("base"):
-            tracks += _perc_layers(_perc_pattern(opts, "perc.normal"), start_bar=perc_from)
-        else:
-            tracks += _drums("four_on_floor_16", start_bar=perc_from, suffix="_b")
+        tracks += _section_perc(opts, bars, start_bar=perc_from, fill=False)
         tracks.append(_crash(perc_from, tid="crash_perc"))
     if full_from < bars:
         tracks += [
@@ -399,14 +407,7 @@ def sec_epicness(bars: int, opts: dict, pattern: Optional[str] = None) -> Sectio
         _bass("rolling"),
         _crash(0.0, visual="hit"),
     ]
-    if opts.get("base"):
-        tracks += _perc_layers(_perc_pattern(opts, "perc.normal"))
-    elif opts.get("wiki_perc", False):
-        tracks.append(_perc(_perc_pattern(opts, "perc.sparta_crash_mix"), end_bar=bars - 1))
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
-    else:
-        tracks += _drums("four_on_floor_16", end_bar=bars - 1, hat_open=True)
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
+    tracks += _section_perc(opts, bars)
     # The Chorus's frame: the main phrase big in the middle, a box per pitch along the top.
     return SectionSpec("epicness", bars, tracks, "Epicness", layout="main")
 
@@ -422,14 +423,7 @@ def sec_chords(bars: int, opts: dict) -> SectionSpec:
         _bass("roots"),
         _crash(0.0),
     ]
-    if opts.get("base"):
-        tracks += _perc_layers(_perc_pattern(opts, "perc.normal"))
-    elif opts.get("wiki_perc", False):
-        tracks.append(_perc(_perc_pattern(opts, "perc.generic"), end_bar=bars - 1))
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
-    else:
-        tracks += _drums("four_on_floor", end_bar=bars - 1)
-        tracks += _drums("build", start_bar=bars - 1, suffix="_fill")
+    tracks += _section_perc(opts, bars)
     return SectionSpec("chords", bars, tracks, "Chords (Pre-Awesomeness)", layout="grid3")
 
 
@@ -467,12 +461,7 @@ def sec_awesomeness(which: int, opts: dict, bars: int = 4) -> SectionSpec:
         _bass("offbeat"),
         _crash(0.0, visual="hit"),
     ]
-    if opts.get("base"):
-        tracks += _perc_layers(_perc_pattern(opts, "perc.normal"))
-    elif opts.get("wiki_perc", False):
-        tracks.append(_perc(_perc_pattern(opts, "perc.normal")))
-    else:
-        tracks += _drums("four_on_floor_16", hat_open=True)
+    tracks += _section_perc(opts, bars, fill=False)
     return SectionSpec("awesomeness", bars, tracks, f"Awesomeness {which}", layout="main")
 
 
@@ -491,7 +480,7 @@ def sec_madness(bars: int, opts: dict) -> SectionSpec:
                   gain_db=-11.0 if opts.get("base") else -5.0, sustain=True, visual="none"),   # the soft part
     ]
     if opts.get("base"):
-        tracks += _perc_layers(_perc_pattern(opts, "perc.normal"), gain=-3.0)
+        tracks += _perc_layers(_perc_pattern(opts, PERC_DEFAULT), gain=-3.0)
     else:
         tracks += _drums("breakdown", end_bar=half)
         tracks += _drums("half_time", start_bar=half, end_bar=bars - 1, suffix="_h")
@@ -509,7 +498,7 @@ def sec_execution(bars: int, opts: dict, pattern: str = "exec.original") -> Sect
         _bass("offbeat"),
         _crash(0.0),
     ]
-    tracks += _drums("four_on_floor_16")
+    tracks += _section_perc(opts, bars, fill=False)
     return SectionSpec("execution", bars, tracks, "Execution", layout="grid3")
 
 
@@ -880,6 +869,24 @@ def _available(sample: str, available: Optional[set]) -> Optional[str]:
     return None
 
 
+def _line_samples(tr: TrackSpec, available: Optional[set]) -> set:
+    """The pitch samples a line is seen with (none for a chord line: it is seen through what is left)."""
+    if tr.voice_samples or tr.visual not in ("pitch_cycle", "voices") or tr.follow.startswith("@"):
+        return set()
+    pp = _pattern_source(tr)[0]
+    if pp is None:
+        return set()
+    names = set()
+    if pp.mode == "index" or tr.follow == "progression":
+        for value in {n.value for n in pp.notes}:
+            for k, ent in enumerate(_slot_entries(tr, value)):
+                if ent.get("visual", tr.visual if k == 0 else "none") != "none":
+                    names.add(ent["sample"])
+    else:
+        names.add(tr.sample)
+    return {s for s in (_available(n, available) for n in names if n) if s}
+
+
 def _pattern_source(track: TrackSpec) -> tuple[Optional[ParsedPattern], Optional[str], float, float]:
     """(parsed pattern, progression it was written over, loop length in steps, pickup steps)."""
     p = track.pattern
@@ -959,6 +966,8 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
         t0_steps = t0 / step
         onsets_by_track: dict[str, list[tuple[float, float, float]]] = {}
         ordered = sorted(sec.tracks, key=lambda tr: 1 if tr.follow.startswith("@") else 0)
+        # The pitch samples the part's other lines show: a chord is seen through a voice none of them shows.
+        taken = {s for tr in sec.tracks if not tr.muted for s in _line_samples(tr, available)}
         for tr in ordered:
             if tr.muted:
                 continue
@@ -998,8 +1007,11 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                     rep += 1
             notes.sort(key=lambda z: (z[0], z[4]))
             onsets_by_track[tr.id] = [(st, du, v) for st, du, v, _s, _vo in notes]
+            # A chord is seen through its lowest voice: that voice gets a sample no other line shows, if one is left.
+            voice_samples = sorted(tr.voice_samples, key=lambda s: _available(s, available) in taken)
             count = 0
-            voice_count: dict[int, int] = {}
+            chords = 0                  # a chord's voices (a line each) are seen as one: one visual per onset
+            seen_step: Optional[float] = None
             written_prog = parse_progression(written) if written else None
             for st, du, value, sharp, voice in notes:
                 # Which sample(s), and how many semitones from its D?
@@ -1009,11 +1021,11 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                     if tr.follow.startswith("@"):
                         root = 0
                 else:
-                    if tr.voice_samples:
+                    if voice_samples:
                         # Several pitches: each line of the pattern (chord voice) has its own sample.
-                        if voice >= len(tr.voice_samples):
+                        if voice >= len(voice_samples):
                             continue
-                        entries = [{"sample": tr.voice_samples[voice]}]
+                        entries = [{"sample": voice_samples[voice]}]
                     else:
                         entries = [{"sample": tr.sample}]
                     root = value
@@ -1025,12 +1037,15 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                                   key=lambda s: int(s[3:]) if s[3:].isdigit() else 0)
                     entries = [{"sample": syls[count % len(syls)] if syls else tr.sample}]
                 emitted = False
+                # Chord voices: the first voice at an onset shows the chord, the others only sound.
+                chord_tone = bool(tr.voice_samples) and seen_step is not None and abs(st - seen_step) < 1e-6
                 for k, ent in enumerate(entries):
                     sample = _available(ent["sample"], available)
                     if sample is None:
                         continue
                     offset = int(ent.get("offset", 0))
                     semis = root + offset + sharp + 12 * tr.octave + tr.transpose
+                    visual = "none" if chord_tone else ent.get("visual", tr.visual if k == 0 else "none")
                     events.append(NoteEvent(
                         t=t0 + st * step, dur=du * step, track=f"{si}:{tr.id}" + (f"#{k}" if k else ""),
                         track_id=tr.id, stem=tr.stem or _default_stem(tr), kind=tr.kind, sample=sample,
@@ -1038,13 +1053,14 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                         crisp=tr.crisp, sustain=tr.sustain, oneshot=tr.oneshot,
                         pitched=tr.pitched and tr.kind in ("pitch", "bass", "chop", "words"),
                         choke=tr.choke, section=si, section_kind=sec.kind,
-                        visual=ent.get("visual", tr.visual if k == 0 else "none"), flip=tr.flip,
-                        index=voice_count.get(voice, 0) if tr.voice_samples else count,
+                        visual=visual, flip=tr.flip, index=chords if tr.voice_samples else count,
                     ))
                     emitted = True
                 if emitted:
                     count += 1
-                    voice_count[voice] = voice_count.get(voice, 0) + 1
+                    if tr.voice_samples and not chord_tone:
+                        seen_step = st
+                        chords += 1
     events.sort(key=lambda e: (e.t, e.track))
     events = _drop_doubles(events)
     _resolve_chokes(events, arr.duration)

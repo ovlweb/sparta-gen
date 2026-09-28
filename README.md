@@ -116,9 +116,11 @@ the project you worked on last.
      whether our drums and bass play over it.
    - **MIDI**: open the MIDI of any base — even one that is not public. Each channel is listed with its notes and
      range: say what it plays (the main phrase, a pitch, the chords, the bass, drums, kick/snare/clap/hat/crash,
-     quotes, Madness words) or switch it **off**, move it an octave; add **Sparta percussion when no channel has
-     drums**, and put the main phrase on the Chorus pattern where no channel plays it. The base's audio can play
-     under it.
+     quotes, Madness words) or switch it **off**, move it an octave (a channel that doubles another starts off);
+     add **Sparta percussion when no channel has drums**, and the main phrase where no channel plays it. The
+     base's parts are read from what its channels play — the Chorus is the full texture that keeps coming back,
+     the Intro what comes before it, the dips the DunDunDenDen and the Madness — so the main phrase comes in where
+     the base's Chorus does (not from 0:00), with each part's own pattern. The base's audio can play under it.
    - **Key**: *Auto* follows the base (template, audio or MIDI); or pick one of the 12 keys.
 3. **Samples** — every sample with its picture, where it was cut and its note (e.g. `D#5 → D5 (-1.01 st)`):
    ▶ plays it processed, *Original* plays that stretch of the video. Pick another cut from the list the analysis
@@ -282,15 +284,16 @@ Sections and what plays in them:
   lines on a minor base); in the Final Chorus and with hard pitching the fourth pitch doubles the roots an octave
   down (the pattern's seventh line — a major seventh and a raised eleventh — clashes with a base's major chords, so
   it is left out; pick any other pitch pattern with the pattern list); ChorusCrisp pluck; the bass pitch on the
-  offbeats; the wiki's *Normal Percussion* (kick every beat, clap on 2 and 4 with the kick paralleled — once —
-  open hats on the off-beats: "open hi-hats are mostly used for in-pattern hi-hats … the closed one mostly used a
-  repetitive pattern") over a closed hi-hat layer on every 8th, and the layers Citrus adds in his remix on the
-  extended base (measured over 24 chorus bars): a second hi-hat on the "a" of beat 3 (and the "and" of beat 4 every
-  other bar) and an extra hit on the "and"s of beats 3 and 4; a crash whose clip flashes fullscreen for an 8th on
-  the downbeat. The main phrase big in the middle, a box per pitch (and the bass) along the top, drums along the
-  bottom. On a base there are no fills of our own: the base has its fills, and the example remix on the same base
-  keeps the plain pattern through every section. (A Chorus in the base's DunDunDenDen part instead, as one example
-  remix does: `dundundenden_part="chorus"`.)
+  offbeats; the *Sparta Percussion*: the kick line `1_332_331_332_33` (kick on 1 and 3, the snare with the kick
+  paralleled — once — on 2 and 4, open hats between: "open hi-hats are mostly used for in-pattern hi-hats … the
+  closed one mostly used a repetitive pattern"), hi-hat 1 on every 8th (`3_3_3_3_…`), hi-hat 2 on every 16th
+  (`3333…`), the snare line on dotted 8ths (`1__2__1__2__1__2__1__2__`: snare and a second hit taking turns for a
+  bar and a half) and an extra hit on the "and"s of beats 3 and 4 (as Citrus adds in his remix on the extended
+  base); a crash whose clip flashes fullscreen for an 8th on the downbeat. The main phrase big in the middle, a box
+  per pitch line (and the bass) along the top — a chord is one line: its root, third and fifth all sound, and it is
+  seen once, in one box, so no line covers another — drums along the bottom. On a base there are no fills of our
+  own: the base has its fills, so the pattern plays plain through every section. (A Chorus in the base's
+  DunDunDenDen part instead, as one example remix does: `dundundenden_part="chorus"`.)
 - **DunDunDenDen** (the Buildup) — the wiki's Original Pattern `1___2___3A___3B___`: loud quarter notes with
   silence in between, stepping through the **main phrase** as it is — `1`, `2` its parts, `3A`/`3B` the third word's
   halves — with a pitch sample on every hit on the chord root (`0 0 1 1 -2 -2 1 1`, one pitch per step). It builds
@@ -307,7 +310,7 @@ Sections and what plays in them:
   4-bar block: `1_1_332_1_1_11__1_1_113_3_22221_3_1_332_1_1_111_1111111111111111` with the second line's 3s
   (`3_3__________3__3_3333_33`) before and over the closing roll. The wiki's ORIGINAL (its `1*` as a lead-in two
   16ths before the section) and all 14 edits (CatmanTeam, TheInfySpartan, majugarzett…) are in the library, and an
-  edit can alternate with it. The Chorus's frame (the main phrase big in the middle, a box per pitch along the top);
+  edit can alternate with it. The Chorus's frame (the main phrase big in the middle, a box per line along the top);
   no text over it (the spinning *OMG TEH EPICNESS* is an option: `"titles": true` in the project's video settings).
 - **Chords (Pre-Awesomeness)** — held chords and `0*, 12*` bounces (a section you can add before an Awesomeness).
 - **Awesomeness 1 / 2** — the pattern on the main pitch, an octave below on the second, the chords on the second
@@ -340,15 +343,15 @@ Three styles are recognised automatically (you can also force one):
 Picking a **Progression Twist** re-targets every semitone pattern written for `0 1 -2 1` (e.g. under `0 1 2 1` a
 note on C moves to E). Multi-line patterns (Chords) play their lines together — in the remix templates each line on
 its own pitch sample (root on the main pitch, third on the second, fifth on the third, seventh on the fourth), so
-several pitches are heard, and seen, at once.
+several pitches are heard at once; the chord is seen once, in its line's box.
 
 Index patterns may use `B` (slots 1 and 2 together, from the Madness freestyles).
 Percussion patterns are index patterns too: `1` kick, `2` clap/snare (with the kick paralleled, as the Percussion
 article describes), `3` hi-hat.
 
-The library holds **210 patterns** from the wiki (7 progressions, 6 intros, 27 chorus patterns, 13 chord sets,
-14 DunDunDenDens, 15 Execution patterns, 34 Awesomeness (originals + customs), 9 Madness pitch patterns and 6 call &
-response patterns, 14 Epicness patterns, 17 percussion and 5 hi-hat patterns, 43 freestyles).
+The library holds **214 patterns** from the wiki (7 progressions, 6 intros, 27 chorus patterns, 13 chord sets,
+16 DunDunDenDens, 15 Execution patterns, 34 Awesomeness (originals + customs), 9 Madness pitch patterns and 6 call &
+response patterns, 15 Epicness patterns, 18 percussion and 5 hi-hat patterns, 43 freestyles).
 Where a wiki transcription did not add up to whole bars, the obvious typo is fixed and documented in the source
 (`spartagen/patterns/library.py`, field `fix`).
 

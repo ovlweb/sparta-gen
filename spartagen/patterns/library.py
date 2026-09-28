@@ -589,6 +589,9 @@ FREESTYLES: list[PatternDef] = [
 #: 3 = hi-hat (a closed one for repetitive lines, an open one in-pattern).
 #: Today the kick is usually paralleled with the snare (see PERC_SLOTS).
 PERCUSSION: list[PatternDef] = [
+    P("perc.sparta", "Sparta Percussion", "percussion", "1_332_331_332_331_332_331_332_33", mode="index",
+      progression=None, note="the kick line (kick on 1 and 3, snare on 2 and 4, hi-hats between); the remix adds "
+      "a hi-hat in 8ths, a second one in 16ths and a snare line on dotted 8ths"),
     P("perc.original_2011", "Original 2011-2012 Percussion", "percussion", "1*__2*____1*2*__1*__2*1*__1*2*__",
       mode="index", progression=None),
     P("perc.normal", "Normal Percussion", "percussion",
@@ -646,14 +649,19 @@ PERC_SLOTS = {
     "2": [{"sample": "clap", "visual": "snare"}, {"sample": "kick", "gain": -2.0, "visual": "none"}],
     "3": {"sample": "hat_open", "gain": -11.0, "visual": "hat"},
 }
-#: The repetitive closed hi-hat layer under a percussion pattern.
+#: The layers under a percussion pattern (the Sparta Percussion: the wiki's Original Percussion lines with a
+#: second hi-hat): hi-hat 1 in 8ths — the repetitive closed hat — and hi-hat 2 in 16ths …
+CLOSED_HAT = "3_3_3_3_3_3_3_3_3_3_3_3_3_3_3_3_"
 CLOSED_HAT_SLOTS = {"3": {"sample": "hat_closed", "gain": -10.0, "visual": "hat"}}
-#: Citrus's layers on the extended base (measured on his remix, 24 chorus bars): a second hi-hat on the
-#: "a" of beat 3 (and the "and" of beat 4 every other bar), and an extra hit on the "and"s of beats 3 and 4.
-SECOND_HAT = "___________3_______________3__3_"
-SECOND_HAT_SLOTS = {"3": {"sample": "hat2", "gain": -9.0, "visual": "hat2"}}
+SECOND_HAT = "33333333333333333333333333333333"
+SECOND_HAT_SLOTS = {"3": {"sample": "hat2", "gain": -14.0, "visual": "hat2"}}
+#: … a snare line on dotted 8ths for a bar and a half, 1 and 2 taking turns (then half a bar of rest) …
+SNARE_LINE = "1__2__1__2__1__2__1__2__________"
+SNARE_LINE_SLOTS = {"1": {"sample": "snare", "gain": -9.0, "visual": "snare"},
+                    "2": {"sample": "perc", "gain": -9.0, "visual": "perc"}}
+#: … and an extra hit on the "and"s of beats 3 and 4, as Citrus adds on the extended base.
 EXTRA_PERC = "__________3___3_"
-EXTRA_PERC_SLOTS = {"3": {"sample": "perc", "gain": -7.0, "visual": "perc"}}
+EXTRA_PERC_SLOTS = {"3": {"sample": "perc", "gain": -8.0, "visual": "perc"}}
 
 
 # ── Rhythm patterns for the source-made percussion and bass (our own) ────────

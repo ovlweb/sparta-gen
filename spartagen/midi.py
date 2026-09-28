@@ -94,6 +94,8 @@ class MidiPart:
     polyphony: int = 1      # most notes starting together
     first_beat: float = 0.0
     last_beat: float = 0.0
+    onsets: int = 0         # distinct note starts (a chord counts once)
+    double_of: str = ""     # the part that plays the same notes (maybe an octave apart), if any
 
     @property
     def range_text(self) -> str:
@@ -306,7 +308,17 @@ def _parts(notes: list, names: dict, programs: dict, fmt: int) -> list[MidiPart]
         out.append(MidiPart(id=f"t{t}c{ch}", name=name, track=t, channel=ch + 1, program=prog, notes=len(ns),
                             low=pitches[0], high=pitches[-1], median=pitches[len(pitches) // 2], drums=drums,
                             polyphony=max(starts.values()), first_beat=ns[0].start,
-                            last_beat=max(n.start + n.dur for n in ns)))
+                            last_beat=max(n.start + n.dur for n in ns), onsets=len(starts)))
+    # Doubled tracks (a base layering one line on two instruments): the same notes, maybe an octave apart.
+    shapes = {(t, ch): {(round(n.start, 2), n.pitch % 12) for n in ns} for (t, ch), ns in groups.items()}
+    for i, a in enumerate(out):
+        for b in out[:i]:
+            if a.drums or b.drums or b.double_of:
+                continue
+            sa, sb = shapes[(a.track, a.channel - 1)], shapes[(b.track, b.channel - 1)]
+            if len(sa & sb) >= 0.9 * max(len(sa), len(sb)):
+                a.double_of = b.id
+                break
     return out
 
 
@@ -383,13 +395,16 @@ def estimate_key(notes: list) -> tuple[int, bool]:
 
 
 def suggest_roles(song: MidiSong) -> dict[str, dict]:
-    """A first mapping: drums to the drum map, the busiest melodic channel to the main pitch, the lowest to
-    the bass, a chordal one to the chords, the rest to the other pitches (then off)."""
+    """A first mapping: drums to the drum map, the busiest melodic channel (by note starts) to the main
+    pitch, a bass channel (by its name, else the lowest) to the bass, a chordal one to the chords, the rest
+    to the other pitches (then off).  A channel doubling another starts off — one line, one pitch."""
     mapping: dict[str, dict] = {}
     melodic = []
     for p in song.parts:
         n = p.name.lower()
-        if p.drums or any(w in n for w in ("drum", "perc", "kick", "snare", "hat", "cymbal")):
+        if p.double_of:
+            mapping[p.id] = {"role": "off"}
+        elif p.drums or any(w in n for w in ("drum", "perc", "kick", "snare", "hat", "cymbal")):
             role = "drums" if p.drums or "drum" in n or "perc" in n else next(
                 r for r in ("kick", "snare", "hat", "crash") if r in n or (r == "crash" and "cymbal" in n))
             mapping[p.id] = {"role": role}
@@ -398,15 +413,16 @@ def suggest_roles(song: MidiSong) -> dict[str, dict]:
         else:
             melodic.append(p)
     if melodic:
-        bass = min(melodic, key=lambda p: p.median)
-        if bass.median < 52 or "bass" in bass.name.lower():
+        named = [p for p in melodic if "bass" in p.name.lower()]
+        bass = min(named or melodic, key=lambda p: p.median)
+        if named or bass.median < 52:
             mapping[bass.id] = {"role": "bass"}
             melodic.remove(bass)
     chordal = [p for p in melodic if p.polyphony >= 3 and any(w in p.name.lower() for w in ("chord", "pad", "string"))]
     chordal = chordal or [p for p in melodic if p.polyphony >= 3]
     lead_pool = [p for p in melodic if p not in chordal[:1]] or melodic
     free = list(PITCH_ROLES)
-    for p in sorted(lead_pool, key=lambda p: -p.notes):
+    for p in sorted(lead_pool, key=lambda p: -p.onsets):
         mapping[p.id] = {"role": free.pop(0) if free else "off"}
     for p in chordal[:1]:
         if p.id not in mapping:
@@ -440,34 +456,179 @@ def _ref_pitch(key_pc: int, median: int) -> int:
     return base + 12 if median - base > 6 else base
 
 
-def _section_bounds(song: MidiSong, active: list[set], bars: int, section_bars: int) -> list[tuple[int, int]]:
-    """Parts start and stop where the set of playing roles changes (on 4-bar lines), at most
-    ``section_bars`` long."""
-    cuts = [0]
-    for b in range(4, bars, 4):
-        before = set().union(*active[max(0, b - 4):b])
-        after = set().union(*active[b:b + 4])
-        changed = len(before ^ after) >= max(1, len(before | after) // 3)
-        if changed or b - cuts[-1] >= section_bars:
-            cuts.append(b)
-    cuts.append(bars)
-    bounds = [(a, z) for a, z in zip(cuts, cuts[1:]) if z > a]
-    merged: list[tuple[int, int]] = []
-    for a, z in bounds:                          # no part shorter than 2 bars (but the last)
-        if merged and z - a < 2 and a != 0:
-            merged[-1] = (merged[-1][0], z)
+# ── the base's structure ─────────────────────────────────────────────────────
+
+
+@dataclass
+class MidiSection:
+    kind: str                   # intro | chorus | dundundenden | epicness | madness | ending
+    start: int                  # first bar
+    bars: int
+
+    @property
+    def end(self) -> int:
+        return self.start + self.bars
+
+
+def bar_parts(song: MidiSong) -> list[set]:
+    """The parts playing in each bar: a note starting in it, or sounding in it for a 16th or more."""
+    bars = song.bars
+    out: list[set] = [set() for _ in range(bars)]
+    for n in song.notes:
+        pid = f"t{n.track}c{n.channel}"
+        a, z = n.start, n.start + n.dur
+        b = int(a // 4)
+        if b < bars:
+            out[b].add(pid)
+        b += 1
+        while b < bars and b * 4 + 0.25 <= z:
+            out[b].add(pid)
+            b += 1
+    return out
+
+
+def _distance(a: set, b: set) -> float:
+    """How different two sets of playing parts are: 0 = the same, 1 = nothing in common."""
+    return len(a ^ b) / max(1, len(a | b))
+
+
+def _grid(parts: list[set]) -> int:
+    """The bar the base's 4-bar phrases count from (0-3): where its parts come in and drop out.  A one-bar
+    pickup puts it at 1."""
+    score = [0.0] * 4
+    for b in range(1, len(parts)):
+        score[b % 4] += _distance(parts[b - 1], parts[b])
+    best = max(range(4), key=lambda o: score[o])
+    return best if score[best] > 1.25 * score[0] + 0.2 else 0
+
+
+def song_structure(song: MidiSong) -> list[MidiSection]:
+    """The base's parts the way Sparta bases have them, read from what its channels play: the Chorus is
+    the full texture that comes back most, the Intro is what comes before the first Chorus (at most 8 bars),
+    the Ending a sparse tail; a dip after the first Chorus is the DunDunDenDen, the deepest one later the
+    Madness, and another full texture an Epicness.  Phrases are 4 bars, counted from the first bar where the
+    parts change on that grid (a one-bar pickup makes a one-bar Intro)."""
+    parts = bar_parts(song)
+    bars = len(parts)
+    if bars < 6:
+        return [MidiSection("chorus", 0, bars)]
+    o = _grid(parts)
+    cuts = sorted({0, bars, *range(o, bars, 4)})
+    blocks = []
+    for a, z in zip(cuts, cuts[1:]):
+        seen: dict[str, int] = {}
+        for b in range(a, z):
+            for p in parts[b]:
+                seen[p] = seen.get(p, 0) + 1
+        texture = {p for p, k in seen.items() if 2 * k >= z - a}
+        count = sum(len(parts[b]) for b in range(a, z)) / (z - a)
+        blocks.append({"a": a, "z": z, "tex": texture, "n": count})
+    peak = max(bl["n"] for bl in blocks)
+    for bl in blocks:
+        bl["full"] = bl["n"] >= 0.6 * peak and bl["z"] - bl["a"] >= 2
+    # The Chorus: the full texture that comes back most often, far apart in time.
+    full = [bl for bl in blocks if bl["full"]]
+    if not full:
+        return [MidiSection("chorus", 0, bars)]
+
+    def like(x, y) -> bool:
+        return _distance(x["tex"], y["tex"]) <= 0.34
+
+    proto = max(full, key=lambda x: (sum(y["z"] - y["a"] for y in full if like(x, y) and abs(y["a"] - x["a"]) >= 8),
+                                     -x["a"]))
+    for bl in blocks:
+        bl["kind"] = "chorus" if bl["full"] and like(bl, proto) else ("epicness" if bl["full"] else "dip")
+    # The Intro ends where the first Chorus starts, or after a gap the base climbs out of (a sparse bar in
+    # its first 8, the break before the drop) — at most 8 bars.
+    chorus_n = [bl["n"] for bl in blocks if bl["kind"] == "chorus"] or [peak]
+    size = sum(chorus_n) / len(chorus_n)
+    sparse = [len(p) <= 0.6 * size for p in parts]
+    intro_end = next((bl["a"] for bl in blocks if bl["kind"] == "chorus"), 0)
+    intro_end = intro_end if intro_end <= 8 else 0
+    for b in range(min(8, bars - 1)):
+        if sparse[b] and not sparse[b + 1]:
+            intro_end = max(intro_end, b + 1)
+    if intro_end:
+        cut = []
+        for bl in blocks:
+            if bl["z"] <= intro_end:
+                bl["kind"] = "intro"
+            elif bl["a"] < intro_end:
+                cut.append(bl)
+        for bl in cut:                               # the block the Intro ends in: its Intro bars split off
+            i = blocks.index(bl)
+            blocks.insert(i, dict(bl, z=intro_end, kind="intro"))
+            bl["a"] = intro_end
+    if not any(bl["kind"] == "chorus" for bl in blocks):
+        nxt = next((bl for bl in blocks if bl["kind"] != "intro"), blocks[-1])
+        nxt["kind"] = "chorus"
+    first = next(i for i, bl in enumerate(blocks) if bl["kind"] == "chorus")
+    # The Ending: a short sparse tail.
+    tail = len(blocks)
+    while tail - 1 > first and blocks[tail - 1]["kind"] == "dip" and bars - blocks[tail - 1]["a"] <= 4:
+        tail -= 1
+    for bl in blocks[tail:]:
+        bl["kind"] = "ending"
+    # Dips between (a run of sparse blocks is one): right after the first Chorus the DunDunDenDen, the
+    # deepest of the others the Madness.
+    runs: list[list[int]] = []
+    for i, bl in enumerate(blocks):
+        if bl["kind"] == "dip":
+            if runs and runs[-1][-1] == i - 1:
+                runs[-1].append(i)
+            else:
+                runs.append([i])
+    after_first = first
+    while after_first + 1 < len(blocks) and blocks[after_first + 1]["kind"] == "chorus":
+        after_first += 1
+    dun = runs[0] if runs and runs[0][0] == after_first + 1 else None
+    others = [r for r in runs if r is not dun]
+    if others and bars >= 16:
+        deepest = min(others, key=lambda r: (sum(blocks[i]["n"] for i in r) / len(r), -r[0]))
+        for i in deepest:
+            blocks[i]["kind"] = "madness"
+    for r in runs:
+        for i in r:
+            if blocks[i]["kind"] == "dip":
+                blocks[i]["kind"] = "dundundenden"
+    # Neighbouring blocks of one kind are one part (the Chorus blocks join below).
+    out: list[MidiSection] = []
+    for bl in blocks:
+        if out and out[-1].kind == bl["kind"] and bl["kind"] != "chorus":
+            out[-1].bars += bl["z"] - bl["a"]
         else:
-            merged.append((a, z))
-    return merged
+            out.append(MidiSection(bl["kind"], bl["a"], bl["z"] - bl["a"]))
+    return _join_choruses(out, blocks)
+
+
+def _join_choruses(secs: list[MidiSection], blocks: list[dict]) -> list[MidiSection]:
+    """Chorus blocks in a row are one Chorus while they play the same parts, up to 8 bars each."""
+    tex = {bl["a"]: bl["tex"] for bl in blocks}
+    out: list[MidiSection] = []
+    for s in secs:
+        prev = out[-1] if out else None
+        if (prev is not None and prev.kind == s.kind == "chorus" and prev.bars + s.bars <= 8
+                and _distance(tex.get(prev.start, set()), tex.get(s.start, set())) <= 0.2):
+            prev.bars += s.bars
+        else:
+            out.append(MidiSection(s.kind, s.start, s.bars))
+    return out
+
+
+#: The name and frame of each kind of section on a MIDI base: a box per line (the Madness: its words).
+SECTION_LOOK = {"intro": ("Intro", "main"), "chorus": ("Chorus", "main"), "dundundenden": ("DunDunDenDen", "main"),
+                "epicness": ("Epicness", "main"), "madness": ("Madness", "split2"), "ending": ("Ending", "main")}
 
 
 def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percussion: bool = True,
                     auto_phrase: bool = True, key: Optional[str] = None, title: str = "Sparta Remix",
                     pitching: str = "normal", polish: str = "normal", section_bars: int = 8,
-                    perc_pattern: str = "perc.normal"):
-    """The remix on a MIDI base: its notes played by the samples, one track per enabled part."""
-    from .arrangement import (Arrangement, SectionSpec, TrackSpec, SLOTS_CHORUS, _crash, _perc_layers,
-                              PITCH_VOICES)
+                    perc_pattern: str = "perc.sparta"):
+    """The remix on a MIDI base: its notes played by the samples (a track per enabled part), in the base's own
+    parts (see :func:`song_structure`) — the main phrase comes in where the base's Chorus does, with the
+    part's own pattern (Chorus, DunDunDenDen chops, Epicness, Madness words, quotes in the Intro and at the
+    Ending), and the percussion where the MIDI has none."""
+    from .arrangement import Arrangement, SectionSpec, TrackSpec, _crash, _drums, _perc_layers, _placements
     from .audio.pitch import pitch_class
     from .patterns.notation import ORIGINAL_PROGRESSION
     m = clean_mapping(song, mapping)
@@ -475,62 +636,89 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
     enabled = [p for p in song.parts if m[p.id]["role"] != "off"]
     if not enabled and not auto_percussion:
         raise ValueError("every MIDI part is off — give at least one a role")
-    bars = song.bars
     steps_per_beat = STEPS_PER_BAR / 4.0
-    # Which roles play in each bar.
-    active: list[set] = [set() for _ in range(bars)]
-    for n in song.notes:
-        r = m.get(f"t{n.track}c{n.channel}", {}).get("role", "off")
-        if r != "off":
-            b = min(bars - 1, int(n.start // 4))
-            active[b].add("drums" if r in DRUM_ROLES else r)
-    has_drums = any(m[p.id]["role"] in DRUM_ROLES for p in enabled)
-    has_phrase = any(m[p.id]["role"] == "chorus" for p in enabled)
-    bounds = _section_bounds(song, active, bars, section_bars)
+    roles = {m[p.id]["role"] for p in enabled}
+    has_drums = bool(roles & set(DRUM_ROLES))
+    structure: list[MidiSection] = []
+    for sec in song_structure(song):             # long parts split at section_bars (on 4-bar lines)
+        size = max(4, section_bars // 4 * 4)
+        if sec.kind in ("chorus", "epicness") and sec.bars > max(section_bars, 4):
+            for a in range(sec.start, sec.end, size):
+                structure.append(MidiSection(sec.kind, a, min(size, sec.end - a)))
+        else:
+            structure.append(sec)
     by_part: dict[str, list[MidiNote]] = {}
     for n in song.notes:
         by_part.setdefault(f"t{n.track}c{n.channel}", []).append(n)
+    opts = {"minor": song.minor, "base": True}
+    totals = {k: sum(1 for x in structure if x.kind == k) for k in SECTION_LOOK}
     sections = []
     counts: dict[str, int] = {}
-    for si, (b0, b1) in enumerate(bounds):
-        roles = set().union(*active[b0:b1]) if b1 > b0 else set()
-        dense = len(roles)
-        if si == 0 and dense <= 2 and len(bounds) > 1:
-            kind, layout, label = "intro", "full", "Intro"
-        elif si == len(bounds) - 1 and b1 - b0 <= 2 and len(bounds) > 1:
-            kind, layout, label = "ending", "full", "Ending"
-        elif "words" in roles:
-            kind, layout, label = "madness", "split2", "Madness"
-        elif "chorus" in roles or ("pitch1" in roles and ("drums" in roles or auto_percussion)):
-            kind, layout, label = "chorus", "main", "Chorus"
-        elif dense >= 4:
-            kind, layout, label = "epicness", "grid4", "Epicness"
-        else:
-            kind, layout, label = "chords", "grid3", "Part"
+    for sec in structure:
+        kind, bars = sec.kind, sec.bars
+        label, layout = SECTION_LOOK.get(kind, ("Part", "main"))
         counts[label] = counts.get(label, 0) + 1
-        name = label if label in ("Intro", "Ending", "Madness") and counts[label] == 1 else f"{label} {counts[label]}"
+        name = label if totals.get(kind, 0) <= 1 else f"{label} {counts[label]}"
         tracks = []
-        s0, s1 = b0 * STEPS_PER_BAR, b1 * STEPS_PER_BAR
+        s0, s1 = sec.start * STEPS_PER_BAR, sec.end * STEPS_PER_BAR
         for p in enabled:
-            mp = m[p.id]
-            role = mp["role"]
             ns = [n for n in by_part.get(p.id, []) if s0 <= n.start * steps_per_beat < s1]
-            if not ns:
-                continue
-            tracks.append(_part_track(p, role, ns, s0, key_pc, mp, steps_per_beat))
-        if auto_percussion and not has_drums and kind not in ("intro", "ending"):
-            gain = -3.0 if kind == "madness" else 0.0
-            tracks += _perc_layers(perc_pattern, gain=gain, suffix="_auto")
-            tracks.append(_crash(0.0, tid="crash_auto", visual="hit" if layout == "main" else "crash"))
-        if auto_phrase and not has_phrase and kind in ("chorus", "epicness"):
-            tracks.insert(0, TrackSpec("main_auto", "pitch", "chorus.standard", mode="index", slots=dict(SLOTS_CHORUS),
-                                       pitched=False, crisp=True, gain_db=-1.0, visual="main", flip="alternate",
-                                       stem="chorus"))
+            if ns:
+                tr = _part_track(p, m[p.id]["role"], ns, s0, key_pc, m[p.id], steps_per_beat)
+                if kind == "madness" and tr.stem != "quotes" and tr.kind != "words":
+                    tr.visual = "none"          # the Madness shows its words; the base plays under them
+                tracks.append(tr)
+        if auto_phrase:
+            tracks = _phrase_tracks(kind, bars, roles, opts) + tracks
+        if auto_percussion and not has_drums:
+            if kind in ("chorus", "epicness", "madness"):
+                tracks += _perc_layers(perc_pattern, gain=-3.0 if kind == "madness" else 0.0, suffix="_auto")
+                tracks.append(_crash(0.0, tid="crash_auto", visual="hit" if layout == "main" else "crash"))
+            elif kind == "dundundenden":
+                # It builds: the percussion joins a third of the way in.
+                start = max(1, round(bars / 3)) if bars > 1 else 0
+                tracks += _perc_layers(perc_pattern, start_bar=start, suffix="_auto")
+                tracks.append(_crash(start, tid="crash_auto"))
+            elif kind == "intro" and bars >= 2:
+                tracks += _drums("build", start_bar=bars - 1, gain=-4.0, suffix="_auto")
+            elif kind == "ending":
+                hit = "text:" + _placements(bars * STEPS_PER_BAR, [(0, "1")])
+                tracks += [TrackSpec("kick_auto", "drum", hit, mode="index", slots={"1": "kick"}, pitched=False,
+                                     visual="none", stem="drums"),
+                           TrackSpec("snare_auto", "drum", hit, mode="index", slots={"1": "clap"}, pitched=False,
+                                     visual="none", stem="drums"),
+                           _crash(0.0, -4.0, tid="crash_auto", visual="none")]
         if not tracks:
             tracks.append(TrackSpec("rest", "oneshot", "text:" + "_" * STEPS_PER_BAR, mode="index", visual="none"))
-        sections.append(SectionSpec(kind, b1 - b0, tracks, name, layout=layout))
+        sections.append(SectionSpec(kind, bars, tracks, name, layout=layout))
     return Arrangement(title=title, variant="midi", bpm=float(song.bpm), key=NOTE_NAMES[key_pc],
                        progression=ORIGINAL_PROGRESSION, pitching=pitching, polish=polish, sections=sections)
+
+
+def _phrase_tracks(kind: str, bars: int, roles: set, opts: dict) -> list:
+    """The source's main phrase, quotes and words for one part of a MIDI base (none a channel plays already):
+    the part's own pattern from the usual section builders."""
+    from .arrangement import (SLOTS_CHORUS, TrackSpec, _placements, sec_dundundenden, sec_ending, sec_epicness,
+                              sec_madness)
+    phrase = "chorus" in roles
+    total = bars * STEPS_PER_BAR
+    if kind == "chorus" and not phrase:
+        return [TrackSpec("main_auto", "pitch", "chorus.standard", mode="index", slots=dict(SLOTS_CHORUS),
+                          pitched=False, crisp=True, gain_db=-1.0, visual="main", flip="alternate", stem="chorus")]
+    if kind == "epicness" and not phrase:
+        return [t for t in sec_epicness(bars, opts).tracks if t.stem == "chorus"]
+    if kind == "dundundenden" and not phrase:
+        return [t for t in sec_dundundenden(bars, opts).tracks if t.stem == "chorus"]
+    if kind == "madness" and "words" not in roles:
+        return [t for t in sec_madness(bars, opts).tracks if t.kind == "words"]
+    if kind == "intro" and bars >= 2 and "quotes" not in roles:
+        hits = [(0, "1")] + ([(total // 2, "2")] if bars >= 4 else [])
+        return [TrackSpec("quotes_auto", "oneshot", "text:" + _placements(total, hits), mode="index",
+                          slots={"1": "quote1", "2": "quote2"}, oneshot=True, pitched=False, gain_db=-2.0,
+                          visual="center", flip="none", choke=True, stem="quotes")]
+    if kind == "ending" and "quotes" not in roles:
+        return [t for t in sec_ending(bars, opts).tracks if t.id == "quote"]
+    return []
 
 
 def _part_track(p: MidiPart, role: str, ns: list, s0: float, key_pc: int, mp: dict, spb: float):

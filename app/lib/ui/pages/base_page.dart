@@ -471,21 +471,21 @@ class _BasePageState extends State<BasePage> {
           const SizedBox(height: 16),
           Text('Channels', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
-          for (final part in parts) _partRow(context, part, mapping, roles),
+          for (final part in parts) _partRow(context, part, mapping, roles, parts),
           const Divider(height: 28),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: m['auto_percussion'] != false,
             onChanged: (v) => app.midiMapping(autoPercussion: v),
             title: const Text('Add Sparta percussion when no channel plays drums'),
-            subtitle: const Text('Kick, clap and hi-hats cut from your video, on the wiki’s Normal Percussion.'),
+            subtitle: const Text('Kick, snare, two hi-hats and a snare line from your video: Sparta Percussion.'),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: m['auto_phrase'] != false,
             onChanged: (v) => app.midiMapping(autoPhrase: v),
             title: const Text('Put the main phrase on the Chorus pattern'),
-            subtitle: const Text('Where no channel plays the main phrase, it plays the standard Chorus pattern.'),
+            subtitle: const Text('If no channel plays it, it comes in with the base’s Chorus, in each part’s pattern.'),
           ),
           const SizedBox(height: 8),
           Wrap(spacing: 16, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -535,8 +535,11 @@ class _BasePageState extends State<BasePage> {
     if (path != null) await app.openMidi(path);
   }
 
-  Widget _partRow(BuildContext context, Map<String, dynamic> part, Map<String, dynamic> mapping, Map<String, String> roles) {
+  Widget _partRow(BuildContext context, Map<String, dynamic> part, Map<String, dynamic> mapping,
+      Map<String, String> roles, List<Map<String, dynamic>> parts) {
     final id = '${part['id']}';
+    // A channel playing another's notes (a base layering one line twice) starts off: say which.
+    final twin = parts.where((p) => p['id'] == part['double_of']).map((p) => '${p['name']}').firstOrNull;
     final m = (mapping[id] as Map?)?.cast<String, dynamic>() ?? {'role': 'off'};
     final role = '${m['role']}';
     final octave = (m['octave'] as num?)?.toInt() ?? 0;
@@ -563,7 +566,7 @@ class _BasePageState extends State<BasePage> {
             Text('${part['name']}', overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontWeight: FontWeight.w600, color: on ? null : cs.onSurfaceVariant)),
             Text('ch ${part['channel']} · ${part['notes']} notes · ${part['range']}'
-                '${(part['polyphony'] as num? ?? 1) > 1 ? ' · chords' : ''}',
+                '${(part['polyphony'] as num? ?? 1) > 1 ? ' · chords' : ''}${twin != null ? ' · doubles $twin' : ''}',
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
           ]),
         ),
