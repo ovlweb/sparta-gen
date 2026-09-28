@@ -36,6 +36,7 @@ def arrangement_view(session) -> Optional[dict]:
     except Exception as exc:                       # e.g. "load a MIDI base first"
         return {"error": str(exc)}
     return {"title": arr.title, "variant": arr.variant, "bpm": arr.bpm, "key": arr.key,
+            "custom": bool(session.project.arrangement),
             "progression": arr.progression, "pitching": arr.pitching, "polish": arr.polish,
             "duration": round(arr.duration, 2), "bars": arr.total_bars,
             "sections": [{"name": s.name, "kind": s.kind, "bars": s.bars, "layout": s.layout,

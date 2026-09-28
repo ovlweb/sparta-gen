@@ -53,6 +53,20 @@ def wait(base, job):
     return job
 
 
+def test_a_body_sent_in_chunks_is_read(engine):
+    """Dart's HttpClient (and other HTTP/1.1 clients) may send a body in chunks, without its length."""
+    import http.client
+    from urllib.parse import urlparse
+    u = urlparse(engine)
+    conn = http.client.HTTPConnection(u.hostname, u.port, timeout=30)
+    body = json.dumps({"name": "Chunked name"}).encode()
+    conn.request("POST", "/api/project/name", body=iter([body[:7], body[7:]]), encode_chunked=True,
+                 headers={"X-Sparta-Token": TOKEN, "Content-Type": "application/json"})
+    r = conn.getresponse()
+    assert r.status == 200
+    assert json.loads(r.read())["name"] == "Chunked name"
+
+
 def test_the_engine_needs_its_token_and_has_no_web_page(engine):
     call(engine, "/api/status", token=None, expect=401)
     call(engine, "/api/status", token="wrong", expect=401)
@@ -167,3 +181,14 @@ def test_the_engine_quits_with_its_app(tmp_path):
         time.sleep(0.5)
     else:
         pytest.fail("the engine outlived its app")
+
+
+def test_the_engine_opens_the_project_worked_on_last(tmp_path):
+    from spartagen.gui.server import App
+    root = str(tmp_path / "work")
+    first = App(root)
+    first.session.project.name = "Left it here"
+    first.session.project.save()
+    assert App(root, resume=True).session.project.name == "Left it here"
+    assert App(root).session.project.name != "Left it here"          # the web GUI starts fresh
+    assert App(str(tmp_path / "empty"), resume=True).session.project.name   # nothing yet: a new project

@@ -64,15 +64,26 @@ class Job:
 
 
 class App:
-    def __init__(self, workspace_root: Optional[str] = None):
+    def __init__(self, workspace_root: Optional[str] = None, resume: bool = False):
         self.root = workspace_root or default_workspace()
         os.makedirs(self.root, exist_ok=True)
-        self.session = Session(workspace=self._new_workspace())
+        self.session = self._last_session() if resume else None
+        if self.session is None:
+            self.session = Session(workspace=self._new_workspace())
         self.jobs: dict[str, Job] = {}
         self.heavy_lock = threading.Lock()
 
     def _new_workspace(self) -> str:
         return os.path.join(self.root, time.strftime("remix-%Y%m%d-%H%M%S"))
+
+    def _last_session(self) -> Optional["Session"]:
+        """The project worked on last (the app opens where you left it)."""
+        for entry in _list_projects(self.root):
+            try:
+                return Session(Project.load(entry["path"]))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return None
 
     def start_job(self, kind: str, fn: Callable[[Callable[[float, str], None]], Any], heavy: bool = True) -> Job:
         job = Job(kind)
@@ -193,14 +204,38 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": msg}, status)
 
     def _body_json(self) -> dict:
-        n = int(self.headers.get("Content-Length") or 0)
-        if n <= 0:
-            return {}
-        raw = self.rfile.read(n)
+        cached = getattr(self, "_body_cache", None)
+        if cached is not None:
+            return cached
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            raw = self._read_chunked()
+        else:
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n) if n > 0 else b""
         try:
-            return json.loads(raw.decode("utf-8"))
+            body = json.loads(raw.decode("utf-8")) if raw.strip() else {}
         except ValueError:
-            return {}
+            body = {}
+        self._body_cache = body if isinstance(body, dict) else {}
+        return self._body_cache
+
+    def _read_chunked(self, limit: int = 64 << 20) -> bytes:
+        """A body sent in chunks (HTTP/1.1 clients that do not say its length up front)."""
+        out = bytearray()
+        while True:
+            line = self.rfile.readline(65537)
+            if not line:
+                break
+            size = int(line.split(b";")[0].strip() or b"0", 16)
+            if size == 0:
+                while self.rfile.readline(65537) not in (b"\r\n", b"\n", b""):   # trailers
+                    pass
+                break
+            out += self.rfile.read(size)
+            self.rfile.readline()                                                   # the chunk's CRLF
+            if len(out) > limit:
+                raise ValueError("request body too large")
+        return bytes(out)
 
     def _send_file(self, path: str, download_name: Optional[str] = None) -> None:
         if not os.path.isfile(path):
@@ -347,8 +382,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(app.project_view())
         if path == "/api/project/name" and method == "POST":
             s.project.name = str(self._body_json().get("name", s.project.name))[:80]
-            s.project.arrangement = None
-            return self._json(app.project_view())
+            return self._json(app.project_view())    # a structure you edited keeps its own title
 
         # ── source ──
         if path == "/api/source/upload" and method == "POST":
@@ -604,9 +638,11 @@ def _list_projects(root: str) -> list[dict]:
                 with open(f, "r", encoding="utf-8") as fh:
                     meta = json.load(fh)
                 out.append({"path": f, "name": meta.get("name"), "variant": meta.get("variant"),
+                            "source": os.path.basename(meta.get("source_path") or "") or None,
                             "modified": os.path.getmtime(f)})
             except (OSError, ValueError):
                 continue
+    out.sort(key=lambda p: p["modified"], reverse=True)
     return out[:50]
 
 
@@ -633,8 +669,9 @@ class _WindowApi:
 
 
 def make_server(host: str = "127.0.0.1", port: int = 0, workspace: Optional[str] = None,
-                token: Optional[str] = None, web_ui: bool = True) -> tuple[ThreadingHTTPServer, str]:
-    app = App(workspace)
+                token: Optional[str] = None, web_ui: bool = True,
+                resume: bool = False) -> tuple[ThreadingHTTPServer, str]:
+    app = App(workspace, resume=resume)
     Handler.app = app
     if port == 0:
         port = _free_port(host)
@@ -661,10 +698,10 @@ def _parent_alive(pid: int) -> bool:
 
 
 def serve_engine(port: int = 0, token: Optional[str] = None, parent_pid: Optional[int] = None,
-                 workspace: Optional[str] = None, host: str = "127.0.0.1") -> None:
+                 workspace: Optional[str] = None, host: str = "127.0.0.1", resume: bool = True) -> None:
     """The engine behind the native app: no browser, no web page, a token on every call, and gone as
-    soon as the app that started it is."""
-    httpd, url = make_server(host, port, workspace, token=token, web_ui=False)
+    soon as the app that started it is. It opens the project worked on last."""
+    httpd, url = make_server(host, port, workspace, token=token, web_ui=False, resume=resume)
     real_port = httpd.server_address[1]
     try:
         print(f"SPARTAGEN_ENGINE_READY port={real_port}", flush=True)

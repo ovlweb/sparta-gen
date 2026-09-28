@@ -221,7 +221,7 @@ def cmd_selftest(a: argparse.Namespace) -> int:
 def cmd_engine(a: argparse.Namespace) -> int:
     from .gui.server import serve_engine
     serve_engine(port=a.port, token=a.token or os.environ.get("SPARTAGEN_TOKEN"), parent_pid=a.parent_pid,
-                 workspace=a.workspace)
+                 workspace=a.workspace, resume=not a.new)
     return 0
 
 
@@ -250,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     en.add_argument("--token", default=None, help="every call must send it (X-Sparta-Token); default $SPARTAGEN_TOKEN")
     en.add_argument("--parent-pid", type=int, default=None, help="quit when this process ends")
     en.add_argument("--workspace", default=None)
+    en.add_argument("--new", action="store_true", help="start a new project (default: open the last one)")
     en.set_defaults(fn=cmd_engine)
 
     m = sub.add_parser("make", help="build a remix from a video file or URL")
