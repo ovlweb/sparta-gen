@@ -183,8 +183,8 @@ starting ffmpeg.
   your own Apple developer account (a year, or TestFlight). iOS 15 or later.
 - **Use**: *Open video…* → **From Photos** or **From Files**; **Save video…** / **Save audio…** open the share sheet
   (*Save Video* to Photos, *Save to Files*, AirDrop …).
-- **Keep SpartaGen open while it renders**: iOS pauses an app in the background, and the render goes on when you come
-  back to it.
+- **Keep SpartaGen in front while it renders**: the screen stays on while it works, but iOS pauses an app that is
+  sent to the background — the render goes on when you come back to it.
 - The app is big — a 60 MB download, about 180 MB on the phone: ffmpeg is in it twice (the video player's and
   the engine's), with Python and numpy.
 
@@ -532,4 +532,4 @@ a `v*` tag and publishes one release.
 - The Android app is 64-bit ARM only (the build script also makes x86_64 and 32-bit ARM ffmpeg if you build it
   yourself) and is installed from the APK, not a store. Phone renders are slower than a computer's.
 - The iOS app is not in the App Store: it is sideloaded (see [iOS app](#ios-app)); with a free Apple ID it has to be
-  refreshed every 7 days. iOS pauses it in the background, so a render only goes on while the app is open.
+  refreshed every 7 days. iOS pauses it in the background, so a render only goes on while the app is in front.

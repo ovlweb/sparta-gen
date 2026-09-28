@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../engine/engine.dart';
 import '../platform/files.dart';
@@ -174,6 +175,7 @@ class AppState extends ChangeNotifier {
     jobLabel = label;
     job = JobState(id: '', kind: label, status: 'running', progress: 0, message: 'starting');
     notifyListeners();
+    _screenOn(true);
     try {
       final j = await engine.runJob(path, body, (s) {
         job = s;
@@ -193,8 +195,16 @@ class AppState extends ChangeNotifier {
       return null;
     } finally {
       job = null;
+      _screenOn(false);
       await refresh(quiet: true);
     }
+  }
+
+  /// iOS pauses an app when the screen locks: while the engine works (inside the app) the screen stays on.
+  /// (Android's engine service goes on with the screen off.)
+  void _screenOn(bool on) {
+    if (!Platform.isIOS) return;
+    (on ? WakelockPlus.enable() : WakelockPlus.disable()).catchError((_) {});
   }
 
   Future<void> cancelJob() async {
