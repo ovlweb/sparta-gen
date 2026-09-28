@@ -81,8 +81,34 @@ class _BasePageState extends State<BasePage> {
         ),
       ]),
     );
-    final details = current == null ? const SizedBox.shrink() : _templateDetails(context, current);
+    final details = current != null
+        ? _templateDetails(context, current)
+        : SectionCard(
+            child: EmptyState(
+              icon: Icons.touch_app_outlined,
+              title: 'Pick a template to build the remix on it',
+              message: app.variant == 'midi'
+                  ? 'The remix follows your MIDI base now.'
+                  : app.variant == 'base'
+                      ? 'The remix follows your base’s audio file now.'
+                      : null,
+            ),
+          );
+    final basePath = app.basePath;
     return [
+      if (basePath != null && app.variant != 'base' && app.variant != 'midi')
+        Card(
+          color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.12),
+          child: ListTile(
+            leading: Icon(Icons.info_outline, color: Theme.of(context).colorScheme.secondary),
+            title: Text('Your base ${basePath.split(RegExp(r'[\\/]')).last} is silent while the remix is built on a '
+                'template.'),
+            trailing: TextButton(
+              onPressed: app.busy ? null : () => app.baseOptions({'follow': true}),
+              child: const Text('Build it on my base'),
+            ),
+          ),
+        ),
       LayoutBuilder(builder: (context, box) {
         if (box.maxWidth > 900) {
           return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -162,6 +188,7 @@ class _BasePageState extends State<BasePage> {
           for (final part in plan)
             Chip(
               visualDensity: VisualDensity.compact,
+              avatar: _dot('${part[0]}'),
               label: Text('${partNames[part[0]] ?? part[0]} · ${part[1]}'),
             ),
         ]),
@@ -308,6 +335,7 @@ class _BasePageState extends State<BasePage> {
               for (final s in sections)
                 Chip(
                   visualDensity: VisualDensity.compact,
+                  avatar: _dot('${s['kind']}'),
                   label: Text('${partNames[s['kind']] ?? s['kind']} · ${s['bars']}'),
                 ),
             ]),
@@ -370,6 +398,13 @@ class _BasePageState extends State<BasePage> {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text('The remix follows the MIDI; this file plays under it.',
+                  style: TextStyle(color: cs.onSurfaceVariant)),
+            )
+          else if (app.variant != 'base')
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text('The remix is built on a template now, so this file is silent — build the remix on it to '
+                  'hear it under the remix again.',
                   style: TextStyle(color: cs.onSurfaceVariant)),
             ),
         ]),
@@ -575,4 +610,11 @@ class _BasePageState extends State<BasePage> {
       ]),
     );
   }
+
+  /// The part's colour, as on the Remix page's timeline.
+  static Widget _dot(String kind) => Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: partColor(kind), shape: BoxShape.circle),
+      );
 }

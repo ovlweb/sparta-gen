@@ -192,3 +192,20 @@ def test_the_engine_opens_the_project_worked_on_last(tmp_path):
     assert App(root, resume=True).session.project.name == "Left it here"
     assert App(root).session.project.name != "Left it here"          # the web GUI starts fresh
     assert App(str(tmp_path / "empty"), resume=True).session.project.name   # nothing yet: a new project
+
+
+def test_every_change_is_saved_at_once(tmp_path):
+    """The app can be closed by force (or crash): what was changed is already in the project file."""
+    httpd, url = make_server("127.0.0.1", 0, str(tmp_path / "work"), token=TOKEN, web_ui=False)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = url.rstrip("/")
+    try:
+        project = call(base, "/api/project")
+        call(base, "/api/template/use", {"id": "extended"})
+        path = os.path.join(project["workspace"], "project.spartagen.json")
+        saved = json.load(open(path, encoding="utf-8"))
+        assert saved["variant"] == "extended"
+        call(base, "/api/look", {"video": {"style": "neon"}})
+        assert json.load(open(path, encoding="utf-8"))["video"]["style"] == "neon"
+    finally:
+        httpd.shutdown()

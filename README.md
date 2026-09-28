@@ -132,7 +132,16 @@ the project you worked on last.
    **Save audio…** (WAV or MP3) open the system's *Save* dialog. Also the **sample pack** (ZIP, or into a folder),
    the remix's **MIDI** (to finish it in a DAW) and the **project** (*Save* / *Save as…*).
 
-![One click: video, base, Make my Sparta Remix](docs/gui-auto.jpg)
+<p align="center">
+  <img src="docs/app-source.jpg" width="49%" alt="Source: the video, and the one-click remix">
+  <img src="docs/app-base.jpg" width="49%" alt="Base: 26 templates, your base's audio file or its MIDI">
+  <img src="docs/app-samples.jpg" width="49%" alt="Samples: every cut, listen and pick another">
+  <img src="docs/app-remix.jpg" width="49%" alt="Remix: the structure, every part and track">
+  <img src="docs/app-look.jpg" width="49%" alt="Look and sound: styles and effects">
+  <img src="docs/app-export.jpg" width="49%" alt="Export: render, watch, save where you want">
+</p>
+<p align="center"><img src="docs/app-base-audio.jpg" width="49%" alt="Your base's audio file: its tempo, key and parts">
+  <img src="docs/app-phone.jpg" width="23%" alt="The same app on a phone"></p>
 
 ## Android app
 

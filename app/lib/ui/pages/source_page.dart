@@ -53,24 +53,25 @@ class _SourcePageState extends State<SourcePage> {
     );
   }
 
-  Widget _linkRow() => Row(children: [
-        Expanded(
-          child: TextField(
-            controller: _url,
-            decoration: const InputDecoration(
-              labelText: 'Or paste a link (YouTube and other sites)',
-              prefixIcon: Icon(Icons.link),
-            ),
-            onSubmitted: (_) => _download(),
+  Widget _linkRow() => LayoutBuilder(builder: (context, box) {
+        final field = TextField(
+          controller: _url,
+          decoration: const InputDecoration(
+            labelText: 'Or paste a link (YouTube and other sites)',
+            prefixIcon: Icon(Icons.link),
           ),
-        ),
-        const SizedBox(width: 10),
-        FilledButton.tonalIcon(
+          onSubmitted: (_) => _download(),
+        );
+        final button = FilledButton.tonalIcon(
           onPressed: app.busy ? null : _download,
           icon: const Icon(Icons.download),
           label: const Text('Download'),
-        ),
-      ]);
+        );
+        if (box.maxWidth < 420) {        // a phone: the link gets the whole width
+          return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [field, const SizedBox(height: 8), button]);
+        }
+        return Row(children: [Expanded(child: field), const SizedBox(width: 10), button]);
+      });
 
   Widget _dropZone(BuildContext context) {
     final cs = Theme.of(context).colorScheme;

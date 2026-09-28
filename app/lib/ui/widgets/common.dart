@@ -319,7 +319,7 @@ class _VideoPaneState extends State<VideoPane> {
               ? Center(child: Icon(Icons.movie_outlined, size: 48, color: cs.onSurfaceVariant))
               : _controller == null
                   ? Center(child: Text(widget.path!.split(RegExp(r'[\\/]')).last, style: const TextStyle(color: Colors.white70)))
-                  : Video(controller: _controller!, controls: MaterialVideoControls),
+                  : Video(controller: _controller!, controls: AdaptiveVideoControls),
         ),
       ),
     );

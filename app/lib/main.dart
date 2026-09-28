@@ -10,41 +10,47 @@ import 'package:media_kit/media_kit.dart';
 import 'engine/engine.dart';
 import 'platform/android_host.dart';
 import 'state/app_state.dart';
+import 'state/settings.dart';
 import 'ui/about.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 import 'ui/widgets/common.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  runApp(const SpartaGenApp());
+  runApp(SpartaGenApp(settings: await AppSettings.load()));
 }
 
 class SpartaGenApp extends StatelessWidget {
-  const SpartaGenApp({super.key, this.engine});
+  const SpartaGenApp({super.key, this.engine, required this.settings});
 
   /// An engine to use instead of starting one (tests).
   final Engine? engine;
+  final AppSettings settings;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Sparta Gen',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
-      home: EngineGate(engine: engine),
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) => MaterialApp(
+        title: 'Sparta Gen',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        themeMode: settings.theme,
+        home: EngineGate(engine: engine, settings: settings),
+      ),
     );
   }
 }
 
 /// Starts the engine, then shows the app; says what went wrong when the engine does not start.
 class EngineGate extends StatefulWidget {
-  const EngineGate({super.key, this.engine});
+  const EngineGate({super.key, this.engine, required this.settings});
 
   final Engine? engine;
+  final AppSettings settings;
 
   @override
   State<EngineGate> createState() => _EngineGateState();
@@ -144,7 +150,7 @@ class _EngineGateState extends State<EngineGate> {
   @override
   Widget build(BuildContext context) {
     final app = _app;
-    if (app != null) return Shell(app: app, onQuit: Platform.isAndroid ? null : _quit);
+    if (app != null) return Shell(app: app, settings: widget.settings, onQuit: Platform.isAndroid ? null : _quit);
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       body: Center(

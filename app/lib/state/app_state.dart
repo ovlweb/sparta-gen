@@ -35,6 +35,7 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? arrangement; // the full arrangement, for the editor
   JobState? job;
   String jobLabel = '';
+  String? working; // something short but not instant (copying a picked video in, saving a copy out)
   AppPage page = AppPage.source;
   String? lastRender; // the file the preview player shows
 
@@ -42,7 +43,7 @@ class AppState extends ChangeNotifier {
   Stream<AppMessage> get messages => _messages.stream;
 
   // ── views ──
-  bool get busy => job?.running ?? false;
+  bool get busy => (job?.running ?? false) || working != null;
   Map<String, dynamic>? get source => _map(project['source']);
   bool get hasSource => source != null;
   bool get analyzed => project['analyzed'] == true;
@@ -89,10 +90,23 @@ class AppState extends ChangeNotifier {
       _messages.add(AppMessage(text, action: action, onAction: onAction));
   void fail(Object e) => _messages.add(AppMessage('$e', error: true));
 
+  /// Shows [text] with a progress bar while [fn] runs.
+  Future<T> _working<T>(String text, Future<T> Function() fn) async {
+    working = text;
+    notifyListeners();
+    try {
+      return await fn();
+    } finally {
+      working = null;
+      notifyListeners();
+    }
+  }
+
   /// The system's Open dialog; problems are shown, not thrown.
   Future<String?> pickFile(XTypeGroup kind) async {
     try {
-      return await Files.open(kind);
+      // (On Android the picked document is copied in first: a big video takes a moment.)
+      return Files.onAndroid ? await _working('Opening the file…', () => Files.open(kind)) : await Files.open(kind);
     } on FileSystemException catch (e) {
       fail(e.message);
     } catch (e) {
@@ -114,7 +128,7 @@ class AppState extends ChangeNotifier {
           kind: kind,
           mime: mime,
           scratchDir: '$workspace${Platform.pathSeparator}exports',
-          write: write);
+          write: (path) => _working('Saving ${path.split(RegExp(r'[\\/]')).last}…', () => write(path)));
     } catch (e) {
       fail('Could not save it: $e');
       return null;
@@ -151,7 +165,7 @@ class AppState extends ChangeNotifier {
 
   /// Runs an engine job with the progress bar; returns its result (null when it failed or was cancelled).
   Future<dynamic> runJob(String label, String path, Map<String, dynamic> body) async {
-    if (busy) {
+    if (job?.running ?? false) {
       fail('Wait for “$jobLabel” to finish (or cancel it).');
       return null;
     }

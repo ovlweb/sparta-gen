@@ -383,6 +383,14 @@ class Session:
                 arr.title = f"{self.project.name} has a {arr.title}"
             return arr
 
+    def mix_settings(self) -> dict:
+        """The mix as rendered: a loaded base file plays under the remix only when the remix is built on it
+        (or it backs a MIDI base) — on a template it waits, silent, instead of clashing with another tempo."""
+        mix = dict(self.project.mix)
+        if self.project.variant not in ("base", "midi"):
+            mix.pop("base_path", None)
+        return mix
+
     def set_variant(self, variant: str, options: Optional[dict] = None) -> Arrangement:
         """Build the remix on a base template (or a variant; "base": on the loaded base file)."""
         key = None
@@ -420,7 +428,7 @@ class Session:
         events = compile_events(arr, set(bank.samples))
         if not events:
             raise ValueError("the arrangement produced no notes — check the sample selection")
-        mix_cfg = MixConfig.from_dict({"pitching": arr.pitching, "polish": arr.polish, **self.project.mix})
+        mix_cfg = MixConfig.from_dict({"pitching": arr.pitching, "polish": arr.polish, **self.mix_settings()})
         mix, info = render_mix(arr, events, bank, mix_cfg, sub(0.2, 0.55 if quality != "audio" else 0.95),
                                stems_dir=self.path("stems") if stems else None)
         stamp = time.strftime("%Y%m%d-%H%M%S")

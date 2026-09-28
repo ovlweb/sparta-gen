@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sparta_gen/engine/engine.dart';
 import 'package:sparta_gen/main.dart';
+import 'package:sparta_gen/state/settings.dart';
 import 'package:sparta_gen/ui/widgets/common.dart';
 
 class FakeEngine extends Engine {
@@ -47,7 +48,7 @@ Future<FakeEngine> startApp(WidgetTester tester, {Size size = const Size(1400, 9
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   final engine = FakeEngine();
-  await tester.pumpWidget(SpartaGenApp(engine: engine));
+  await tester.pumpWidget(SpartaGenApp(engine: engine, settings: AppSettings.memory()));
   await tester.pumpAndSettle();
   return engine;
 }
@@ -132,6 +133,20 @@ void main() {
     expect(find.text('Export'), findsWidgets);
   });
 
+  testWidgets('the theme button goes light, dark, then back to the system’s', (tester) async {
+    await startApp(tester);
+    Brightness now() => Theme.of(tester.element(find.text('Make my Sparta Remix'))).brightness;
+    await tester.tap(find.byTooltip('Theme: as the system'));
+    await tester.pumpAndSettle();
+    expect(now(), Brightness.light);
+    await tester.tap(find.byTooltip('Theme: light'));
+    await tester.pumpAndSettle();
+    expect(now(), Brightness.dark);
+    await tester.tap(find.byTooltip('Theme: dark'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Theme: as the system'), findsOneWidget);
+  });
+
   testWidgets('About credits Krasen', (tester) async {
     await startApp(tester);
     await tester.tap(find.byTooltip('About Sparta Gen'));
@@ -150,7 +165,7 @@ void main() {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(SpartaGenApp(engine: _BrokenEngine()));
+    await tester.pumpWidget(SpartaGenApp(engine: _BrokenEngine(), settings: AppSettings.memory()));
     await tester.pumpAndSettle();
     expect(find.text('The engine did not start'), findsOneWidget);
     expect(find.text('Try again'), findsOneWidget);

@@ -193,6 +193,8 @@ class Handler(BaseHTTPRequestHandler):
     # ── helpers ──
     def _json(self, obj: Any, status: int = 200) -> None:
         body = json.dumps(obj, default=_json_default).encode("utf-8")
+        if self.command in ("POST", "PUT") and status < 400:
+            self._autosave()                        # saved before the app hears "done"
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -317,6 +319,23 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             traceback.print_exc()
             self._error(str(exc), 500)
+
+    _NO_AUTOSAVE = ("/api/quit", "/api/project/new", "/api/project/open", "/api/project/save")
+
+    def _autosave(self) -> None:
+        """Every change is kept at once: the project file is saved after each successful change (a job saves
+        when it ends), so nothing is lost when the app is closed by force or crashes."""
+        if urlparse(self.path).path in self._NO_AUTOSAVE:
+            return
+        s = self.app.session
+        if not s.lock.acquire(blocking=False):      # a job is working on the project: it saves when it ends
+            return
+        try:
+            s.project.save()
+        except Exception:                           # (never fail the request for it)
+            traceback.print_exc()
+        finally:
+            s.lock.release()
 
     def do_PUT(self) -> None:
         self.do_POST()

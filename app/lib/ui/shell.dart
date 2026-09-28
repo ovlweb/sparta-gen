@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../platform/android_host.dart';
 import '../platform/files.dart';
 import '../state/app_state.dart';
+import '../state/settings.dart';
 import 'about.dart';
 import 'pages/base_page.dart';
 import 'pages/export_page.dart';
@@ -27,9 +28,10 @@ const _pages = <AppPage, (String, IconData, IconData)>{
 
 /// The app's window: navigation, the menu, the progress of a running job, and the current page.
 class Shell extends StatefulWidget {
-  const Shell({super.key, required this.app, this.onQuit});
+  const Shell({super.key, required this.app, required this.settings, this.onQuit});
 
   final AppState app;
+  final AppSettings settings;
   final Future<void> Function()? onQuit;
 
   @override
@@ -200,6 +202,9 @@ class _ShellState extends State<Shell> {
           for (final (i, pg) in AppPage.values.indexed)
             _Item(_pages[pg]!.$1, () => app.go(pg), SingleActivator(LogicalKeyboardKey(0x31 + i), control: true)),
         ]),
+        _Menu('View', [
+          for (final m in ThemeMode.values) _Item(AppSettings.nameOf(m), () => widget.settings.setTheme(m), null),
+        ]),
         _Menu('Help', [
           _Item('Sparta Remix Wiki', () => openLink(wikiUrl), null),
           _Item('Krasen (CassidyBOTRR) on YouTube', () => openLink(krasenChannel), null),
@@ -306,10 +311,23 @@ class _ShellState extends State<Shell> {
   Widget _jobBar() {
     final j = app.job;
     final cs = Theme.of(context).colorScheme;
+    final working = app.working;
     return AnimatedSize(
       duration: const Duration(milliseconds: 180),
       child: j == null
-          ? const SizedBox(width: double.infinity)
+          ? (working == null
+              ? const SizedBox(width: double.infinity)
+              : Material(
+                  color: cs.primary.withValues(alpha: 0.10),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                    child: Row(children: [
+                      const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.6)),
+                      const SizedBox(width: 14),
+                      Expanded(child: Text(working, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    ]),
+                  ),
+                ))
           : Material(
               color: cs.primary.withValues(alpha: 0.10),
               child: Padding(
@@ -414,6 +432,12 @@ class _ShellState extends State<Shell> {
             child: Row(children: [
               if (!Platform.isMacOS) _menuBar(),
               const Spacer(),
+              IconButton(
+                tooltip: AppSettings.nameOf(widget.settings.theme),
+                onPressed: widget.settings.nextTheme,
+                icon: Icon(AppSettings.iconOf(widget.settings.theme), size: 20),
+              ),
+              const SizedBox(width: 4),
               _projectTitle(),
               const SizedBox(width: 6),
               if (app.variant.isNotEmpty) Pill(app.builtOn, icon: Icons.queue_music),

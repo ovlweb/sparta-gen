@@ -124,3 +124,17 @@ def test_bad_templates_are_refused(change, msg, tmp_path):
     t = bases.BaseTemplate.from_dict(dict({"id": "x", "name": "X", "plan": [["chorus", 8]]}, **change))
     with pytest.raises((ValueError, KeyError), match=msg):
         bases.save_user_template(t, str(tmp_path))
+
+
+def test_a_loaded_base_file_plays_only_under_a_remix_built_on_it(tmp_path):
+    """Picking a template with a base file loaded must not play that base under another structure/tempo."""
+    from spartagen.project import Session
+    s = Session(workspace=str(tmp_path / "ws"))
+    s.project.mix["base_path"] = str(tmp_path / "base.mp3")
+    s.project.variant = "extended"
+    assert "base_path" not in s.mix_settings()               # a template: the base waits, silent
+    s.project.variant = "base"
+    assert s.mix_settings()["base_path"].endswith("base.mp3")   # built on the base: it plays
+    s.project.variant = "midi"
+    assert "base_path" in s.mix_settings()                   # a MIDI base's backing audio
+    assert s.project.mix["base_path"]                        # never forgotten, only silent
