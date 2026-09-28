@@ -30,9 +30,36 @@ class FFmpegError(RuntimeError):
     """ffmpeg is missing or a command failed."""
 
 
+# Where apps cannot start programs (iOS), ffmpeg is a function of the app itself: see use_function().
+_function = None
+
+
+def use_function(call: Optional[Callable[[list, str], int]]) -> None:
+    """Run ffmpeg as a function of this process instead of as a program: ``call(argv, log_path)`` runs one
+    command line and returns its exit code (iOS: FFmpegKit; see :mod:`spartagen.ffmpeg_function`).
+    ``None`` goes back to the program."""
+    global _function
+    from .ffmpeg_function import FFmpegFunction
+
+    _function = FFmpegFunction(call) if call is not None else None
+    ffmpeg_path.cache_clear()
+    ffprobe_path.cache_clear()
+
+
+def _exec(cmd: list[str], input_bytes: Optional[bytes] = None) -> tuple[int, bytes, bytes]:
+    """Run an ffmpeg command line to its end: (exit code, stdout, stderr)."""
+    if _function is not None:
+        return _function.run(cmd, input_bytes)
+    proc = subprocess.run(cmd, input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          creationflags=_CREATIONFLAGS)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
 @lru_cache(maxsize=1)
 def ffmpeg_path() -> str:
     """Locate ffmpeg: $SPARTAGEN_FFMPEG, a copy bundled next to the app, PATH, imageio-ffmpeg."""
+    if _function is not None:
+        return "ffmpeg"
     env = os.environ.get("SPARTAGEN_FFMPEG")
     if env and os.path.isfile(env):
         return env
@@ -59,6 +86,8 @@ def ffmpeg_path() -> str:
 
 @lru_cache(maxsize=1)
 def ffprobe_path() -> Optional[str]:
+    if _function is not None:           # (FFmpegKit's ffprobe prints into the same log: probe with ffmpeg -i)
+        return None
     env = os.environ.get("SPARTAGEN_FFPROBE")
     if env and os.path.isfile(env):
         return env
@@ -84,6 +113,11 @@ def _bundle_dirs() -> list[str]:
     return dirs
 
 
+def is_function() -> bool:
+    """ffmpeg is a function of this process (iOS), not a program that other programs could run."""
+    return _function is not None
+
+
 def available() -> bool:
     try:
         ffmpeg_path()
@@ -99,17 +133,11 @@ def version() -> str:
 
 def run(cmd: list[str], capture: bool = False, input_bytes: Optional[bytes] = None) -> str:
     """Run a command; raise FFmpegError with the tail of stderr on failure."""
-    proc = subprocess.run(
-        cmd,
-        input=input_bytes,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=_CREATIONFLAGS,
-    )
-    if proc.returncode != 0:
-        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-12:]
-        raise FFmpegError(f"command failed ({proc.returncode}): {' '.join(cmd[:6])} ...\n" + "\n".join(tail))
-    return proc.stdout.decode("utf-8", "replace") if capture else ""
+    code, out, err = _exec(cmd, input_bytes)
+    if code != 0:
+        tail = err.decode("utf-8", "replace").strip().splitlines()[-12:]
+        raise FFmpegError(f"command failed ({code}): {' '.join(cmd[:6])} ...\n" + "\n".join(tail))
+    return out.decode("utf-8", "replace") if capture else ""
 
 
 # ── Probing ──────────────────────────────────────────────────────────────────
@@ -188,13 +216,7 @@ _AUD_RE = re.compile(r"Stream #.*?Audio:.*?(\d+)\s*Hz,\s*([^,]+)")
 
 
 def _probe_ffmpeg(path: str) -> MediaInfo:
-    proc = subprocess.run(
-        [ffmpeg_path(), "-hide_banner", "-i", path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=_CREATIONFLAGS,
-    )
-    text = proc.stderr.decode("utf-8", "replace")
+    text = _exec([ffmpeg_path(), "-hide_banner", "-i", path])[2].decode("utf-8", "replace")
     info = MediaInfo(path=path)
     m = _DUR_RE.search(text)
     if m:
@@ -238,11 +260,11 @@ def decode_audio(
     if duration is not None:
         cmd += ["-t", f"{max(duration, 0.001):.6f}"]
     cmd += ["-vn", "-ac", str(channels), "-ar", str(sr), "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1"]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_CREATIONFLAGS)
-    if proc.returncode != 0:
-        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-6:]
+    code, out, err = _exec(cmd)
+    if code != 0:
+        tail = err.decode("utf-8", "replace").strip().splitlines()[-6:]
         raise FFmpegError("audio decode failed:\n" + "\n".join(tail))
-    data = np.frombuffer(proc.stdout, dtype="<f4").astype(np.float32)
+    data = np.frombuffer(out, dtype="<f4").astype(np.float32)
     if channels == 2:
         data = data[: len(data) // 2 * 2].reshape(-1, 2)
     return data
@@ -284,13 +306,12 @@ def read_frames(
         "-t", f"{max(duration, 1.0 / fps):.6f}",
         "-an", "-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1",
     ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_CREATIONFLAGS)
+    code, buf, _err = _exec(cmd)
     frame_bytes = width * height * 3
-    buf = proc.stdout
     n = len(buf) // frame_bytes
     if n == 0:
         # Seeking past the last frame (or an audio-only source): try one still.
-        if proc.returncode == 0 and start > 0.05:
+        if code == 0 and start > 0.05:
             return read_frames(path, max(0.0, start - 0.25), 0.25 + 1.0 / fps, fps, width, height, fit)[-1:]
         return np.zeros((1, height, width, 3), dtype=np.uint8)
     frames = np.frombuffer(buf[: n * frame_bytes], dtype=np.uint8).reshape(n, height, width, 3)
@@ -310,12 +331,12 @@ def read_blurred(path: str, start: float, duration: float, fps: float, width: in
     cmd = [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(start, 0.0):.6f}",
            "-i", path, "-t", f"{max(duration, 1.0 / fps):.6f}", "-an", "-vf", vf, "-pix_fmt", "rgb24",
            "-f", "rawvideo", "pipe:1"]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_CREATIONFLAGS)
+    out = _exec(cmd)[1]
     fb = width * height * 3
-    n = len(proc.stdout) // fb
+    n = len(out) // fb
     if n == 0:
         return np.zeros((0, height, width, 3), dtype=np.uint8)
-    return np.frombuffer(proc.stdout[: n * fb], dtype=np.uint8).reshape(n, height, width, 3)[:n_expected]
+    return np.frombuffer(out[: n * fb], dtype=np.uint8).reshape(n, height, width, 3)[:n_expected]
 
 
 def shot_cuts(path: str, start: float, end: float, fps: float = 25.0, threshold: float = 30.0,
@@ -383,10 +404,13 @@ class VideoWriter:
             cmd += ["-map", "1:a:0", "-c:a", "aac", "-b:a", audio_bitrate, "-shortest"]
         cmd.append(out_path)
         self._stderr_chunks: list[bytes] = []
-        self._proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-            creationflags=_CREATIONFLAGS,
-        )
+        if _function is not None:
+            self._proc = _function.popen(cmd)
+        else:
+            self._proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                creationflags=_CREATIONFLAGS,
+            )
         # Drain stderr on a thread so a chatty encoder can never dead-lock the pipe.
         self._stderr_thread = threading.Thread(target=self._drain, daemon=True)
         self._stderr_thread.start()

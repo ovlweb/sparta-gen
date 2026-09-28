@@ -102,11 +102,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// The system's Open dialog; problems are shown, not thrown.
-  Future<String?> pickFile(XTypeGroup kind) async {
+  /// The system's Open dialog (on an iPhone or iPad, [photos]: the Photos picker); problems are shown, not thrown.
+  Future<String?> pickFile(XTypeGroup kind, {bool photos = false}) async {
     try {
-      // (On Android the picked document is copied in first: a big video takes a moment.)
-      return Files.onAndroid ? await _working('Opening the file…', () => Files.open(kind)) : await Files.open(kind);
+      // (On a phone the picked file is copied in first: a big video takes a moment.)
+      return Files.onPhone
+          ? await _working('Opening the file…', () => Files.open(kind, photos: photos))
+          : await Files.open(kind);
     } on FileSystemException catch (e) {
       fail(e.message);
     } catch (e) {

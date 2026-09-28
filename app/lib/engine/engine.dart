@@ -1,5 +1,5 @@
-// The SpartaGen engine: the audio/video pipeline runs in its own process (desktop) or service
-// (Android), with no window of its own; the app talks to it over localhost with a secret token.
+// The SpartaGen engine: the audio/video pipeline runs in its own process (desktop), a service (Android) or
+// inside the app (iOS), with no window of its own; the app talks to it over localhost with a secret token.
 
 import 'dart:async';
 import 'dart:convert';
@@ -139,16 +139,16 @@ class HttpEngine extends Engine {
 
 /// Starts the engine and waits until it answers.
 class EngineLauncher {
-  static const _android = MethodChannel('gen.sparta/engine');
+  static const _host = MethodChannel('gen.sparta/engine');
   final StringBuffer _log = StringBuffer();
 
   String get log => _log.toString();
 
   Future<HttpEngine> start({void Function(String)? status}) async {
-    if (Platform.isAndroid) {
-      status?.call('Starting the engine (the first start unpacks it)…');
-      final r = await _android.invokeMapMethod<String, dynamic>('start');
-      if (r == null) throw EngineException('The engine service did not start.');
+    if (Platform.isAndroid || Platform.isIOS) {     // the engine runs inside the app; its host starts it
+      status?.call(Platform.isAndroid ? 'Starting the engine (the first start unpacks it)…' : 'Starting the engine…');
+      final r = await _host.invokeMapMethod<String, dynamic>('start');
+      if (r == null) throw EngineException('The engine did not start.');
       final engine = HttpEngine(Uri.parse('http://127.0.0.1:${r['port']}/'), '${r['token']}');
       await _waitReady(engine, null, status);
       return engine;

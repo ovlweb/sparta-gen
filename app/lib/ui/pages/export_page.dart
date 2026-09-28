@@ -35,7 +35,7 @@ class _ExportPageState extends State<ExportPage> {
 
   void _saved(String? where) {
     if (where == null) return;
-    if (Files.onAndroid) {
+    if (Files.onPhone) {
       app.info('Saved $where.');
     } else {
       app.info('Saved to $where', action: 'Show', onAction: () => Files.reveal(where));
@@ -98,7 +98,7 @@ class _ExportPageState extends State<ExportPage> {
       mime: 'application/json',
       write: (dest) => app.saveProjectAs(dest),
     );
-    if (where != null && !Files.onAndroid) {
+    if (where != null && !Files.onPhone) {
       app.info('Project saved to $where', action: 'Show', onAction: () => Files.reveal(where));
     }
   }
@@ -227,7 +227,7 @@ class _ExportPageState extends State<ExportPage> {
                   MenuItemButton(onPressed: () => _saveAudio(out, 'mp3'), child: const Text('MP3')),
                 ],
               ),
-              if (!Files.onAndroid)
+              if (!Files.onPhone)
                 IconButton(
                   tooltip: 'Show the app’s copy in its folder',
                   onPressed: () => Files.reveal('${out['file']}'),
@@ -251,7 +251,7 @@ class _ExportPageState extends State<ExportPage> {
           text: 'Every sample as WAV with its video clip, in the folders remixers keep.',
           actions: [
             FilledButton.tonal(onPressed: can ? _savePackZip : null, child: const Text('Save as ZIP…')),
-            if (!Files.onAndroid)
+            if (!Files.onPhone)
               OutlinedButton(onPressed: can ? _savePackFolder : null, child: const Text('Into a folder…')),
           ],
         ),

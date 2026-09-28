@@ -9,7 +9,8 @@ The helmet is drawn here, in a 256×256 box; everything else is made from it:
     packaging/icon.png, icon.ico, icon.icns             the engine's icons
     app/assets/icon.png                                  the app's logo (splash, About, Linux window and menu)
     app/macos/Runner/Assets.xcassets/AppIcon.appiconset  macOS
-    app/ios/Runner/Assets.xcassets/AppIcon.appiconset    iOS (square and opaque: iOS rounds the corners)
+    app/ios/Runner/Assets.xcassets/AppIcon.appiconset    iOS (square and opaque: iOS rounds the corners), and
+                                                         the helmet on its launch screen
     app/windows/runner/resources/app_icon.ico            Windows
     app/android/app/src/main/res/                        Android: the adaptive icon (vectors), the themed
                                                          (monochrome) icon, the notification icon, and PNGs
@@ -395,6 +396,10 @@ def main() -> None:
     appiconset(os.path.join("app", "macos", "Runner", "Assets.xcassets", "AppIcon.appiconset"), macos_icon)
     appiconset(os.path.join("app", "ios", "Runner", "Assets.xcassets", "AppIcon.appiconset"),
                lambda px: render(px, plate="square").convert("RGB"))
+    launch = os.path.join("app", "ios", "Runner", "Assets.xcassets", "LaunchImage.imageset")
+    if os.path.isdir(os.path.join(ROOT, launch)):      # iOS: the helmet while the app starts (128 pt)
+        for suffix, px in (("", 128), ("@2x", 256), ("@3x", 384)):
+            save_png(render(px, plate="none"), launch, f"LaunchImage{suffix}.png")
     android()
 
 

@@ -151,7 +151,7 @@ class _EngineGateState extends State<EngineGate> {
   @override
   Widget build(BuildContext context) {
     final app = _app;
-    if (app != null) return Shell(app: app, settings: widget.settings, onQuit: Platform.isAndroid ? null : _quit);
+    if (app != null) return Shell(app: app, settings: widget.settings, onQuit: Platform.isAndroid || Platform.isIOS ? null : _quit);
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       body: Center(

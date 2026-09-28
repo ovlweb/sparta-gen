@@ -1,5 +1,6 @@
 // The system's own Open / Save / folder dialogs (desktop: file_selector; Android: the document picker
-// and "Save as" of the system, through the app's host).
+// and "Save as" of the system, through the app's host; iOS: the Files and Photos pickers, and the share sheet
+// to save).
 
 import 'dart:io';
 
@@ -31,10 +32,11 @@ class Kinds {
 }
 
 class Files {
-  static const _android = MethodChannel('gen.sparta/files');
+  static const _host = MethodChannel('gen.sparta/files');
   static String? _lastDir; // where the last file was opened or saved: the next dialog starts there
 
-  static bool get onAndroid => Platform.isAndroid;
+  /// A phone (Android, iOS): files come from and go to the system's pickers, not to folders the app shows.
+  static bool get onPhone => Platform.isAndroid || Platform.isIOS;
 
   /// Where a dialog starts: the last folder used, else the user's Videos (or Music) folder, else home.
   static String? _startDir(XTypeGroup kind) {
@@ -56,13 +58,15 @@ class Files {
     return Directory(dir).existsSync() ? dir : home;
   }
 
-  /// Pick a file to open; its local path (on Android a copy the app can read).
-  static Future<String?> open(XTypeGroup kind) async {
-    if (onAndroid) {
+  /// Pick a file to open; its local path (on a phone a copy the app can read).  [photos]: from the Photos
+  /// library (iOS).
+  static Future<String?> open(XTypeGroup kind, {bool photos = false}) async {
+    if (Platform.isIOS && photos) return _host.invokeMethod<String>('open', {'photos': true});
+    if (Platform.isAndroid) {
       final mimes = kind.mimeTypes ?? const ['*/*'];
-      return _android.invokeMethod<String>('open', {'mime': mimes});
+      return _host.invokeMethod<String>('open', {'mime': mimes});
     }
-    final f = await openFile(acceptedTypeGroups: [kind], initialDirectory: _startDir(kind));
+    final f = await openFile(acceptedTypeGroups: [kind], initialDirectory: onPhone ? null : _startDir(kind));
     if (f == null) return null;
     if (f.path.isEmpty) {
       throw const FileSystemException('That file is not in a folder on this computer (a “Recent” or network '
@@ -72,8 +76,9 @@ class Files {
     return f.path;
   }
 
-  /// Save something the engine writes: desktop asks where first and the engine writes there; Android
-  /// has it written into the app's folder, then the system's "Save as" copies it where the user wants.
+  /// Save something the engine writes: desktop asks where first and the engine writes there; a phone has
+  /// it written into the app's folder, then the system's "Save as" (iOS: the share sheet) takes it where the
+  /// user wants.
   static Future<String?> save({
     required String suggestedName,
     required XTypeGroup kind,
@@ -81,11 +86,11 @@ class Files {
     required String scratchDir,
     required Future<bool> Function(String path) write,
   }) async {
-    if (onAndroid) {
+    if (onPhone) {
       final tmp = p.join(scratchDir, suggestedName);
       await Directory(scratchDir).create(recursive: true);
       if (!await write(tmp)) return null;
-      final ok = await _android.invokeMethod<bool>('saveAs', {'path': tmp, 'name': suggestedName, 'mime': mime});
+      final ok = await _host.invokeMethod<bool>('saveAs', {'path': tmp, 'name': suggestedName, 'mime': mime});
       return ok == true ? suggestedName : null;
     }
     final loc = await getSaveLocation(
@@ -100,7 +105,7 @@ class Files {
 
   /// A folder (desktop only).
   static Future<String?> folder({String? title}) async {
-    if (onAndroid) return null;
+    if (onPhone) return null;
     final dir = await getDirectoryPath(confirmButtonText: title, initialDirectory: _startDir(Kinds.video));
     if (dir != null) _lastDir = dir;
     return dir;

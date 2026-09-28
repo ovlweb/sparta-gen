@@ -37,9 +37,11 @@ def download(url: str, out_dir: str, progress: Progress = None, max_height: int 
            f"bv*[height<={max_height}]+ba/b[height<={max_height}]/b")
     template = os.path.join(out_dir, "%(title).80s [%(id)s].%(ext)s")
     try:
-        ffmpeg_dir = os.path.dirname(ff.ffmpeg_path())
+        ffmpeg_dir = None if ff.is_function() else os.path.dirname(ff.ffmpeg_path())
     except ff.FFmpegError:
         ffmpeg_dir = None
+    if ff.is_function():      # iOS: yt-dlp cannot run ffmpeg to merge a video and an audio stream — one file
+        fmt = f"b[height<={max_height}][ext=mp4]/b[height<={max_height}]/b"
     try:
         import yt_dlp  # type: ignore
     except Exception:

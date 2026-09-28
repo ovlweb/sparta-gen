@@ -28,9 +28,24 @@ class _SourcePageState extends State<SourcePage> {
     super.dispose();
   }
 
-  Future<void> _open() async {
-    final path = await app.pickFile(Kinds.video);
+  Future<void> _open({bool photos = false}) async {
+    final path = await app.pickFile(Kinds.video, photos: photos);
     if (path != null) await app.setSource(path);
+  }
+
+  /// The open button: on an iPhone or iPad a menu first — most videos there are in Photos, the rest in Files.
+  Widget _openButton(Widget Function(VoidCallback? onPressed) button) {
+    if (!Platform.isIOS) return button(app.busy ? null : _open);
+    return MenuAnchor(
+      builder: (context, c, _) => button(app.busy ? null : () => c.isOpen ? c.close() : c.open()),
+      menuChildren: [
+        MenuItemButton(
+            leadingIcon: const Icon(Icons.photo_library_outlined),
+            onPressed: () => _open(photos: true),
+            child: const Text('From Photos')),
+        MenuItemButton(leadingIcon: const Icon(Icons.folder_open), onPressed: _open, child: const Text('From Files')),
+      ],
+    );
   }
 
   Future<void> _download() async {
@@ -86,21 +101,21 @@ class _SourcePageState extends State<SourcePage> {
       child: Column(children: [
         Icon(Icons.video_library_outlined, size: 54, color: cs.primary),
         const SizedBox(height: 10),
-        Text(Files.onAndroid ? 'Choose a video from your phone' : 'Drop a video here',
+        Text(Files.onPhone ? 'Choose a video from your phone' : 'Drop a video here',
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
         Text('Any video or audio file (mp4, mkv, mov, webm, mp3, wav …)', style: TextStyle(color: cs.onSurfaceVariant)),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: app.busy ? null : _open,
-          icon: const Icon(Icons.folder_open),
-          label: const Text('Open video…'),
-        ),
+        _openButton((onPressed) => FilledButton.icon(
+              onPressed: onPressed,
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Open video…'),
+            )),
       ]),
     );
     return SectionCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (Files.onAndroid)
+        if (Files.onPhone)
           zone
         else
           DropTarget(
@@ -134,8 +149,8 @@ class _SourcePageState extends State<SourcePage> {
       info,
       const SizedBox(height: 16),
       Wrap(spacing: 10, runSpacing: 10, children: [
-        OutlinedButton.icon(
-            onPressed: app.busy ? null : _open, icon: const Icon(Icons.swap_horiz), label: const Text('Change video…')),
+        _openButton((onPressed) => OutlinedButton.icon(
+            onPressed: onPressed, icon: const Icon(Icons.swap_horiz), label: const Text('Change video…'))),
       ]),
       const SizedBox(height: 16),
       _linkRow(),

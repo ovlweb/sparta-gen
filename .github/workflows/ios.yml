@@ -1,0 +1,90 @@
+name: iOS app
+
+# The iOS app (iPhone, iPad): the app with the engine inside — Python for iOS running the engine, numpy, and ffmpeg
+# as a library (FFmpegKit) — built unsigned (SpartaGen-<version>-iOS.ipa, to install with AltStore, SideStore,
+# Sideloadly or an Apple developer account), and run on the iOS simulator: the app starts its engine and connects
+# to it, and a test video goes through the one-click remix.
+# Built when the iOS app or what only it uses changes (macOS minutes cost the most), from the Actions tab, and for
+# releases.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "app/ios/**"
+      - "app/lib/**"
+      - "app/assets/**"
+      - "app/pubspec.*"
+      - "spartagen/ios.py"
+      - "spartagen/ffmpeg.py"
+      - "spartagen/ffmpeg_function.py"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.47.5"
+
+jobs:
+  app:
+    name: IPA and simulator test
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Cached engine (Python, FFmpegKit, packages)
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/ios/Engine/Frameworks
+            app/ios/Engine/site-packages
+          key: ios-engine-${{ hashFiles('app/ios/Engine/prepare.sh') }}
+      - name: The engine for iOS
+        run: |
+          python -m pip install --upgrade pip
+          bash app/ios/Engine/prepare.sh
+      - name: Build the IPA (unsigned)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' ../spartagen/__init__.py)
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          (cd dist && zip -qry "SpartaGen-$version-iOS.ipa" Payload && rm -rf Payload)
+          ls -la dist
+          echo "frameworks in the app: $(ls build/ios/iphoneos/Runner.app/Frameworks | wc -l)"
+          du -sh build/ios/iphoneos/Runner.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpartaGen-iOS
+          path: app/dist/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+      - name: Build for the simulator (debug)
+        working-directory: app
+        run: flutter build ios --simulator --debug
+      - name: Test video
+        run: |
+          pip install numpy imageio-ffmpeg
+          PYTHONPATH=. python -c "from spartagen.selftest import make_test_source as m; m('$RUNNER_TEMP/source.mp4')"
+      - name: Run on the simulator
+        run: bash app/ios/test/smoke.sh app/build/ios/iphonesimulator/Runner.app "$RUNNER_TEMP/source.mp4" ios-test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-test
+          path: ios-test
+          if-no-files-found: ignore
+          retention-days: 7

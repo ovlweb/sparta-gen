@@ -165,7 +165,7 @@ class _ShellState extends State<Shell> {
       mime: 'application/json',
       write: app.saveProjectAs,
     );
-    if (where != null && !Files.onAndroid) {
+    if (where != null && !Files.onPhone) {
       app.info('Project saved to $where', action: 'Show', onAction: () => Files.reveal(where));
     }
   }

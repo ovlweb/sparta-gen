@@ -34,7 +34,7 @@ SpartaGen turns any video into a **Sparta Remix** the way remixers build them by
    boxes. **Seven visual styles** (Classic, Clean, Xleth, Retro VHS, Neon, Cinematic, Mirror) and every effect in
    them adjustable; **six sound presets** with every FX amount adjustable.
 
-Everything happens in **one app — SpartaGen — on Windows, macOS, Linux and Android**: a real app with the
+Everything happens in **one app — SpartaGen — on Windows, macOS, Linux, Android and iOS**: a real app with the
 system's own windows, menus, *Open* and *Save* dialogs and video players (no web page, nothing to install besides
 it — the engine and ffmpeg are inside). **One click** does it all: open your video, pick your base, press
 **⚡ Make my Sparta Remix** — the samples are cut automatically, the remix is built on the base and a preview is
@@ -66,7 +66,7 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 
 ## Contents
 
-- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Using the app](#using-the-app) · [Android app](#android-app) · [Desktop apps](#desktop-apps) · [Release candidate — please test](#release-candidate--please-test) · [Command line](#command-line)
+- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Using the app](#using-the-app) · [Android app](#android-app) · [iOS app](#ios-app) · [Desktop apps](#desktop-apps) · [Release candidate — please test](#release-candidate--please-test) · [Command line](#command-line)
 - [Bases](#bases) · [Pattern notation](#pattern-notation) · [How samples are made](#how-samples-are-made)
 - [Look & sound](#look--sound) · [Using a real Sparta base](#using-a-real-sparta-base) · [Sample pack export](#sample-pack-export)
 - [Development](#development) · [Credits](#credits) · [Known limitations](#known-limitations)
@@ -79,14 +79,16 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 | **macOS** 12+ | `SpartaGen-<version>-macOS-arm64.zip` (Apple silicon) or `…-macOS-x64.zip` (Intel) | Unzip, move **SpartaGen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/SpartaGen.app"`). |
 | **Linux** (x64, glibc 2.39+: Ubuntu 24.04+, Debian 13+, Fedora 40+ …) | `SpartaGen-<version>-Linux-x64.zip` | Install **libmpv** once (Ubuntu/Debian: `sudo apt install libmpv2`, Fedora: `sudo dnf install mpv-libs`, Arch: `sudo pacman -S mpv`), unzip, run `SpartaGen/spartagen` — `SpartaGen/add-to-menu.sh` puts it in your applications menu. |
 | **Android** 7.0+ (64-bit ARM) | `SpartaGen-<version>-Android.apk` | Open it on the phone, allow installing from that source. It installs over earlier SpartaGen APKs. See [Android app](#android-app). |
+| **iPhone / iPad** (iOS 15+) | `SpartaGen-<version>-iOS.ipa` | Not in the App Store: install it with [AltStore](https://altstore.io) / [SideStore](https://sidestore.io), [Sideloadly](https://sideloadly.io) or your own Apple developer account. See [iOS app](#ios-app). |
 | **From source** (any desktop) | this repository | Python 3.9+, then double-click `scripts/run_windows.bat` / `scripts/run_macos.command`, or run `scripts/run_unix.sh`: the first start installs the engine (ffmpeg from `imageio-ffmpeg` if you have none); with [Flutter](https://docs.flutter.dev/get-started/install) installed it runs the app itself, without it the classic web app opens in your browser. |
 | **pip** (engine and command line) | `pip install -e ".[all]"` | `spartagen make …` (see [Command line](#command-line)); `spartagen gui` serves the classic web app in a browser — e.g. on a phone in [Termux](https://termux.dev) (`scripts/install-termux.sh`). |
 
-**Where the apps are**: GitHub → *Actions* has a workflow per app — **Desktop apps** (Windows, macOS, Linux) and
-**Android app** — that builds and tests it; *Run workflow* there builds it any time, and the run's *Artifacts* hold the
-apps (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-macOS-X64`, `SpartaGen-Linux-X64`,
-`SpartaGen-Android`). Push a tag like `v1.0.0-rc1` and **Release** builds all of them into **one GitHub release** (a
-pre-release for `rc` tags). It is the same app everywhere: same engine, same screens, same one-click remix.
+**Where the apps are**: GitHub → *Actions* has a workflow per app — **Desktop apps** (Windows, macOS, Linux),
+**Android app** and **iOS app** — that builds and tests it; *Run workflow* there builds it any time, and the run's
+*Artifacts* hold the apps (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-macOS-X64`,
+`SpartaGen-Linux-X64`, `SpartaGen-Android`, `SpartaGen-iOS`). Push a tag like `v1.0.0-rc1` and **Release** builds all
+of them into **one GitHub release** (a pre-release for `rc` tags). It is the same app everywhere: same engine, same
+screens, same one-click remix.
 
 Requirements (from source): **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
 there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termux without scipy) still work.
@@ -160,13 +162,39 @@ engine (Python, run by [Chaquopy](https://chaquo.com/chaquopy/)) and ffmpeg buil
   secret token per start). Projects live in the app's own storage (`Android/data/gen.sparta.remix/files/SpartaGen`).
 - A phone is slower than a computer: a 2-minute remix's preview takes a few minutes, the 720p render longer.
 
-How it is built (`app/android/`, jobs *ffmpeg for Android*, *Android app* and *Android app on an emulator* in
-`build.yml`): `app/android/ffmpeg/build.sh` cross-compiles x264 + ffmpeg with the Android NDK and packages the
+How it is built (`app/android/`; the *Android app* workflow, `android.yml`: *ffmpeg*, *APK*, *Emulator test*): `app/android/ffmpeg/build.sh` cross-compiles x264 + ffmpeg with the Android NDK and packages the
 program as `libffmpeg.so` (Android only lets an app run programs from its native-library folder); Flutter, Gradle and
 Chaquopy package the app with the repository's `spartagen` package, Python 3.12, numpy and yt-dlp. An x86_64 build
 runs on an Android emulator: the engine starts (and refuses calls without its token), its ffmpeg runs and the
 one-click remix renders a preview — still going after the app is sent to the background halfway; the arm64 ffmpeg is
 checked to run on phones. See [app/android/README.md](app/android/README.md).
+
+## iOS app
+
+The same app on an iPhone or iPad, with everything inside it: iOS lets no app start another program, so the engine
+runs in the app itself — Python for iOS (CPython's own iOS build, from
+[BeeWare's Python-Apple-support](https://github.com/beeware/Python-Apple-support)) with numpy, and ffmpeg as a
+library ([FFmpegKit](https://github.com/sk3llo/ffmpeg_kit_flutter), the full-gpl build) that the engine calls instead of
+starting ffmpeg.
+
+- **Install**: `SpartaGen-<version>-iOS.ipa` is not signed — Apple only lets an iPhone run apps signed for it. Install it
+  with [AltStore](https://altstore.io) or [SideStore](https://sidestore.io) (a free Apple ID: the app has to be
+  refreshed every 7 days, which they do for you), [Sideloadly](https://sideloadly.io) from a computer, or sign it with
+  your own Apple developer account (a year, or TestFlight). iOS 15 or later.
+- **Use**: *Open video…* → **From Photos** or **From Files**; **Save video…** / **Save audio…** open the share sheet
+  (*Save Video* to Photos, *Save to Files*, AirDrop …).
+- **Keep SpartaGen open while it renders**: iOS pauses an app in the background, and the render goes on when you come
+  back to it.
+- The app is big (~200 MB): ffmpeg is in it twice (the video player's and the engine's), with Python and numpy.
+
+How it is built (`app/ios/`; the *iOS app* workflow, `ios.yml`): `app/ios/Engine/prepare.sh` fetches Python for iOS,
+FFmpegKit (made into device + simulator xcframeworks) and numpy, yt-dlp and certifi built for iOS; the app's Xcode
+build phase `app/ios/Engine/install.sh` puts Python's standard library, the repository's `spartagen` package and those
+packages into the app and turns every compiled Python module into a signed framework (as CPython's iOS testbed does);
+`Runner/SpartaGenEngine.m` starts Python and hands the engine ffmpeg as a function (`spartagen/ios.py`,
+`spartagen/ffmpeg_function.py` — tested on Linux too, with a stand-in C function). A debug build runs on the iOS
+simulator: the engine starts (and refuses calls without its token), the app connects to it, and the one-click remix
+renders a preview.
 
 ## Desktop apps
 
@@ -195,6 +223,7 @@ computers. Things worth trying:
 - [ ] Rendering 720p/1080p and saving the video and the audio (WAV and MP3) where you want; the sample pack, the MIDI.
 - [ ] Closing and opening the app again (your project comes back); *File → Recent projects*.
 - [ ] On Android: *Share → SpartaGen* from the gallery, a render with the screen off, *Save video…*.
+- [ ] On an iPhone or iPad: a video *From Photos*, the one-click remix, *Save video…* → *Save Video*.
 
 When something goes wrong, open an issue with what you did, what happened, your system (Windows/macOS/Linux/Android
 version), and — if the app could not start its engine — the text from *Copy the details* on that screen (the
@@ -472,9 +501,9 @@ web app) · `android.py` (the engine inside the APK).
 `app/` is the SpartaGen app (Flutter: `lib/` the pages, `android/` the Android host, ffmpeg build and emulator test,
 `windows/`, `macos/`, `linux/` the desktop hosts); `packaging/engine.py` + `scripts/build_desktop.py` make the desktop
 apps. CI (`.github/workflows/`): **Tests** (`tests.yml`) runs the engine tests (with and without scipy) and the app
-tests on every push; **Desktop apps** (`desktop.yml`) and **Android app** (`android.yml`) build and test the apps when a
-push changes them, or from *Run workflow*; **Release** (`release.yml`) builds all of them for a `v*` tag and publishes
-one release.
+tests on every push; **Desktop apps** (`desktop.yml`), **Android app** (`android.yml`) and **iOS app** (`ios.yml`) build
+and test the apps when a push changes them, or from *Run workflow*; **Release** (`release.yml`) builds all of them for
+a `v*` tag and publishes one release.
 
 ## Credits
 
@@ -501,3 +530,5 @@ one release.
   [Install](#install)). The Linux app needs libmpv (2) from your distribution and a recent glibc.
 - The Android app is 64-bit ARM only (the build script also makes x86_64 and 32-bit ARM ffmpeg if you build it
   yourself) and is installed from the APK, not a store. Phone renders are slower than a computer's.
+- The iOS app is not in the App Store: it is sideloaded (see [iOS app](#ios-app)); with a free Apple ID it has to be
+  refreshed every 7 days. iOS pauses it in the background, so a render only goes on while the app is open.

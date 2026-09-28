@@ -25,9 +25,14 @@ jobs:
     uses: ./.github/workflows/android.yml
     secrets: inherit
 
+  ios:
+    name: iOS app
+    needs: tests
+    uses: ./.github/workflows/ios.yml
+
   publish:
     name: GitHub release
-    needs: [desktop, android]
+    needs: [desktop, android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -44,3 +49,4 @@ jobs:
           files: |
             apps/*.zip
             apps/*.apk
+            apps/*.ipa
