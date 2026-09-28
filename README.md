@@ -185,7 +185,8 @@ starting ffmpeg.
   (*Save Video* to Photos, *Save to Files*, AirDrop …).
 - **Keep SpartaGen open while it renders**: iOS pauses an app in the background, and the render goes on when you come
   back to it.
-- The app is big (~200 MB): ffmpeg is in it twice (the video player's and the engine's), with Python and numpy.
+- The app is big — a 60 MB download, about 180 MB on the phone: ffmpeg is in it twice (the video player's and
+  the engine's), with Python and numpy.
 
 How it is built (`app/ios/`; the *iOS app* workflow, `ios.yml`): `app/ios/Engine/prepare.sh` fetches Python for iOS,
 FFmpegKit (made into device + simulator xcframeworks) and numpy, yt-dlp and certifi built for iOS; the app's Xcode
