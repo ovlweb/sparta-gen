@@ -64,6 +64,13 @@ assert st["ffmpeg"], "ffmpeg is not usable inside the app"
 EOF
 code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE/api/status")
 [ "$code" = 401 ] || { echo "the engine answered without its token ($code)"; exit 1; }
+connected=""
+for _ in $(seq 1 60); do                         # the app itself talks to its engine (plain HTTP on 127.0.0.1)
+  if adb logcat -d | grep -aq "Sparta Gen: connected to the engine"; then connected=1; break; fi
+  sleep 2
+done
+[ -n "$connected" ] || { echo "the app did not connect to its engine"; adb logcat -d | grep -a "flutter" | tail -30; exit 1; }
+echo "==> the app is connected to its engine"
 sleep 3
 adb exec-out screencap -p > "$OUT/screen-start.png" || true
 app_pid=$(adb shell pidof $PKG | tr -d '\r' || true)

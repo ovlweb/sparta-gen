@@ -110,6 +110,7 @@ class _EngineGateState extends State<EngineGate> {
       await app.init();
       if (!mounted) return;
       setState(() => _app = app);
+      debugPrint('Sparta Gen: connected to the engine ${app.version}'); // (the emulator test waits for this)
       if (_smokeReport != null) return await _smokeDone(app, null);
       await AndroidHost.attach(app);
     } catch (e) {

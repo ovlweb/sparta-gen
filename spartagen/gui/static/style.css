@@ -193,6 +193,3 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 #btn-analyze { width: 100%; }
 
 /* inside the Android app: no desktop paths; downloads go to the phone's media folders */
-.android-only { display: none; }
-.android .android-only { display: block; }
-.android .desktop-only { display: none !important; }
