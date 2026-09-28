@@ -165,6 +165,9 @@ class EngineLauncher {
         environment: {'PYTHONUNBUFFERED': '1', 'PYTHONIOENCODING': 'utf-8'},
       );
     } on ProcessException catch (e) {
+      if (Platform.isMacOS && e.errorCode == 86) {    // EBADARCH: an Intel Mac (the engine is for Apple silicon)
+        throw EngineException('SpartaGen needs a Mac with Apple silicon (M1 or newer): Intel Macs are not supported.');
+      }
       throw EngineException('Could not start the engine ($exe): ${e.message}');
     }
     proc.stdout.transform(utf8.decoder).listen(_append);

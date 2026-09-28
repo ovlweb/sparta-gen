@@ -76,7 +76,7 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 | Platform | Download | Then |
 |---|---|---|
 | **Windows** 10/11 (64-bit) | `SpartaGen-<version>-Windows-x64.zip` | Unzip, run **SpartaGen.exe** in the `SpartaGen` folder. First start of an unsigned app: *More info → Run anyway*. |
-| **macOS** 12+ | `SpartaGen-<version>-macOS-arm64.zip` (Apple silicon) or `…-macOS-x64.zip` (Intel) | Unzip, move **SpartaGen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/SpartaGen.app"`). |
+| **macOS** 12+ with Apple silicon (M1 or newer) | `SpartaGen-<version>-macOS-arm64.zip` | Unzip, move **SpartaGen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/SpartaGen.app"`). Intel Macs are not supported (see [Known limitations](#known-limitations)). |
 | **Linux** (x64, glibc 2.39+: Ubuntu 24.04+, Debian 13+, Fedora 40+ …) | `SpartaGen-<version>-Linux-x64.zip` | Install **libmpv** once (Ubuntu/Debian: `sudo apt install libmpv2`, Fedora: `sudo dnf install mpv-libs`, Arch: `sudo pacman -S mpv`), unzip, run `SpartaGen/spartagen` — `SpartaGen/add-to-menu.sh` puts it in your applications menu. |
 | **Android** 7.0+ (64-bit ARM) | `SpartaGen-<version>-Android.apk` | Open it on the phone, allow installing from that source. It installs over earlier SpartaGen APKs. See [Android app](#android-app). |
 | **iPhone / iPad** (iOS 15+) | `SpartaGen-<version>-iOS.ipa` | Not in the App Store: install it with [AltStore](https://altstore.io) / [SideStore](https://sidestore.io), [Sideloadly](https://sideloadly.io) or your own Apple developer account. See [iOS app](#ios-app). |
@@ -85,8 +85,8 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 
 **Where the apps are**: GitHub → *Actions* has a workflow per app — **Desktop apps** (Windows, macOS, Linux),
 **Android app** and **iOS app** — that builds and tests it; *Run workflow* there builds it any time, and the run's
-*Artifacts* hold the apps (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-macOS-X64`,
-`SpartaGen-Linux-X64`, `SpartaGen-Android`, `SpartaGen-iOS`). Push a tag like `v1.0.0-rc1` and **Release** builds all
+*Artifacts* hold the apps (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-Linux-X64`,
+`SpartaGen-Android`, `SpartaGen-iOS`). Push a tag like `v1.0.0-rc1` and **Release** builds all
 of them into **one GitHub release** (a pre-release for `rc` tags). It is the same app everywhere: same engine, same
 screens, same one-click remix.
 
@@ -205,7 +205,7 @@ with PyInstaller — Python, numpy/scipy, yt-dlp and a static ffmpeg — as `spa
 `SpartaGen.app/Contents/Resources/engine/`). The app starts it in the background on a free local port with a
 secret token, and it quits with the app. Zipped as `SpartaGen-<version>-<os>-<arch>.zip`.
 
-CI builds it on Windows, macOS (Apple silicon and Intel) and Linux and tests every one before keeping it: the
+CI builds it on Windows, macOS (Apple silicon) and Linux and tests every one before keeping it: the
 engine's **self-test** (`spartagen-engine --selftest report.json`: a test video through the one-click remix, then
 saved as MP4 and MP3 the way the app saves, with the bundled ffmpeg — `spartagen selftest` does the same from a source
 install), the engine **started the way the app starts it** (it must answer with its token and refuse without it),
@@ -529,6 +529,9 @@ a `v*` tag and publishes one release.
 - Base section labels are heuristics tuned on the classic D bases; unusual bases may need a section renamed in the
   arrangement. Where the wiki places the *Execution* section varies by base — it is available as a section to add
   (the Hyper variant uses it).
+- **Intel Macs are not supported**: the macOS app is for Apple silicon (M1 or newer) only. Apple is ending Intel
+  support: macOS 26 Tahoe is the last macOS for Intel Macs, and from macOS 28 Rosetta no longer runs Intel apps on
+  Apple silicon (apart from some older games). On an Intel Mac the app says so instead of starting.
 - The apps are not signed by Apple or Microsoft yet: the first start needs *Run anyway* / *Open Anyway* (see
   [Install](#install)). The Linux app needs libmpv (2) from your distribution and a recent glibc.
 - The Android app is 64-bit ARM only (the build script also makes x86_64 and 32-bit ARM ffmpeg if you build it

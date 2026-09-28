@@ -1,9 +1,9 @@
 name: Desktop apps
 
-# Windows, macOS (Apple silicon and Intel) and Linux: the app with the engine inside, zipped.  Each one is tested
-# before it is kept: the engine's self-test (a test video through the one-click remix, saved as MP4 and MP3 with the
-# bundled ffmpeg), the engine started the way the app starts it, then the packaged app has to find and start its
-# engine.  When the engine crashes, the log shows its threads' tracebacks and (macOS) the crash report.
+# Windows, macOS (Apple silicon; Intel Macs are not supported) and Linux: the app with the engine inside, zipped.
+# Each one is tested before it is kept: the engine's self-test (a test video through the one-click remix, saved as MP4
+# and MP3 with the bundled ffmpeg), the engine started the way the app starts it, then the packaged app has to find
+# and start its engine.  When the engine crashes, the log shows its threads' tracebacks and (macOS) the crash report.
 # Built when the app or its packaging changes (macOS minutes cost the most), from the Actions tab, and for releases.
 on:
   push:
@@ -38,7 +38,6 @@ jobs:
         include:
           - { os: windows-latest, name: Windows }
           - { os: macos-latest, name: macOS (Apple silicon) }
-          - { os: macos-15-intel, name: macOS (Intel) }
           - { os: ubuntu-24.04, name: Linux }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
