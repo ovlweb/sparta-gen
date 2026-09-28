@@ -6,6 +6,7 @@
     spartagen-engine make video.mp4 …                              any other spartagen command
 """
 
+import faulthandler
 import os
 import sys
 
@@ -27,6 +28,13 @@ if sys.stdout is None or sys.stderr is None:
         sys.stdout = _log
     if sys.stderr is None:
         sys.stderr = _log
+
+# A crash in native code (numpy, scipy, Python itself …) prints where every thread was: the app shows the engine's
+# last lines when it stops, and the Windows build keeps them in engine.log.
+try:
+    faulthandler.enable(file=sys.stderr, all_threads=True)
+except (AttributeError, OSError, RuntimeError, ValueError):
+    pass
 
 
 def _selftest() -> int:

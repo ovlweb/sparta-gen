@@ -2,7 +2,8 @@ name: Desktop apps
 
 # Windows, macOS (Apple silicon and Intel) and Linux: the app with the engine inside, zipped.  Each one is tested
 # before it is kept: the engine's self-test (a test video through the one-click remix, saved as MP4 and MP3 with the
-# bundled ffmpeg), then the packaged app has to find and start its engine.
+# bundled ffmpeg), the engine started the way the app starts it, then the packaged app has to find and start its
+# engine.  When the engine crashes, the log shows its threads' tracebacks and (macOS) the crash report.
 # Built when the app or its packaging changes (macOS minutes cost the most), from the Actions tab, and for releases.
 on:
   push:
@@ -60,14 +61,6 @@ jobs:
         run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
       - name: Build and test
         run: python scripts/build_desktop.py --test
-      - name: Crash reports (macOS)
-        if: failure() && runner.os == 'macOS'
-        run: |
-          for f in $(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -3); do
-            echo "== $f"
-            head -c 20000 "$f"
-            echo
-          done
       - uses: actions/upload-artifact@v4
         with:
           name: SpartaGen-${{ runner.os }}-${{ runner.arch }}

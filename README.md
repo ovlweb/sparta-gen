@@ -208,7 +208,9 @@ secret token, and it quits with the app. Zipped as `SpartaGen-<version>-<os>-<ar
 CI builds it on Windows, macOS (Apple silicon and Intel) and Linux and tests every one before keeping it: the
 engine's **self-test** (`spartagen-engine --selftest report.json`: a test video through the one-click remix, then
 saved as MP4 and MP3 the way the app saves, with the bundled ffmpeg — `spartagen selftest` does the same from a source
-install), then the packaged **app must start its bundled engine** (`SPARTAGEN_SMOKE_REPORT=report.json`).
+install), the engine **started the way the app starts it** (it must answer with its token and refuse without it),
+then the packaged **app must start its bundled engine** (`SPARTAGEN_SMOKE_REPORT=report.json`). If the engine
+crashes, the log shows where each of its threads was and, on macOS, the system's crash report.
 
 ## Release candidate — please test
 
