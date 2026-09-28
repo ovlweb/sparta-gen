@@ -162,6 +162,8 @@ def assemble(app_built: str, engine: str) -> str:
         shutil.rmtree(out)
     shutil.copytree(app_built, out, symlinks=True)
     shutil.copytree(engine, os.path.join(out, "engine"), symlinks=True)
+    if not WINDOWS:                                    # Linux: "add Sparta Gen to the applications menu"
+        shutil.copy2(os.path.join(ROOT, "packaging", "linux", "add-to-menu.sh"), out)
     return out
 
 
