@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Sparta Gen</string>
+    <string name="app_name">SpartaGen</string>
     <string name="make_remix">Make a Sparta Remix</string>
-    <string name="channel_engine">Sparta Gen engine</string>
+    <string name="channel_engine">SpartaGen engine</string>
     <string name="engine_running">Ready — cutting samples and rendering run here</string>
 </resources>

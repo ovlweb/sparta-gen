@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sparta-gen"
 dynamic = ["version"]
-description = "Sparta Remix generator — the engine of the Sparta Gen app: cuts a source video into pitch, percussion and quote samples, tunes the pitches to the base, sequences the Sparta Remix Wiki patterns and renders the remix video with ffmpeg."
+description = "Sparta Remix generator — the engine of the SpartaGen app: cuts a source video into pitch, percussion and quote samples, tunes the pitches to the base, sequences the Sparta Remix Wiki patterns and renders the remix video with ffmpeg."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

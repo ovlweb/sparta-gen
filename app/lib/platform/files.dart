@@ -21,7 +21,7 @@ class Kinds {
       label: 'MIDI', extensions: ['mid', 'midi', 'rmi', 'kar'], mimeTypes: ['audio/midi', 'audio/x-midi'],
       uniformTypeIdentifiers: ['public.midi-audio']);
   static const json = XTypeGroup(
-      label: 'Sparta Gen file', extensions: ['json'], mimeTypes: ['application/json'],
+      label: 'SpartaGen file', extensions: ['json'], mimeTypes: ['application/json'],
       uniformTypeIdentifiers: ['public.json']);
   static const mp4 = XTypeGroup(label: 'MP4 video', extensions: ['mp4'], uniformTypeIdentifiers: ['public.mpeg-4']);
   static const wav = XTypeGroup(label: 'WAV audio', extensions: ['wav'], uniformTypeIdentifiers: ['com.microsoft.waveform-audio']);

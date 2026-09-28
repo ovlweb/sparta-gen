@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Sparta Gen — run from source on Linux / macOS (double-click run_macos.command on a Mac).
+# SpartaGen — run from source on Linux / macOS (double-click run_macos.command on a Mac).
 # First run creates a virtual environment and installs the engine, including ffmpeg (imageio-ffmpeg) when no
 # system ffmpeg is present.  With Flutter installed (https://docs.flutter.dev/get-started/install) it starts
-# the Sparta Gen app itself; without it, the classic web app opens in your browser.
+# the SpartaGen app itself; without it, the classic web app opens in your browser.
 set -e
 cd "$(dirname "$0")/.."
 PY="${PYTHON:-python3}"

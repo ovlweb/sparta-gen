@@ -1,4 +1,4 @@
-# Sparta Gen for Android
+# SpartaGen for Android
 
 The APK holds the whole app: the Flutter app (the same one as on Windows, macOS and Linux — native screens,
 the system's document picker and "Save as", no web page), the repository's `spartagen` engine (Python 3.12
@@ -8,7 +8,7 @@ else to install on the phone.
 | Piece | Where |
 |---|---|
 | The app (every page, the players) | `../lib/` (Flutter) |
-| Android host: starts the engine and hands the app its port and secret token; document picker, "Save as", "Share → Sparta Gen" | `app/src/main/java/gen/sparta/remix/MainActivity.java` |
+| Android host: starts the engine and hands the app its port and secret token; document picker, "Save as", "Share → SpartaGen" | `app/src/main/java/gen/sparta/remix/MainActivity.java` |
 | Engine service (starts Python and the engine, keeps renders going with the screen off) | `EngineService.java` → `spartagen/android.py` |
 | ffmpeg + x264 for Android, packaged as `jniLibs/<abi>/libffmpeg.so` | `ffmpeg/build.sh` |
 | Emulator test: the engine up (and closed to anyone without its token), ffmpeg usable, the one-click remix rendered — and still rendering after the app is sent to the background halfway | `test/smoke.sh`, `test/make_source.py` |
@@ -46,7 +46,7 @@ bash app/android/test/smoke.sh app/build/app/outputs/flutter-apk/app-debug.apk /
 ## Signing
 
 Every build is signed with `sideload.keystore` (password `android`, alias `sparta-gen`), committed here on purpose so
-that each new APK installs over the previous one without uninstalling — including the earlier Sparta Gen APKs,
+that each new APK installs over the previous one without uninstalling — including the earlier SpartaGen APKs,
 which had the same id (`gen.sparta.remix`) and key. It only proves "built from this repository" — to publish
 the app, sign with a key of your own: set `SPARTAGEN_KEYSTORE`, `SPARTAGEN_KEYSTORE_PASSWORD`,
 `SPARTAGEN_KEY_ALIAS` and `SPARTAGEN_KEY_PASSWORD` when building, or in CI add the repository secrets

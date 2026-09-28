@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Sparta Gen on Android, via Termux (https://termux.dev — install it from F-Droid or GitHub).
+# SpartaGen on Android, via Termux (https://termux.dev — install it from F-Droid or GitHub).
 #
 #   curl -fsSL https://raw.githubusercontent.com/TheQSN/sparta-gen/HEAD/scripts/install-termux.sh | bash
 #
@@ -19,7 +19,7 @@ pkg install -y python ffmpeg git python-numpy python-pillow termux-api || true
 # scipy is optional (the engine has a pure-numpy fallback) but makes renders faster.
 pkg install -y python-scipy || echo "   (python-scipy not available — continuing without it)"
 
-echo "==> Getting Sparta Gen…"
+echo "==> Getting SpartaGen…"
 if [ -d "$DEST/.git" ]; then
   git -C "$DEST" pull --ff-only
 else

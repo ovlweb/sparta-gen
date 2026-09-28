@@ -233,7 +233,7 @@ public class MainActivity extends FlutterActivity {
         super.onActivityResult(request, code, data);
     }
 
-    /** A video shared to the app ("Share → Sparta Gen"): copied in, then given to the Flutter side. */
+    /** A video shared to the app ("Share → SpartaGen"): copied in, then given to the Flutter side. */
     private void handleShared(Intent intent) {
         if (intent == null) {
             return;

@@ -1,4 +1,4 @@
-// What the Android host adds: videos shared to the app ("Share → Sparta Gen"), and Back leaving the app
+// What the Android host adds: videos shared to the app ("Share → SpartaGen"), and Back leaving the app
 // running (a render goes on) instead of closing it.
 
 import 'dart:io';

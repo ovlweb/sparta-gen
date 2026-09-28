@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Sparta Gen" "\0"
-            VALUE "FileDescription", "Sparta Gen" "\0"
+            VALUE "CompanyName", "SpartaGen" "\0"
+            VALUE "FileDescription", "SpartaGen" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "SpartaGen" "\0"
-            VALUE "LegalCopyright", "Sparta Gen contributors" "\0"
+            VALUE "LegalCopyright", "SpartaGen contributors" "\0"
             VALUE "OriginalFilename", "SpartaGen.exe" "\0"
-            VALUE "ProductName", "Sparta Gen" "\0"
+            VALUE "ProductName", "SpartaGen" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

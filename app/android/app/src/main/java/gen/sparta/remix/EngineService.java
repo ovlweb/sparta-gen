@@ -23,7 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 
 /**
- * Runs the Sparta Gen engine — Python, answering the app on 127.0.0.1 with a secret token — while the app is
+ * Runs the SpartaGen engine — Python, answering the app on 127.0.0.1 with a secret token — while the app is
  * open, as a foreground service: a render goes on with the screen off or another app in front.
  */
 public class EngineService extends Service {

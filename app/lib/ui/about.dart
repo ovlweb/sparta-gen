@@ -43,7 +43,7 @@ Future<void> showAbout(BuildContext context, {required String version}) {
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Sparta Gen'),
+              const Text('SpartaGen'),
               Text('Version $version · release candidate', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
             ]),
           ),
@@ -65,7 +65,7 @@ Future<void> showAbout(BuildContext context, {required String version}) {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('Inspired by Krasen (CassidyBOTRR)', style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  const Text('Krasen was the first to make a program for remixers with AI. Sparta Gen follows that idea.'),
+                  const Text('Krasen was the first to make a program for remixers with AI. SpartaGen follows that idea.'),
                   const SizedBox(height: 8),
                   TextButton.icon(
                     style: TextButton.styleFrom(padding: EdgeInsets.zero),
@@ -92,7 +92,7 @@ Future<void> showAbout(BuildContext context, {required String version}) {
           TextButton(
             onPressed: () => showLicensePage(
               context: context,
-              applicationName: 'Sparta Gen',
+              applicationName: 'SpartaGen',
               applicationVersion: version,
               applicationIcon: const Padding(padding: EdgeInsets.all(8), child: AppLogo(size: 48)),
             ),

@@ -1,4 +1,4 @@
-"""Build the Sparta Gen desktop app: the native (Flutter) app with its engine inside.
+"""Build the SpartaGen desktop app: the native (Flutter) app with its engine inside.
 
     pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
     python scripts/build_desktop.py            # build
@@ -12,7 +12,7 @@ Needs Flutter on PATH; on Linux also clang, cmake, ninja, pkg-config, libgtk-3-d
 2. --test: its self-test — a test video through the one-click remix, then saved as MP4 and MP3 the way the
    app saves, with the bundled ffmpeg.
 3. The app: `flutter build <windows|macos|linux> --release`.
-4. The engine goes inside the app: SpartaGen/engine/ (Windows, Linux), Sparta Gen.app/Contents/Resources/engine/
+4. The engine goes inside the app: SpartaGen/engine/ (Windows, Linux), SpartaGen.app/Contents/Resources/engine/
    (macOS, then signed again ad hoc).
 5. --test: the packaged app starts (SPARTAGEN_SMOKE_REPORT): it must find and start its engine, then quits.
 6. dist/SpartaGen-<version>-<Windows|macOS|Linux>-<arch>.zip
@@ -133,7 +133,7 @@ def build_app() -> str:
     if WINDOWS:
         return os.path.join(APP, "build", "windows", "x64", "runner", "Release")
     if MACOS:
-        return os.path.join(APP, "build", "macos", "Build", "Products", "Release", "Sparta Gen.app")
+        return os.path.join(APP, "build", "macos", "Build", "Products", "Release", "SpartaGen.app")
     return os.path.join(APP, "build", "linux", "x64" if arch() == "x64" else "arm64", "release", "bundle")
 
 
@@ -149,7 +149,7 @@ def flutter_version() -> tuple[str, str]:
 def assemble(app_built: str, engine: str) -> str:
     os.makedirs(DIST, exist_ok=True)
     if MACOS:
-        out = os.path.join(DIST, "Sparta Gen.app")
+        out = os.path.join(DIST, "SpartaGen.app")
         if os.path.exists(out):
             shutil.rmtree(out)
         shutil.copytree(app_built, out, symlinks=True)
@@ -162,15 +162,15 @@ def assemble(app_built: str, engine: str) -> str:
         shutil.rmtree(out)
     shutil.copytree(app_built, out, symlinks=True)
     shutil.copytree(engine, os.path.join(out, "engine"), symlinks=True)
-    if not WINDOWS:                                    # Linux: "add Sparta Gen to the applications menu"
+    if not WINDOWS:                                    # Linux: "add SpartaGen to the applications menu"
         shutil.copy2(os.path.join(ROOT, "packaging", "linux", "add-to-menu.sh"), out)
     return out
 
 
 def app_exe(app_dir: str) -> str:
     if MACOS:
-        return os.path.join(app_dir, "Contents", "MacOS", "Sparta Gen")
-    return os.path.join(app_dir, "SpartaGen.exe" if WINDOWS else "sparta-gen")
+        return os.path.join(app_dir, "Contents", "MacOS", "SpartaGen")
+    return os.path.join(app_dir, "SpartaGen.exe" if WINDOWS else "spartagen")
 
 
 # ── 5. the app starts its engine ──

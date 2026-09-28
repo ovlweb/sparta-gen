@@ -1,4 +1,4 @@
-"""Self-test of an installed Sparta Gen: a synthetic test video goes through the one-click remix — what
+"""Self-test of an installed SpartaGen: a synthetic test video goes through the one-click remix — what
 the app's ⚡ button does — and is saved like the app's "Save video…" and "Save audio…" do, over the engine's
 API as the app uses it (a secret token, local paths), with the ffmpeg the engine found (the bundled one in
 the desktop apps).  Used by CI on every built app; `spartagen selftest` or `spartagen-engine --selftest`
@@ -81,7 +81,7 @@ def run(out_json: Optional[str] = None, quality: str = "preview",
     try:
         report["ffmpeg"] = ff.ffmpeg_path()
         report["ffmpeg_version"] = ff.version()
-        log(f"Sparta Gen {__version__} self-test · {report['ffmpeg_version']}")
+        log(f"SpartaGen {__version__} self-test · {report['ffmpeg_version']}")
         src = make_test_source(os.path.join(root, "test-source.mp4"))
         token = "selftest-" + os.urandom(8).hex()
         httpd, url = make_server("127.0.0.1", 0, os.path.join(root, "home"), token=token, web_ui=False)

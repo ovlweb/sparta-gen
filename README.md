@@ -1,6 +1,8 @@
-# Sparta Gen — a real Sparta Remix generator
+<img src="packaging/icon.svg" width="96" alt="" align="right">
 
-Sparta Gen turns any video into a **Sparta Remix** the way remixers build them by hand — no AI music, no synthesizers:
+# SpartaGen — a real Sparta Remix generator
+
+SpartaGen turns any video into a **Sparta Remix** the way remixers build them by hand — no AI music, no synthesizers:
 
 1. **Cuts the source video into samples** with ffmpeg — held vowels/notes become *pitches*, thumps/bangs/hisses become
    *kick, snare/clap, hi-hats and crash*, and speech becomes *quotes*, *Madness words* and *DunDunDenDen syllables*.
@@ -32,22 +34,22 @@ Sparta Gen turns any video into a **Sparta Remix** the way remixers build them b
    boxes. **Seven visual styles** (Classic, Clean, Xleth, Retro VHS, Neon, Cinematic, Mirror) and every effect in
    them adjustable; **six sound presets** with every FX amount adjustable.
 
-Everything happens in **one app — Sparta Gen — on Windows, macOS, Linux and Android**: a real app with the
+Everything happens in **one app — SpartaGen — on Windows, macOS, Linux and Android**: a real app with the
 system's own windows, menus, *Open* and *Save* dialogs and video players (no web page, nothing to install besides
 it — the engine and ffmpeg are inside). **One click** does it all: open your video, pick your base, press
 **⚡ Make my Sparta Remix** — the samples are cut automatically, the remix is built on the base and a preview is
 rendered — then fine-tune anything you like, and **Save** it where you want.
 
 > **Inspired by Krasen** ([CassidyBOTRR on YouTube](http://www.youtube.com/c/CassidyBOTRR)) — the first to make a
-> program for remixers with AI. Sparta Gen follows that idea.
+> program for remixers with AI. SpartaGen follows that idea.
 
 > **Release candidate (1.0.0 RC 1)** — everything is in; now it needs testing by everyone.
 > See [Release candidate — please test](#release-candidate--please-test).
 
 ### Quick start — your next remix, on your own
 
-1. Open **Sparta Gen** (see [Install](#install)).
-2. **Source**: open your video (*Open video…*, drop it on the window, paste a link — or on a phone *Share → Sparta Gen*
+1. Open **SpartaGen** (see [Install](#install)).
+2. **Source**: open your video (*Open video…*, drop it on the window, paste a link — or on a phone *Share → SpartaGen*
    from the gallery).
 3. **Base**: pick a **template** (Unextended, Extended 2:08, a fast or a wiki base…), open **your base's audio file**
    (mp3/wav — its tempo, key and parts are read), or its **MIDI** — optional: the Unextended template is the default.
@@ -74,9 +76,9 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 | Platform | Download | Then |
 |---|---|---|
 | **Windows** 10/11 (64-bit) | `SpartaGen-<version>-Windows-x64.zip` | Unzip, run **SpartaGen.exe** in the `SpartaGen` folder. First start of an unsigned app: *More info → Run anyway*. |
-| **macOS** 12+ | `SpartaGen-<version>-macOS-arm64.zip` (Apple silicon) or `…-macOS-x64.zip` (Intel) | Unzip, move **Sparta Gen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/Sparta Gen.app"`). |
-| **Linux** (x64, glibc 2.39+: Ubuntu 24.04+, Debian 13+, Fedora 40+ …) | `SpartaGen-<version>-Linux-x64.zip` | Install **libmpv** once (Ubuntu/Debian: `sudo apt install libmpv2`, Fedora: `sudo dnf install mpv-libs`, Arch: `sudo pacman -S mpv`), unzip, run `SpartaGen/sparta-gen` — `SpartaGen/add-to-menu.sh` puts it in your applications menu. |
-| **Android** 7.0+ (64-bit ARM) | `SpartaGen-<version>-Android.apk` | Open it on the phone, allow installing from that source. It installs over earlier Sparta Gen APKs. See [Android app](#android-app). |
+| **macOS** 12+ | `SpartaGen-<version>-macOS-arm64.zip` (Apple silicon) or `…-macOS-x64.zip` (Intel) | Unzip, move **SpartaGen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/SpartaGen.app"`). |
+| **Linux** (x64, glibc 2.39+: Ubuntu 24.04+, Debian 13+, Fedora 40+ …) | `SpartaGen-<version>-Linux-x64.zip` | Install **libmpv** once (Ubuntu/Debian: `sudo apt install libmpv2`, Fedora: `sudo dnf install mpv-libs`, Arch: `sudo pacman -S mpv`), unzip, run `SpartaGen/spartagen` — `SpartaGen/add-to-menu.sh` puts it in your applications menu. |
+| **Android** 7.0+ (64-bit ARM) | `SpartaGen-<version>-Android.apk` | Open it on the phone, allow installing from that source. It installs over earlier SpartaGen APKs. See [Android app](#android-app). |
 | **From source** (any desktop) | this repository | Python 3.9+, then double-click `scripts/run_windows.bat` / `scripts/run_macos.command`, or run `scripts/run_unix.sh`: the first start installs the engine (ffmpeg from `imageio-ffmpeg` if you have none); with [Flutter](https://docs.flutter.dev/get-started/install) installed it runs the app itself, without it the classic web app opens in your browser. |
 | **pip** (engine and command line) | `pip install -e ".[all]"` | `spartagen make …` (see [Command line](#command-line)); `spartagen gui` serves the classic web app in a browser — e.g. on a phone in [Termux](https://termux.dev) (`scripts/install-termux.sh`). |
 
@@ -150,10 +152,10 @@ engine (Python, run by [Chaquopy](https://chaquo.com/chaquopy/)) and ffmpeg buil
 
 - **Install**: download `SpartaGen-<version>-Android.apk` (see [Install](#install)), open it, allow installing apps
   from your browser/file manager when Android asks. Needs Android 7.0+ on a 64-bit ARM phone (nearly every phone
-  since 2017). It installs over the earlier Sparta Gen APKs (same app id, same signing key).
-- **Use**: *Choose a video* opens the phone's picker (gallery, files, Drive…); or **Share → Sparta Gen** from the
+  since 2017). It installs over the earlier SpartaGen APKs (same app id, same signing key).
+- **Use**: *Choose a video* opens the phone's picker (gallery, files, Drive…); or **Share → SpartaGen** from the
   gallery. **Save video…** / **Save audio…** open Android's *Save* screen: you choose the folder and the name.
-- The engine runs as a foreground service ("Sparta Gen engine" notification) so a render goes on with the screen off
+- The engine runs as a foreground service ("SpartaGen engine" notification) so a render goes on with the screen off
   or another app in front; *Back* on the first page leaves the app running. The engine only answers the app (a
   secret token per start). Projects live in the app's own storage (`Android/data/gen.sparta.remix/files/SpartaGen`).
 - A phone is slower than a computer: a 2-minute remix's preview takes a few minutes, the 720p render longer.
@@ -171,7 +173,7 @@ checked to run on phones. See [app/android/README.md](app/android/README.md).
 The desktop app is the Flutter app (`app/`) with the engine inside: `scripts/build_desktop.py` freezes the engine
 with PyInstaller — Python, numpy/scipy, yt-dlp and a static ffmpeg — as `spartagen-engine`, builds the app
 (`flutter build windows|macos|linux`) and puts the engine in it (`SpartaGen/engine/`, or
-`Sparta Gen.app/Contents/Resources/engine/`). The app starts it in the background on a free local port with a
+`SpartaGen.app/Contents/Resources/engine/`). The app starts it in the background on a free local port with a
 secret token, and it quits with the app. Zipped as `SpartaGen-<version>-<os>-<arch>.zip`.
 
 CI builds it on Windows, macOS (Apple silicon and Intel) and Linux and tests every one before keeping it: the
@@ -192,7 +194,7 @@ computers. Things worth trying:
 - [ ] Every visual style and sound preset, and a few effects changed by hand.
 - [ ] Rendering 720p/1080p and saving the video and the audio (WAV and MP3) where you want; the sample pack, the MIDI.
 - [ ] Closing and opening the app again (your project comes back); *File → Recent projects*.
-- [ ] On Android: *Share → Sparta Gen* from the gallery, a render with the screen off, *Save video…*.
+- [ ] On Android: *Share → SpartaGen* from the gallery, a render with the screen off, *Save video…*.
 
 When something goes wrong, open an issue with what you did, what happened, your system (Windows/macOS/Linux/Android
 version), and — if the app could not start its engine — the text from *Copy the details* on that screen (the
@@ -467,7 +469,7 @@ Layout: `spartagen/ffmpeg.py` (media I/O) · `audio/` (dsp, pitch, psola, harmon
 (sections, note compiler) · `render_audio.py` (mix, FX presets) · `render_video.py` (compositor, styles) ·
 `project.py` (pipeline) · `cli.py` · `gui/` (the engine's HTTP API — `native_api.py` for the app — and the classic
 web app) · `android.py` (the engine inside the APK).
-`app/` is the Sparta Gen app (Flutter: `lib/` the pages, `android/` the Android host, ffmpeg build and emulator test,
+`app/` is the SpartaGen app (Flutter: `lib/` the pages, `android/` the Android host, ffmpeg build and emulator test,
 `windows/`, `macos/`, `linux/` the desktop hosts); `packaging/engine.py` + `scripts/build_desktop.py` make the desktop
 apps. CI (`.github/workflows/build.yml`) runs the engine tests (with and without scipy) and the app tests on every
 push; the apps (desktop and Android, each tested) are built for tags (`v*` — one release with all of them), on manual
@@ -476,7 +478,7 @@ dispatch, and for pushes that change them.
 ## Credits
 
 - **Inspiration: Krasen** ([CassidyBOTRR](http://www.youtube.com/c/CassidyBOTRR)) — the first to make a program for
-  remixers with AI; Sparta Gen follows that idea.
+  remixers with AI; SpartaGen follows that idea.
 - Pattern data: [Sparta Remix Wiki](https://spartaremix.fandom.com/wiki/Pitch_Patterns) contributors
   (CC BY-SA) — remixer and base names are kept with each pattern.
 - Design references: [Xleth](https://github.com/composition-cassidy/Xleth) (FX set, OTT behaviour, declick,

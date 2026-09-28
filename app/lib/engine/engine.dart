@@ -1,4 +1,4 @@
-// The Sparta Gen engine: the audio/video pipeline runs in its own process (desktop) or service
+// The SpartaGen engine: the audio/video pipeline runs in its own process (desktop) or service
 // (Android), with no window of its own; the app talks to it over localhost with a secret token.
 
 import 'dart:async';
@@ -95,7 +95,7 @@ class HttpEngine extends Engine {
     try {
       req = await _http.openUrl(method, base.resolve(path));
     } on SocketException {
-      throw EngineException('The Sparta Gen engine is not running — restart the app.');
+      throw EngineException('The SpartaGen engine is not running — restart the app.');
     }
     req.headers.set('X-Sparta-Token', token);
     if (body != null) {

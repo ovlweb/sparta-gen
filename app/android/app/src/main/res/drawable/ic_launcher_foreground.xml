@@ -1,15 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Sparta Gen helmet (spartagen/gui/static/icon.svg), centred in the adaptive icon's safe zone. -->
+<!-- The adaptive icon's front: the helmet, inside the safe zone. Made by scripts/make_icons.py. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:translateX="22" android:translateY="20">
-        <path android:fillColor="#c8102e" android:pathData="M14,38c0,-12 8,-24 18,-26 10,2 18,14 18,26H14z" />
-        <path android:fillColor="#e7b62c" android:pathData="M22,38h20v6c0,4 -4,8 -10,8s-10,-4 -10,-8v-6z" />
-        <path android:fillColor="#ff3a4f" android:pathData="M32,10c6,4 9,9 10,16 -4,-3 -7,-4 -10,-4s-6,1 -10,4c1,-7 4,-12 10,-16z" />
-        <path android:fillColor="#140a0a" android:pathData="M30,24h4v22h-4z" />
-        <path android:strokeColor="#e7b62c" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M12,52h40" />
+    <group android:translateX="22.912" android:translateY="22.295" android:scaleX="0.24673" android:scaleY="0.24673">
+        <path android:pathData="M184,12 C140,8 92,26 72,58 C56,84 54,122 66,146 L74,158 L60,192 L92,180 L96,190 L150,246 L194,226 L193,132 C193,100 182,80 160,71 Z" android:fillColor="#34589f" />
+        <path android:pathData="M172,21 C136,19 98,34 80,62 C68,84 66,114 74,140 L86.2,157.6 A80.0,80.0 0 0,1 149.4,73.7 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="radial" android:centerX="166.0" android:centerY="152.0" android:gradientRadius="140">
+                    <item android:offset="0.55" android:color="#9fb8ec" />
+                    <item android:offset="0.85" android:color="#ffffff" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M136.9,71.1 L111.2,44.4 L130.7,73.6 Z M117.0,78.9 L89.7,64.2 L111.6,82.8 Z M102.3,94.2 L78.8,90.9 L98.0,99.3 Z M88.4,110.4 L73.6,116.5 L85.5,116.5 Z M83.0,129.5 L76.0,139.3 L81.5,135.9 Z" android:fillColor="#ffffff" />
+        <path android:pathData="M148.5,76.0 L134.9,66.5 L140.6,78.2 Z M131.8,81.9 L112.9,73.2 L124.7,85.9 Z M116.9,91.4 L98.7,89.3 L110.8,96.8 Z M104.5,104.0 L82.0,105.5 L99.9,110.7 Z M95.3,119.0 L78.0,125.1 L92.2,126.6 Z M89.7,135.8 L72.2,145.4 L88.4,143.8 Z" android:fillColor="#34589f" />
+        <path android:pathData="M95.2,157.0 A71.0,71.0 0 0,1 158.6,81.4 C176,86 185,104 185,134 L180,154 L174,180 L162,172 L148,236 L106,192 L102,178 L90,174 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="96" android:startY="0" android:endX="176" android:endY="0">
+                    <item android:offset="0" android:color="#dbe5fa" />
+                    <item android:offset="0.6" android:color="#ffffff" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M147.1,94.0 A61.0,61.0 0 0,0 105.9,162.6 L98,176" android:strokeColor="#34589f" android:strokeWidth="7" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M170,96 C177,105 180,116 180,128" android:strokeColor="#34589f" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M118,133 L165,133 L165,150 L118,150 Q111,141.5 118,133 Z" android:fillColor="#34589f" />
+        <path android:pathData="M147,148 L164,148 L164,170 L150,240 L147,238 Z" android:fillColor="#34589f" />
+        <path android:pathData="M76,166 L88,164 L86,172 L70,181 Z" android:fillColor="#ffffff" />
     </group>
 </vector>

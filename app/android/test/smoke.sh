@@ -66,7 +66,7 @@ code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE/api/status")
 [ "$code" = 401 ] || { echo "the engine answered without its token ($code)"; exit 1; }
 connected=""
 for _ in $(seq 1 60); do                         # the app itself talks to its engine (plain HTTP on 127.0.0.1)
-  if adb logcat -d | grep -aq "Sparta Gen: connected to the engine"; then connected=1; break; fi
+  if adb logcat -d | grep -aq "SpartaGen: connected to the engine"; then connected=1; break; fi
   sleep 2
 done
 [ -n "$connected" ] || { echo "the app did not connect to its engine"; adb logcat -d | grep -a "flutter" | tail -30; exit 1; }

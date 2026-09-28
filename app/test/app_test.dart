@@ -149,7 +149,7 @@ void main() {
 
   testWidgets('About credits Krasen', (tester) async {
     await startApp(tester);
-    await tester.tap(find.byTooltip('About Sparta Gen'));
+    await tester.tap(find.byTooltip('About SpartaGen'));
     await tester.pumpAndSettle();
     expect(find.text('Inspired by Krasen (CassidyBOTRR)'), findsOneWidget);
     expect(find.text('youtube.com/c/CassidyBOTRR'), findsOneWidget);

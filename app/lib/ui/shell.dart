@@ -209,7 +209,7 @@ class _ShellState extends State<Shell> {
           _Item('Sparta Remix Wiki', () => openLink(wikiUrl), null),
           _Item('Krasen (CassidyBOTRR) on YouTube', () => openLink(krasenChannel), null),
           null,
-          _Item('About Sparta Gen', _about, null),
+          _Item('About SpartaGen', _about, null),
         ]),
       ];
 
@@ -258,8 +258,8 @@ class _ShellState extends State<Shell> {
   Widget _platformMenus(Widget child) {
     return PlatformMenuBar(
       menus: [
-        PlatformMenu(label: 'Sparta Gen', menus: [
-          PlatformMenuItem(label: 'About Sparta Gen', onSelected: _about),
+        PlatformMenu(label: 'SpartaGen', menus: [
+          PlatformMenuItem(label: 'About SpartaGen', onSelected: _about),
           if (PlatformProvidedMenuItem.hasMenu(PlatformProvidedMenuItemType.quit))
             const PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.quit),
         ]),
@@ -287,7 +287,7 @@ class _ShellState extends State<Shell> {
     for (final it in items) {
       if (it == null) {
         if (out.last.isNotEmpty) out.add([]);
-      } else if (it.label != 'Quit' && it.label != 'About Sparta Gen') {
+      } else if (it.label != 'Quit' && it.label != 'About SpartaGen') {
         out.last.add(it);
       }
     }
@@ -399,7 +399,7 @@ class _ShellState extends State<Shell> {
             ? const Row(mainAxisSize: MainAxisSize.min, children: [
                 AppLogo(size: 36),
                 SizedBox(width: 10),
-                Text('Sparta Gen', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                Text('SpartaGen', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
               ])
             : const AppLogo(size: 36),
       ),
@@ -408,7 +408,7 @@ class _ShellState extends State<Shell> {
           alignment: Alignment.bottomCenter,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: IconButton(tooltip: 'About Sparta Gen', onPressed: _about, icon: const Icon(Icons.info_outline)),
+            child: IconButton(tooltip: 'About SpartaGen', onPressed: _about, icon: const Icon(Icons.info_outline)),
           ),
         ),
       ),

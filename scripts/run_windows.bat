@@ -1,7 +1,7 @@
 @echo off
-rem Sparta Gen — run from source on Windows (needs Python 3.9+ from python.org).
+rem SpartaGen — run from source on Windows (needs Python 3.9+ from python.org).
 rem First run creates a virtual environment and installs the engine, including ffmpeg (imageio-ffmpeg).
-rem With Flutter installed (https://docs.flutter.dev/get-started/install) it starts the Sparta Gen app itself;
+rem With Flutter installed (https://docs.flutter.dev/get-started/install) it starts the SpartaGen app itself;
 rem without it, the classic web app opens in your browser.
 cd /d "%~dp0\.."
 if not exist .venv (

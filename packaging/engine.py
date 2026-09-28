@@ -1,4 +1,4 @@
-"""Entry script for the frozen engine (PyInstaller): what the Sparta Gen app runs in the background.
+"""Entry script for the frozen engine (PyInstaller): what the SpartaGen app runs in the background.
 
     spartagen-engine engine --port P --token T --parent-pid PID   how the app starts it (no window)
     spartagen-engine --selftest [out.json]                         a test video through the one-click remix;

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!-- No App Sandbox: the app runs its engine (bundled in Contents/Resources/engine), which reads the videos
-	     you open and writes renders where you save them. Sparta Gen is not distributed through the App Store. -->
+	     you open and writes renders where you save them. SpartaGen is not distributed through the App Store. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 </dict>

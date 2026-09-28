@@ -237,14 +237,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--version", action="version", version=f"spartagen {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
-    g = sub.add_parser("gui", help="the classic web app in your browser (the Sparta Gen app is separate)")
+    g = sub.add_parser("gui", help="the classic web app in your browser (the SpartaGen app is separate)")
     g.add_argument("--host", default="127.0.0.1")
     g.add_argument("--port", type=int, default=0, help="0 = pick a free port")
     g.add_argument("--no-browser", action="store_true")
     g.add_argument("--workspace", default=None)
     g.set_defaults(fn=cmd_gui)
 
-    en = sub.add_parser("engine", help="run the engine behind the Sparta Gen app (no window; used by the app)")
+    en = sub.add_parser("engine", help="run the engine behind the SpartaGen app (no window; used by the app)")
     en.add_argument("--port", type=int, default=0, help="0 = pick a free port (printed on stdout)")
     en.add_argument("--token", default=None, help="every call must send it (X-Sparta-Token); default $SPARTAGEN_TOKEN")
     en.add_argument("--parent-pid", type=int, default=None, help="quit when this process ends")

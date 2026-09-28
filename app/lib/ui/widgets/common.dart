@@ -11,7 +11,7 @@ class Players {
   /// Play a short sound (a sample, or a stretch of the source) — one at a time, never a window.
   static Future<void> playSound(String uri, {String? tag, double? start, double? end}) async {
     if (!enabled) return;
-    final pl = _sample ??= Player(configuration: const PlayerConfiguration(vo: 'null', title: 'Sparta Gen'));
+    final pl = _sample ??= Player(configuration: const PlayerConfiguration(vo: 'null', title: 'SpartaGen'));
     final id = tag ?? uri;
     playing.value = id;
     Duration? d(double? s) => s == null ? null : Duration(microseconds: (s * 1e6).round());

@@ -1,4 +1,4 @@
-// Sparta Gen for Android: the Flutter app, the engine (the repository's Python package, run by Chaquopy in
+// SpartaGen for Android: the Flutter app, the engine (the repository's Python package, run by Chaquopy in
 // a foreground service) and ffmpeg built for Android (ffmpeg/build.sh → jniLibs/<abi>/libffmpeg.so).
 plugins {
     id("com.android.application")
@@ -43,7 +43,7 @@ android {
     }
 
     defaultConfig {
-        // The same id as the earlier Sparta Gen APKs: this one installs over them.
+        // The same id as the earlier SpartaGen APKs: this one installs over them.
         applicationId = "gen.sparta.remix"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion

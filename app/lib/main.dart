@@ -34,7 +34,7 @@ class SpartaGenApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: settings,
       builder: (context, _) => MaterialApp(
-        title: 'Sparta Gen',
+        title: 'SpartaGen',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),
@@ -110,7 +110,7 @@ class _EngineGateState extends State<EngineGate> {
       await app.init();
       if (!mounted) return;
       setState(() => _app = app);
-      debugPrint('Sparta Gen: connected to the engine ${app.version}'); // (the emulator test waits for this)
+      debugPrint('SpartaGen: connected to the engine ${app.version}'); // (the emulator test waits for this)
       if (_smokeReport != null) return await _smokeDone(app, null);
       await AndroidHost.attach(app);
     } catch (e) {
@@ -162,7 +162,7 @@ class _EngineGateState extends State<EngineGate> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               const AppLogo(size: 84),
               const SizedBox(height: 18),
-              Text('Sparta Gen', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+              Text('SpartaGen', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 26),
               if (_error == null) ...[
                 const SizedBox(width: 240, child: LinearProgressIndicator()),

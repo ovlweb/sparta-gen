@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Notification icon: the helmet in white. Made by scripts/make_icons.py. -->
+<!-- The themed icon (Android 13+): the helmet in the system's colour. Made by scripts/make_icons.py. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <group android:translateX="0.828" android:translateY="0.606" android:scaleX="0.08867" android:scaleY="0.08867">
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="22.912" android:translateY="22.295" android:scaleX="0.24673" android:scaleY="0.24673">
         <path android:pathData="M184,12 C140,8 92,26 72,58 C56,84 54,122 66,146 L74,158 L60,192 L92,180 L96,190 L150,246 L194,226 L193,132 C193,100 182,80 160,71 Z M118,133 L165,133 L165,150 L164,150 L164,170 L150,238 L147,236 L147,150 L118,150 Q111,141.5 118,133 Z M87.4,160.3 A79.0,79.0 0 0,1 156.4,73.6 L157.5,82.5 A70.0,70.0 0 0,0 96.4,159.3 Z" android:fillColor="#ffffff" android:fillType="evenOdd" />
     </group>
 </vector>

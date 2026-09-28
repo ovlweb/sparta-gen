@@ -47,7 +47,7 @@ def start(home: str, native_lib_dir: str = "", cache_dir: str = "", token: str =
         _server = httpd
         _thread = threading.Thread(target=httpd.serve_forever, name="spartagen-http", daemon=True)
         _thread.start()
-        print(f"Sparta Gen engine at {_url} (ffmpeg: {os.environ.get('SPARTAGEN_FFMPEG', 'PATH')})")
+        print(f"SpartaGen engine at {_url} (ffmpeg: {os.environ.get('SPARTAGEN_FFMPEG', 'PATH')})")
         return int(httpd.server_address[1])
 
 

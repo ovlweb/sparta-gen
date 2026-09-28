@@ -1,4 +1,4 @@
-/* Sparta Gen — single page UI (no build step, no dependencies). */
+/* SpartaGen — single page UI (no build step, no dependencies). */
 "use strict";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -754,10 +754,10 @@ $("#preview-video").addEventListener("error", () => {
 });
 
 $("#btn-quit").addEventListener("click", async () => {
-  if (!confirm("Stop Sparta Gen? Your project is saved in its workspace folder.")) return;
+  if (!confirm("Stop SpartaGen? Your project is saved in its workspace folder.")) return;
   try { await api("/api/project/save", { body: {} }); } catch (e) { /* nothing loaded */ }
   try { await api("/api/quit", { body: {} }); } catch (e) { /* server already gone */ }
-  document.body.innerHTML = "<main><div class='card'><h2>Sparta Gen stopped</h2><p class='hint'>You can close this tab.</p></div></main>";
+  document.body.innerHTML = "<main><div class='card'><h2>SpartaGen stopped</h2><p class='hint'>You can close this tab.</p></div></main>";
 });
 
 // ── boot ─────────────────────────────────────────────────────────────────────
@@ -776,5 +776,5 @@ $("#btn-quit").addEventListener("click", async () => {
     if (v) { $("#opt-bpm").value = v.bpm; $("#opt-pitching").value = v.pitching; $("#opt-polish").value = v.polish; }
     else if (S.project.base) $("#opt-bpm").value = S.project.base.bpm;
     if (S.project.analyzed) await loadSamples();
-  } catch (e) { toast("Could not reach the Sparta Gen engine: " + e.message); }
+  } catch (e) { toast("Could not reach the SpartaGen engine: " + e.message); }
 })();

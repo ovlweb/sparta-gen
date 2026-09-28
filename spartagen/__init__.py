@@ -1,4 +1,4 @@
-"""Sparta Gen — a Sparta Remix generator built on real sample cutting.
+"""SpartaGen — a Sparta Remix generator built on real sample cutting.
 
 Everything audible in a remix comes from the source video (or from a Sparta
 base the user supplies): the engine cuts the source into pitch samples,

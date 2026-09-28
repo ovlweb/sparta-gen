@@ -1,6 +1,6 @@
 name: test & build
 
-# One Sparta Gen for every device: the native app (Flutter) with the engine inside.  Every push runs the tests
+# One SpartaGen for every device: the native app (Flutter) with the engine inside.  Every push runs the tests
 # (the engine's and the app's).  The apps — Windows, macOS (Apple silicon and Intel), Linux and Android — are
 # built, and each one is tested before it is kept (the desktop apps: the engine's self-test, a test video through
 # the one-click remix and saved as MP4 and MP3 with the bundled ffmpeg, then the packaged app must start its

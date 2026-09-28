@@ -1,6 +1,6 @@
 """The engine's HTTP server: a JSON API over the pipeline.
 
-The Sparta Gen app (Flutter: Windows, macOS, Linux, Android) runs it headless with a secret token
+The SpartaGen app (Flutter: Windows, macOS, Linux, Android) runs it headless with a secret token
 (:func:`serve_engine`); `spartagen gui` serves the classic single-page web app with it too, for running
 from source or in Termux.  Only the Python standard library is used, so it runs wherever the engine runs.
 """
@@ -349,7 +349,7 @@ class Handler(BaseHTTPRequestHandler):
         if token and self.headers.get("X-Sparta-Token") != token and q.get("token") != token:
             return self._error("not allowed", 401)
         if not getattr(self.server, "web_ui", True) and (path in ("/", "/index.html") or path.startswith("/static/")):
-            return self._error("this engine serves the Sparta Gen app only", 404)
+            return self._error("this engine serves the SpartaGen app only", 404)
 
         if method == "GET" and path in ("/", "/index.html"):
             return self._send_file(os.path.join(STATIC, "index.html"))
@@ -738,9 +738,9 @@ def serve_engine(port: int = 0, token: Optional[str] = None, parent_pid: Optiona
 def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True,
           workspace: Optional[str] = None) -> None:
     """The classic web app in a browser (`spartagen gui`): for running from source without the app, or on a
-    phone in Termux.  The Sparta Gen app itself is native and uses :func:`serve_engine`."""
+    phone in Termux.  The SpartaGen app itself is native and uses :func:`serve_engine`."""
     httpd, url = make_server(host, port, workspace)
-    print(f"Sparta Gen {__version__} running at {url}  (Ctrl+C to quit)")
+    print(f"SpartaGen {__version__} running at {url}  (Ctrl+C to quit)")
     if not ff.available():
         print("warning: ffmpeg was not found — install it or `pip install imageio-ffmpeg`.")
     if open_browser:

@@ -1,9 +1,9 @@
-# Sparta Gen — the app
+# SpartaGen — the app
 
-The native app of Sparta Gen for Windows, macOS, Linux and Android, written in Flutter.
+The native app of SpartaGen for Windows, macOS, Linux and Android, written in Flutter.
 It has no web page inside: the windows, menus, file dialogs and players are the system's own.
 
-The audio/video work is done by the Sparta Gen engine (the `spartagen` Python package), which the app
+The audio/video work is done by the SpartaGen engine (the `spartagen` Python package), which the app
 starts in the background and talks to over localhost with a secret token:
 
 * **Windows / macOS / Linux** — the app starts `engine/spartagen-engine` (bundled next to it, or in
