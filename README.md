@@ -144,7 +144,7 @@ the project you worked on last.
   <img src="docs/app-look.jpg" width="49%" alt="Look and sound: styles and effects">
   <img src="docs/app-export.jpg" width="49%" alt="Export: render, watch, save where you want">
 </p>
-<p align="center"><img src="docs/app-base-audio.jpg" width="49%" alt="Your base's audio file: its tempo, key and parts">
+<p align="center"><img src="docs/app-base-midi.jpg" width="49%" alt="A MIDI base: what each channel plays">
   <img src="docs/app-phone.jpg" width="23%" alt="The same app on a phone"></p>
 
 ## Android app
