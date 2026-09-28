@@ -17,10 +17,13 @@ pluginManagement {
     }
 }
 
+// Android Gradle plugin 8.13: what Flutter needs (8.11.1 or later) and what Chaquopy 17 (Python in the app)
+// is made for. The Kotlin plugin is for the Flutter plugins written in Kotlin; the app's own code is Java.
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "9.1.0" apply false
-    id("org.jetbrains.kotlin.android") version "2.4.0" apply false
+    id("com.android.application") version "8.13.0" apply false
+    id("org.jetbrains.kotlin.android") version "2.4.20" apply false
+    id("com.chaquo.python") version "17.0.0" apply false
 }
 
 include(":app")

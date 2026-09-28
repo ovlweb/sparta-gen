@@ -43,8 +43,9 @@ class PageBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final narrow = MediaQuery.sizeOf(context).width < 600;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+      padding: narrow ? const EdgeInsets.fromLTRB(14, 14, 14, 24) : const EdgeInsets.fromLTRB(24, 20, 24, 32),
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,

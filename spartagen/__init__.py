@@ -7,6 +7,6 @@ the pitch patterns documented on the Sparta Remix Wiki, polishes the result
 with an Xleth-style FX chain and renders a synced video with ffmpeg.
 """
 
-__version__ = "0.2.0"
+__version__ = "1.0.0rc1"
 
 SAMPLE_RATE = 44100

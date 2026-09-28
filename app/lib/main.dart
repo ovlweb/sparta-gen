@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -7,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'engine/engine.dart';
+import 'platform/android_host.dart';
 import 'state/app_state.dart';
 import 'ui/about.dart';
 import 'ui/shell.dart';
@@ -102,9 +104,34 @@ class _EngineGateState extends State<EngineGate> {
       await app.init();
       if (!mounted) return;
       setState(() => _app = app);
+      if (_smokeReport != null) return await _smokeDone(app, null);
+      await AndroidHost.attach(app);
     } catch (e) {
+      if (_smokeReport != null) return _smokeDone(null, e);
       if (mounted) setState(() => _error = e);
     }
+  }
+
+  /// `SPARTAGEN_SMOKE_REPORT=file`: the packaged app starts its bundled engine, writes what it found and quits
+  /// (the release builds check with it that every app finds and starts its engine).
+  static final String? _smokeReport = Platform.environment['SPARTAGEN_SMOKE_REPORT'];
+
+  Future<void> _smokeDone(AppState? app, Object? error) async {
+    final report = <String, dynamic>{
+      'ok': error == null && app != null && app.ffmpegOk,
+      'engine': EngineLauncher.engineCommand().$1,
+      if (app != null) 'version': app.version,
+      if (app != null) 'ffmpeg': app.ffmpegOk,
+      if (app != null)
+        'templates': [
+          for (final g in (app.catalog?['groups'] as List? ?? const [])) ...((g as Map)['templates'] as List? ?? const [])
+        ].length,
+      if (error != null) 'error': '$error',
+      if (error != null) 'log': _launcher.log,
+    };
+    File(_smokeReport!).writeAsStringSync(const JsonEncoder.withIndent(' ').convert(report));
+    await _engine?.shutdown();
+    exit(report['ok'] == true ? 0 : 1);
   }
 
   @override

@@ -1,9 +1,10 @@
-"""The engine inside the Android app (the APK built from ``android/`` in the repository).
+"""The engine inside the Android app (the APK built from ``app/android/`` in the repository).
 
-The app is a WebView over the same local web app as on the desktop: the Java side starts Python
-(Chaquopy) in a foreground service, calls :func:`start` and opens ``http://127.0.0.1:<port>/``.
-ffmpeg ships in the APK as ``libffmpeg.so`` (Android only lets an app run programs from its native
-library folder), found here and handed to the engine through ``SPARTAGEN_FFMPEG``.
+The app is the same Flutter app as on the desktop: the Java side starts Python (Chaquopy) in a foreground
+service and calls :func:`start` with a secret token; the app then talks to ``http://127.0.0.1:<port>/``
+with that token, like the desktop app talks to its engine process. ffmpeg ships in the APK as
+``libffmpeg.so`` (Android only lets an app run programs from its native library folder), found here and
+handed to the engine through ``SPARTAGEN_FFMPEG``.
 """
 
 from __future__ import annotations
@@ -11,10 +12,6 @@ from __future__ import annotations
 import os
 import threading
 from typing import Optional
-
-#: The port the app asks for first (then any free one): a fixed port keeps the WebView's storage
-#: (remembered choices) across launches.
-PREFERRED_PORT = 8757
 
 _server = None
 _thread: Optional[threading.Thread] = None
@@ -35,8 +32,9 @@ def configure(home: str, native_lib_dir: str = "", cache_dir: str = "") -> dict:
     return {"home": os.environ["SPARTAGEN_HOME"], "ffmpeg": os.environ.get("SPARTAGEN_FFMPEG")}
 
 
-def start(home: str, native_lib_dir: str = "", cache_dir: str = "") -> int:
-    """Start (or find running) the local server for the app's WebView; returns its port."""
+def start(home: str, native_lib_dir: str = "", cache_dir: str = "", token: str = "") -> int:
+    """Start (or find running) the engine for the app; returns its port. With a token (the app's), every
+    call must carry it and there is no web page; the project worked on last is opened again."""
     global _server, _thread
     with _lock:
         if _server is not None and _thread is not None and _thread.is_alive():
@@ -45,10 +43,7 @@ def start(home: str, native_lib_dir: str = "", cache_dir: str = "") -> int:
             _server.server_close()
         configure(home, native_lib_dir, cache_dir)
         from .gui.server import make_server
-        try:
-            httpd, _url = make_server("127.0.0.1", PREFERRED_PORT)
-        except OSError:                         # taken (another copy still shutting down): any port
-            httpd, _url = make_server("127.0.0.1", 0)
+        httpd, _url = make_server("127.0.0.1", 0, token=token or None, web_ui=not token, resume=True)
         _server = httpd
         _thread = threading.Thread(target=httpd.serve_forever, name="spartagen-http", daemon=True)
         _thread.start()

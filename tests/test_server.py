@@ -113,3 +113,27 @@ def test_one_click_auto_remix(tmp_path_factory, synthetic_source):
         assert {"pitch1", "chorus_a", "kick"} <= {s["id"] for s in samples}
     finally:
         httpd.shutdown()
+
+
+def test_copy_final_file_goes_to_the_suggested_folder_when_none_is_typed(tmp_path, monkeypatch):
+    """The web app's "Copy" with its folder box left empty used to answer "nothing to save"."""
+    import urllib.error
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    httpd, url = make_server("127.0.0.1", 0, str(tmp_path / "work"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = url.rstrip("/")
+    try:
+        render = tmp_path / "remix-720p.mp4"
+        render.write_bytes(b"not really a video")
+        r = call(base, "/api/save_as", {"file": str(render), "dest": ""})
+        assert r["saved"] == str(tmp_path / "home" / "Videos" / "remix-720p.mp4")
+        r = call(base, "/api/save_as", {"file": str(render), "dest": str(tmp_path / "out")})    # a folder
+        assert r["saved"] == str(tmp_path / "out" / "remix-720p.mp4")
+        r = call(base, "/api/save_as", {"file": str(render), "dest": str(tmp_path / "My remix.mp4")})
+        assert r["saved"] == str(tmp_path / "My remix.mp4") and (tmp_path / "My remix.mp4").read_bytes()
+        with pytest.raises(urllib.error.HTTPError) as err:            # nothing rendered yet: say so
+            call(base, "/api/save_as", {"file": "", "dest": ""})
+        assert b"render the remix first" in err.value.read()
+    finally:
+        httpd.shutdown()

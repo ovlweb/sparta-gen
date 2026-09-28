@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0e0909</color>
+    <color name="bar">#120a0a</color>
+    <color name="red">#c8102e</color>
+    <color name="gold">#e7b62c</color>
+    <color name="icon_bg">#140a0a</color>
+    <!-- Behind the app while it starts: the app's own background (light, and dark in values-night). -->
+    <color name="launch_bg">#fff8f7</color>
+</resources>

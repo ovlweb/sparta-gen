@@ -12,3 +12,9 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# The sideload key is committed on purpose (every build installs over the last one; see README.md).
+!sideload.keystore
+
+# ffmpeg for Android is built (ffmpeg/build.sh), not committed
+app/src/main/jniLibs/
+ffmpeg/build/

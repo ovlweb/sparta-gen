@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../platform/android_host.dart';
 import '../platform/files.dart';
 import '../state/app_state.dart';
 import 'about.dart';
@@ -427,7 +428,7 @@ class _ShellState extends State<Shell> {
   }
 
   Widget _phoneLayout(BuildContext context) {
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         titleSpacing: 8,
         title: Row(children: [
@@ -457,6 +458,20 @@ class _ShellState extends State<Shell> {
             NavigationDestination(icon: Icon(_pages[pg]!.$2), selectedIcon: Icon(_pages[pg]!.$3), label: _pages[pg]!.$1),
         ],
       ),
+    );
+    if (!Platform.isAndroid) return scaffold;
+    // Back goes to the first page, then leaves the app running in the background (renders go on).
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (app.page != AppPage.source) {
+          app.go(AppPage.source);
+        } else {
+          AndroidHost.background();
+        }
+      },
+      child: scaffold,
     );
   }
 

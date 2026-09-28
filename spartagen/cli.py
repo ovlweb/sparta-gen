@@ -227,7 +227,7 @@ def cmd_engine(a: argparse.Namespace) -> int:
 
 def cmd_gui(a: argparse.Namespace) -> int:
     from .gui.server import serve
-    serve(host=a.host, port=a.port, open_browser=not a.no_browser, window=a.window, workspace=a.workspace)
+    serve(host=a.host, port=a.port, open_browser=not a.no_browser, workspace=a.workspace)
     return 0
 
 
@@ -237,11 +237,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--version", action="version", version=f"spartagen {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
-    g = sub.add_parser("gui", help="open the graphical app (default)")
+    g = sub.add_parser("gui", help="the classic web app in your browser (the Sparta Gen app is separate)")
     g.add_argument("--host", default="127.0.0.1")
     g.add_argument("--port", type=int, default=0, help="0 = pick a free port")
     g.add_argument("--no-browser", action="store_true")
-    g.add_argument("--window", action="store_true", help="open in a native window (needs pywebview)")
     g.add_argument("--workspace", default=None)
     g.set_defaults(fn=cmd_gui)
 

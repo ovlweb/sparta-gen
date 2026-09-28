@@ -1,8 +1,8 @@
-"""Local web app: a JSON API over the pipeline plus the single-page UI.
+"""The engine's HTTP server: a JSON API over the pipeline.
 
-Only the Python standard library is used so the GUI runs anywhere the engine
-runs — Windows, macOS, Linux and Android (Termux) — in any browser, or in a
-native window when pywebview is installed.
+The Sparta Gen app (Flutter: Windows, macOS, Linux, Android) runs it headless with a secret token
+(:func:`serve_engine`); `spartagen gui` serves the classic single-page web app with it too, for running
+from source or in Termux.  Only the Python standard library is used, so it runs wherever the engine runs.
 """
 
 from __future__ import annotations
@@ -575,10 +575,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/save_as" and method == "POST":
             body = self._body_json()
             src = body.get("file", "")
-            dest = os.path.expanduser(body.get("dest", ""))
-            if not os.path.isfile(src) or not dest:
-                return self._error("nothing to save")
-            if os.path.isdir(dest):
+            # An empty box means the folder it suggests (~/Videos); a path without a file name is a folder.
+            dest = os.path.expanduser(str(body.get("dest") or "").strip() or os.path.join("~", "Videos"))
+            if not src or not os.path.isfile(src):
+                return self._error("render the remix first — there is no file to copy yet")
+            if os.path.isdir(dest) or dest.endswith(("/", "\\")) or not os.path.splitext(dest)[1]:
+                os.makedirs(dest, exist_ok=True)
                 dest = os.path.join(dest, os.path.basename(src))
             os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
             shutil.copy2(src, dest)
@@ -659,15 +661,6 @@ def _open_url(url: str) -> None:
     webbrowser.open(url)
 
 
-class _WindowApi:
-    """window.pywebview.api in the desktop app's own window."""
-
-    def quit(self) -> None:
-        import webview  # type: ignore
-        for w in list(webview.windows):
-            w.destroy()
-
-
 def make_server(host: str = "127.0.0.1", port: int = 0, workspace: Optional[str] = None,
                 token: Optional[str] = None, web_ui: bool = True,
                 resume: bool = False) -> tuple[ThreadingHTTPServer, str]:
@@ -723,27 +716,14 @@ def serve_engine(port: int = 0, token: Optional[str] = None, parent_pid: Optiona
         httpd.server_close()
 
 
-def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True, window: bool = False,
+def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True,
           workspace: Optional[str] = None) -> None:
+    """The classic web app in a browser (`spartagen gui`): for running from source without the app, or on a
+    phone in Termux.  The Sparta Gen app itself is native and uses :func:`serve_engine`."""
     httpd, url = make_server(host, port, workspace)
     print(f"Sparta Gen {__version__} running at {url}  (Ctrl+C to quit)")
     if not ff.available():
         print("warning: ffmpeg was not found — install it or `pip install imageio-ffmpeg`.")
-    if window:
-        try:
-            import webview  # type: ignore
-            try:                                  # renders and sample packs are downloads
-                webview.settings["ALLOW_DOWNLOADS"] = True
-            except Exception:
-                pass
-            threading.Thread(target=httpd.serve_forever, daemon=True).start()
-            webview.create_window("Sparta Gen", url, width=1280, height=860, min_size=(420, 600),
-                                  background_color="#0e0909", js_api=_WindowApi())
-            webview.start()
-            httpd.shutdown()
-            return
-        except Exception as exc:
-            print(f"native window unavailable ({exc}); opening the browser instead")
     if open_browser:
         threading.Timer(0.6, _open_url, args=(url,)).start()
     try:

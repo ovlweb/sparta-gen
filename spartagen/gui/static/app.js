@@ -741,7 +741,8 @@ $("#btn-saveas").addEventListener("click", async () => {
   const outs = (S.project && S.project.outputs) || {};
   const o = outs["1080p"] || outs["720p"] || outs.preview;
   if (!o) return toast("Render something first.");
-  try { const r = await api("/api/save_as", { body: { file: o.file, dest: $("#saveas-path").value } }); toast(`Copied to ${r.saved}`, true); } catch (e) { toast(e.message); }
+  const dest = $("#saveas-path").value.trim() || $("#saveas-path").placeholder;
+  try { const r = await api("/api/save_as", { body: { file: o.file, dest } }); toast(`Copied to ${r.saved}`, true); } catch (e) { toast(e.message); }
 });
 
 // Some browsers (e.g. Chromium builds without proprietary codecs) cannot decode H.264:

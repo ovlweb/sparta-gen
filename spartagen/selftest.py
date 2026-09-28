@@ -1,6 +1,8 @@
 """Self-test of an installed Sparta Gen: a synthetic test video goes through the one-click remix — what
-the app's ⚡ button does — over the app's own HTTP API, with the ffmpeg the app found (the bundled one in
-the desktop apps).  Used by CI on every built app; `spartagen selftest` or `SpartaGen --selftest` runs it.
+the app's ⚡ button does — and is saved like the app's "Save video…" and "Save audio…" do, over the engine's
+API as the app uses it (a secret token, local paths), with the ffmpeg the engine found (the bundled one in
+the desktop apps).  Used by CI on every built app; `spartagen selftest` or `spartagen-engine --selftest`
+runs it.
 """
 
 from __future__ import annotations
@@ -81,21 +83,21 @@ def run(out_json: Optional[str] = None, quality: str = "preview",
         report["ffmpeg_version"] = ff.version()
         log(f"Sparta Gen {__version__} self-test · {report['ffmpeg_version']}")
         src = make_test_source(os.path.join(root, "test-source.mp4"))
-        httpd, url = make_server("127.0.0.1", 0, os.path.join(root, "home"))
+        token = "selftest-" + os.urandom(8).hex()
+        httpd, url = make_server("127.0.0.1", 0, os.path.join(root, "home"), token=token, web_ui=False)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         base = url.rstrip("/")
 
-        def call(path: str, body=None, raw: Optional[bytes] = None, headers: Optional[dict] = None) -> dict:
-            data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-            req = urllib.request.Request(base + path, data=data, headers=headers or {},
-                                         method="POST" if data is not None else "GET")
+        def call(path: str, body=None) -> dict:
+            data = json.dumps(body).encode() if body is not None else None
+            req = urllib.request.Request(base + path, data=data, method="POST" if data is not None else "GET",
+                                         headers={"X-Sparta-Token": token})
             if body is not None:
                 req.add_header("Content-Type", "application/json")
             with urllib.request.urlopen(req, timeout=120) as r:
                 return json.loads(r.read())
 
-        with open(src, "rb") as fh:
-            call("/api/source/upload", raw=fh.read(), headers={"X-Filename": "test-source.mp4"})
+        call("/api/source/path", {"path": src})
         job = call("/api/auto", {"quality": quality})
         last = ""
         while job["status"] == "running":
@@ -108,12 +110,19 @@ def run(out_json: Optional[str] = None, quality: str = "preview",
             raise RuntimeError(job.get("error") or "the one-click remix failed")
         res = job["result"]
         info = ff.probe(res["file"])
-        report.update(ok=info.duration > 20 and res["events"] > 100, file=res["file"], events=res["events"],
-                      duration=round(info.duration, 2), lufs=res["lufs"], has_video=info.has_video)
+        # "Save video…" and "Save audio… → MP3": copies where the user chose, the MP3 encoded on the way
+        saved = os.path.join(root, "chosen folder", "My remix.mp4")
+        mp3 = os.path.join(root, "chosen folder", "My remix.mp3")
+        call("/api/export/file", {"file": res["file"], "dest": saved})
+        call("/api/export/file", {"file": res["audio"], "dest": mp3, "audio_format": "mp3"})
+        saved_ok = os.path.getsize(saved) == os.path.getsize(res["file"]) and ff.probe(mp3).duration > 20
+        report.update(ok=info.duration > 20 and res["events"] > 100 and saved_ok, file=res["file"],
+                      events=res["events"], duration=round(info.duration, 2), lufs=res["lufs"],
+                      has_video=info.has_video, saved=saved_ok)
         samples = call("/api/samples")["samples"]
         report["samples"] = sorted(s["id"] for s in samples)
         log(f"remix: {report['duration']} s, {res['events']} notes, {res['lufs']} LUFS, "
-            f"{len(samples)} samples cut — {'OK' if report['ok'] else 'NOT OK'}")
+            f"{len(samples)} samples cut, saved as MP4 and MP3: {saved_ok} — {'OK' if report['ok'] else 'NOT OK'}")
     except Exception as exc:                      # the report says what broke
         report["error"] = f"{exc.__class__.__name__}: {exc}"
         log("self-test failed: " + report["error"])

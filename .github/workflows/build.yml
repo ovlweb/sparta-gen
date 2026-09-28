@@ -1,10 +1,11 @@
 name: test & build
 
-# One Sparta Gen for every device.  Every push runs the tests.  The apps — Windows, macOS (Apple silicon
-# and Intel), Linux and Android — are built, and each one is tested before it is kept (the desktop apps run
-# their self-test: a test video through the one-click remix with the bundled ffmpeg; the Android app runs
-# on an emulator), for tags, from the Actions tab (Run workflow), and for pushes that change them.
-# A tag (v*) puts all of them in one release.
+# One Sparta Gen for every device: the native app (Flutter) with the engine inside.  Every push runs the tests
+# (the engine's and the app's).  The apps — Windows, macOS (Apple silicon and Intel), Linux and Android — are
+# built, and each one is tested before it is kept (the desktop apps: the engine's self-test, a test video through
+# the one-click remix and saved as MP4 and MP3 with the bundled ffmpeg, then the packaged app must start its
+# engine; the Android app runs on an emulator), for tags, from the Actions tab (Run workflow), and for pushes that
+# change them.  A tag (v*) puts all of them in one release.
 on:
   push:
     branches: ["**"]
@@ -12,8 +13,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  FLUTTER_VERSION: "3.47.5"
+
 jobs:
   test:
+    name: engine tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +35,23 @@ jobs:
         run: |
           pip uninstall -y scipy
           pytest -q
+
+  app:
+    name: app tests (analyze, widgets)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
 
   plan:
     name: what to build
@@ -59,17 +81,17 @@ jobs:
           echo "changed files:"; echo "$changed"
           desktop=$all
           android=$all
-          # (Desktop apps cost the most runner time — macOS minutes count tenfold — so edits to this workflow
-          # alone do not rebuild them: tags and Run workflow do.)
-          if echo "$changed" | grep -qE '^(packaging/|scripts/build_desktop\.py|spartagen/selftest\.py|spartagen/gui/launch\.py)'; then desktop=true; fi
-          if echo "$changed" | grep -qE '^(android/|spartagen/|\.github/workflows/build\.yml)'; then android=true; fi
+          # (Desktop apps cost the most runner time — macOS minutes count tenfold — so edits to this workflow or the
+          # engine alone do not rebuild them: tags and Run workflow do.)
+          if echo "$changed" | grep -qE '^(app/(lib|assets|linux|windows|macos)/|app/pubspec\.|packaging/|scripts/build_desktop\.py|spartagen/selftest\.py)'; then desktop=true; fi
+          if echo "$changed" | grep -qE '^(app/|spartagen/|\.github/workflows/build\.yml)'; then android=true; fi
           echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
           echo "android=$android" >> "$GITHUB_OUTPUT"
           echo "desktop apps: $desktop · Android app: $android"
 
   desktop:
     name: desktop app (${{ matrix.name }})
-    needs: [test, plan]
+    needs: [test, app, plan]
     if: needs.plan.outputs.desktop == 'true'
     strategy:
       fail-fast: false
@@ -78,17 +100,27 @@ jobs:
           - { os: windows-latest, name: Windows }
           - { os: macos-latest, name: macOS Apple silicon }
           - { os: macos-15-intel, name: macOS Intel }
-          - { os: ubuntu-22.04, name: Linux }
+          - { os: ubuntu-24.04, name: Linux }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install build deps
-        run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg pywebview
-      - name: Build and self-test
+          python-version: "3.12"
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev xvfb
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Engine build deps
+        run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
+      - name: Build and test
         run: python scripts/build_desktop.py --test
       - uses: actions/upload-artifact@v4
         with:
@@ -107,8 +139,8 @@ jobs:
         id: cache
         uses: actions/cache@v4
         with:
-          path: android/app/src/main/jniLibs
-          key: ffmpeg-android-${{ hashFiles('android/ffmpeg/build.sh') }}
+          path: app/android/app/src/main/jniLibs
+          key: ffmpeg-android-${{ hashFiles('app/android/ffmpeg/build.sh') }}
       - name: Build tools
         if: steps.cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y nasm pkg-config
@@ -117,13 +149,13 @@ jobs:
         run: |
           export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
           echo "NDK: $ANDROID_NDK_HOME"
-          ABIS="arm64-v8a x86_64" bash android/ffmpeg/build.sh
+          ABIS="arm64-v8a x86_64" bash app/android/ffmpeg/build.sh
       - name: Check that it runs on phones
         # (The emulator runs the x86_64 build; this checks the arm64 one too.)  Android runs position-independent
         # programs without text relocations that link only libraries every device has: the NDK's system libraries
         # from Android 7 (API 24, the app's minimum) on — ffmpeg's android_camera device brings the camera/media ones.
         run: |
-          for so in android/app/src/main/jniLibs/*/libffmpeg.so; do
+          for so in app/android/app/src/main/jniLibs/*/libffmpeg.so; do
             echo "== $so ($(du -h "$so" | cut -f1))"
             readelf -h "$so" | grep -E "Type:|Machine:"
             readelf -d "$so" | grep -E "NEEDED|FLAGS" || true
@@ -136,19 +168,19 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-android
-          path: android/app/src/main/jniLibs
+          path: app/android/app/src/main/jniLibs
           if-no-files-found: error
 
   android:
     name: Android app (phones, arm64)
-    needs: [test, ffmpeg-android]
+    needs: [test, app, ffmpeg-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: ffmpeg-android
-          path: android/app/src/main/jniLibs
+          path: app/android/app/src/main/jniLibs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -156,9 +188,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"          # Chaquopy builds with the same Python version as the app's
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
       - uses: gradle/actions/setup-gradle@v4
       - name: Build
-        working-directory: android
+        working-directory: app
         env:
           # Optional: a key of your own (repository secrets); without it the repository's sideload key signs.
           KEYSTORE_B64: ${{ secrets.SPARTAGEN_KEYSTORE_B64 }}
@@ -170,20 +207,21 @@ jobs:
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
             export SPARTAGEN_KEYSTORE="$RUNNER_TEMP/release.keystore"
           fi
-          ./gradlew --no-daemon --stacktrace assembleRelease -Pabis=arm64-v8a
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64
           version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' ../spartagen/__init__.py)
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/SpartaGen-$version-Android.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/SpartaGen-$version-Android.apk"
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: SpartaGen-Android-APK
-          path: android/dist/*.apk
+          path: app/dist/*.apk
           if-no-files-found: error
 
   android-emulator:
     name: Android app on an emulator
-    needs: [test, ffmpeg-android]
+    needs: [test, app, ffmpeg-android]
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -191,7 +229,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: ffmpeg-android
-          path: android/app/src/main/jniLibs
+          path: app/android/app/src/main/jniLibs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -199,15 +237,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build (x86_64)
-        working-directory: android
-        run: ./gradlew --no-daemon --stacktrace assembleDebug -Pabis=x86_64
+      - name: Build (x86_64, debug)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build apk --debug --target-platform android-x64
       - name: Test source
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install numpy
-          python android/test/make_source.py "$RUNNER_TEMP/source.mp4"
+          python app/android/test/make_source.py "$RUNNER_TEMP/source.mp4"
       - name: Room for the emulator
         # The emulator needs ~1.25x its data partition free: drop toolchains this job does not use.
         run: |
@@ -230,7 +275,7 @@ jobs:
           disk-size: 3072M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
-          script: bash android/test/smoke.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ runner.temp }}/source.mp4 android-test
+          script: bash app/android/test/smoke.sh app/build/app/outputs/flutter-apk/app-debug.apk ${{ runner.temp }}/source.mp4 android-test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -254,6 +299,7 @@ jobs:
       - run: ls -la apps
       - uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
           files: |
             apps/*.zip
             apps/*.apk

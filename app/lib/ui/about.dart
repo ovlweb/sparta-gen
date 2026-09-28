@@ -23,24 +23,10 @@ class AppLogo extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [spartaRed, Color(0xFF7A0A1C)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(size * 0.24),
-        boxShadow: [BoxShadow(color: spartaRed.withValues(alpha: 0.35), blurRadius: size * 0.25)],
+        borderRadius: BorderRadius.circular(size * 0.22),
+        boxShadow: [BoxShadow(color: spartaRed.withValues(alpha: 0.30), blurRadius: size * 0.22)],
       ),
-      alignment: Alignment.center,
-      child: Text(
-        'S',
-        style: TextStyle(
-          color: spartaGold,
-          fontSize: size * 0.62,
-          fontWeight: FontWeight.w900,
-          height: 1,
-        ),
-      ),
+      child: Image.asset('assets/icon.png', width: size, height: size, filterQuality: FilterQuality.medium),
     );
   }
 }

@@ -212,7 +212,7 @@ class EngineLauncher {
   static (String, List<String>) engineCommand() {
     final env = Platform.environment['SPARTAGEN_ENGINE'];
     if (env != null && env.trim().isNotEmpty) {
-      final parts = env.trim().split(RegExp(r'\s+'));
+      final parts = splitCommand(env);
       return (parts.first, parts.sublist(1));
     }
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -226,6 +226,11 @@ class EngineLauncher {
     }
     return (Platform.isWindows ? 'python' : 'python3', const ['-m', 'spartagen']);
   }
+
+  /// Words of a command line; "double quotes" keep a path with spaces in one piece.
+  static List<String> splitCommand(String line) => [
+        for (final m in RegExp(r'"([^"]*)"|(\S+)').allMatches(line)) m.group(1) ?? m.group(2)!,
+      ];
 
   static Future<int> _freePort() async {
     final s = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
