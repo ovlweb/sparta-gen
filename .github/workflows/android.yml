@@ -1,138 +1,35 @@
-name: test & build
+name: Android app
 
-# One SpartaGen for every device: the native app (Flutter) with the engine inside.  Every push runs the tests
-# (the engine's and the app's).  The apps — Windows, macOS (Apple silicon and Intel), Linux and Android — are
-# built, and each one is tested before it is kept (the desktop apps: the engine's self-test, a test video through
-# the one-click remix and saved as MP4 and MP3 with the bundled ffmpeg, then the packaged app must start its
-# engine; the Android app runs on an emulator), for tags, from the Actions tab (Run workflow), and for pushes that
-# change them.  A tag (v*) puts all of them in one release.
+# The APK for phones (arm64): the app, the engine (run by Chaquopy) and ffmpeg (built from source with the NDK).
+# It also runs on an emulator: the app starts its engine, a test video goes through the one-click remix, and the
+# render goes on with the app in the background.
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
-  pull_request:
+    paths:
+      - "app/**"
+      - "!app/linux/**"
+      - "!app/windows/**"
+      - "!app/macos/**"
+      - "!app/ios/**"
+      - "!**.md"
+      - "spartagen/**"
+      - ".github/workflows/android.yml"
   workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FLUTTER_VERSION: "3.47.5"
 
 jobs:
-  test:
-    name: engine tests
+  ffmpeg:
+    name: ffmpeg
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Install
-        run: pip install -e ".[dev]"
-      - name: Tests (with scipy)
-        run: pytest -q
-      - name: Tests (numpy only, like minimal Android installs)
-        run: |
-          pip uninstall -y scipy
-          pytest -q
-
-  app:
-    name: app tests (analyze, widgets)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
-
-  plan:
-    name: what to build
-    runs-on: ubuntu-latest
-    outputs:
-      desktop: ${{ steps.plan.outputs.desktop }}
-      android: ${{ steps.plan.outputs.android }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: plan
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          all=false
-          if [ "$EVENT" = workflow_dispatch ] || [[ "$GITHUB_REF" == refs/tags/v* ]]; then all=true; fi
-          if [ "$EVENT" = pull_request ]; then
-            changed=$(git diff --name-only "$PR_BASE" "$GITHUB_SHA")
-          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
-          else
-            changed=$(git show --name-only --format= "$GITHUB_SHA")
-          fi
-          echo "changed files:"; echo "$changed"
-          desktop=$all
-          android=$all
-          # (Desktop apps cost the most runner time — macOS minutes count tenfold — so edits to this workflow or the
-          # engine alone do not rebuild them: tags and Run workflow do.)
-          if echo "$changed" | grep -qE '^(app/(lib|assets|linux|windows|macos)/|app/pubspec\.|packaging/|scripts/build_desktop\.py|spartagen/selftest\.py)'; then desktop=true; fi
-          if echo "$changed" | grep -qE '^(app/|spartagen/|\.github/workflows/build\.yml)'; then android=true; fi
-          echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
-          echo "android=$android" >> "$GITHUB_OUTPUT"
-          echo "desktop apps: $desktop · Android app: $android"
-
-  desktop:
-    name: desktop app (${{ matrix.name }})
-    needs: [test, app, plan]
-    if: needs.plan.outputs.desktop == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: windows-latest, name: Windows }
-          - { os: macos-latest, name: macOS Apple silicon }
-          - { os: macos-15-intel, name: macOS Intel }
-          - { os: ubuntu-24.04, name: Linux }
-    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Linux build tools
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev xvfb
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - name: Engine build deps
-        run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
-      - name: Build and test
-        run: python scripts/build_desktop.py --test
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SpartaGen-${{ runner.os }}-${{ runner.arch }}
-          path: dist/*.zip
-          if-no-files-found: error
-
-  ffmpeg-android:
-    name: ffmpeg for Android
-    needs: plan
-    if: needs.plan.outputs.android == 'true'
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Cached build
@@ -170,11 +67,13 @@ jobs:
           name: ffmpeg-android
           path: app/android/app/src/main/jniLibs
           if-no-files-found: error
+          retention-days: 1
 
-  android:
-    name: Android app (phones, arm64)
-    needs: [test, app, ffmpeg-android]
+  apk:
+    name: APK
+    needs: ffmpeg
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -215,13 +114,14 @@ jobs:
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
-          name: SpartaGen-Android-APK
+          name: SpartaGen-Android
           path: app/dist/*.apk
           if-no-files-found: error
+          retention-days: 14
 
-  android-emulator:
-    name: Android app on an emulator
-    needs: [test, app, ffmpeg-android]
+  emulator:
+    name: Emulator test
+    needs: ffmpeg
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -248,7 +148,7 @@ jobs:
         run: |
           flutter pub get
           flutter build apk --debug --target-platform android-x64
-      - name: Test source
+      - name: Test video
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install numpy
@@ -282,24 +182,4 @@ jobs:
           name: android-emulator-test
           path: android-test
           if-no-files-found: ignore
-
-  release:
-    name: one release with every app
-    needs: [desktop, android, android-emulator]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: SpartaGen-*
-          merge-multiple: true
-          path: apps
-      - run: ls -la apps
-      - uses: softprops/action-gh-release@v2
-        with:
-          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
-          files: |
-            apps/*.zip
-            apps/*.apk
+          retention-days: 7

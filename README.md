@@ -82,11 +82,11 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 | **From source** (any desktop) | this repository | Python 3.9+, then double-click `scripts/run_windows.bat` / `scripts/run_macos.command`, or run `scripts/run_unix.sh`: the first start installs the engine (ffmpeg from `imageio-ffmpeg` if you have none); with [Flutter](https://docs.flutter.dev/get-started/install) installed it runs the app itself, without it the classic web app opens in your browser. |
 | **pip** (engine and command line) | `pip install -e ".[all]"` | `spartagen make …` (see [Command line](#command-line)); `spartagen gui` serves the classic web app in a browser — e.g. on a phone in [Termux](https://termux.dev) (`scripts/install-termux.sh`). |
 
-**Where the apps are**: every app — Windows, macOS, Linux, Android — is built and tested by one workflow. Push a
-tag like `v1.0.0-rc1` and they all land in **one GitHub release** (a pre-release for `rc` tags); or GitHub →
-*Actions* → *test & build* → *Run workflow*, then download them from that run's *Artifacts*
-(`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-macOS-X64`, `SpartaGen-Linux-X64`,
-`SpartaGen-Android-APK`). It is the same app everywhere: same engine, same screens, same one-click remix.
+**Where the apps are**: GitHub → *Actions* has a workflow per app — **Desktop apps** (Windows, macOS, Linux) and
+**Android app** — that builds and tests it; *Run workflow* there builds it any time, and the run's *Artifacts* hold the
+apps (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-macOS-X64`, `SpartaGen-Linux-X64`,
+`SpartaGen-Android`). Push a tag like `v1.0.0-rc1` and **Release** builds all of them into **one GitHub release** (a
+pre-release for `rc` tags). It is the same app everywhere: same engine, same screens, same one-click remix.
 
 Requirements (from source): **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
 there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termux without scipy) still work.
@@ -471,9 +471,10 @@ Layout: `spartagen/ffmpeg.py` (media I/O) · `audio/` (dsp, pitch, psola, harmon
 web app) · `android.py` (the engine inside the APK).
 `app/` is the SpartaGen app (Flutter: `lib/` the pages, `android/` the Android host, ffmpeg build and emulator test,
 `windows/`, `macos/`, `linux/` the desktop hosts); `packaging/engine.py` + `scripts/build_desktop.py` make the desktop
-apps. CI (`.github/workflows/build.yml`) runs the engine tests (with and without scipy) and the app tests on every
-push; the apps (desktop and Android, each tested) are built for tags (`v*` — one release with all of them), on manual
-dispatch, and for pushes that change them.
+apps. CI (`.github/workflows/`): **Tests** (`tests.yml`) runs the engine tests (with and without scipy) and the app
+tests on every push; **Desktop apps** (`desktop.yml`) and **Android app** (`android.yml`) build and test the apps when a
+push changes them, or from *Run workflow*; **Release** (`release.yml`) builds all of them for a `v*` tag and publishes
+one release.
 
 ## Credits
 
