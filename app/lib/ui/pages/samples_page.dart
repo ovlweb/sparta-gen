@@ -7,7 +7,8 @@ import '../widgets/cutter.dart';
 const _groups = <(String, String?, List<String>?)>[
   ('Chorus, Epicness & DunDunDenDen', 'The main phrase cut in two, and a third word — they play as they are, not tuned.',
       ['chorus_a', 'chorus_b', 'chorus_c', 'chorus_c_a', 'chorus_c_b']),
-  ('Pitches', 'Tuned to the key; several play the chord lines together.', ['pitch1', 'pitch2', 'pitch3', 'pitch4', 'bass']),
+  ('Pitches', 'Tuned to the key; several play the chord lines together. The bass is a note of its own, played low.',
+      ['pitch1', 'pitch2', 'pitch3', 'pitch4', 'bass']),
   ('Percussion', 'Hits from the video, locked to the base.',
       ['kick', 'snare', 'clap', 'hat_closed', 'hat_open', 'hat2', 'perc', 'crash']),
   ('Quotes & Madness words', null, ['quote1', 'quote2', 'quote3', 'phrase', 'word_a', 'word_b']),
@@ -17,7 +18,7 @@ const _groups = <(String, String?, List<String>?)>[
 /// Which list of candidates a sample is picked from.
 const _roleKind = {
   'chorus_a': 'word', 'chorus_b': 'word', 'chorus_c': 'word', 'chorus_c_a': 'word', 'chorus_c_b': 'word', //
-  'pitch1': 'pitch', 'pitch2': 'pitch', 'pitch3': 'pitch', 'pitch4': 'pitch',
+  'pitch1': 'pitch', 'pitch2': 'pitch', 'pitch3': 'pitch', 'pitch4': 'pitch', 'bass': 'pitch',
   'kick': 'kick', 'snare': 'snare', 'clap': 'snare', 'perc': 'snare',
   'hat_closed': 'hat', 'hat_open': 'hat', 'hat2': 'hat', 'crash': 'crash',
   'quote1': 'quote', 'quote2': 'quote', 'quote3': 'quote', 'phrase': 'quote',
@@ -214,7 +215,10 @@ class _SampleTileState extends State<_SampleTile> {
       final st = (m['shift_semitones'] as num?) ?? 0;
       return '${m['source_note']} → ${s['root_note']} (${st > 0 ? '+' : ''}$st st)';
     }
-    if (role == 'bass') return '${s['root_note']} from ${m['from'] ?? 'the main pitch'}';
+    if (role == 'bass') {
+      if (m['from'] != null) return '${s['root_note']} from the ${(_roleName[m['from']] ?? '${m['from']}').toLowerCase()}';
+      return m['source_note'] != null ? '${m['source_note']} → ${s['root_note']}, a cut of its own' : 'a cut of its own';
+    }
     if (role == 'kick') return m['shift_semitones'] != null && m['shift_semitones'] != 0 ? 'pitched ${m['shift_semitones']} st for body' : 'kick from the video';
     if ((role == 'syllable' || role == 'word') && m['tuned_to'] != null) return 'tuned copy on ${m['tuned_to']}';
     if (role == 'chorus') return 'main phrase, as it is · cut at ${m['split'] ?? 'the middle'}';

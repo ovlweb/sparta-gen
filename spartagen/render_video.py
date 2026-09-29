@@ -26,7 +26,7 @@ import numpy as np
 
 from . import ffmpeg as ff
 from .arrangement import Arrangement, NoteEvent
-from .render_audio import audible_length
+from .render_audio import audible_length, clip_rate
 from .samples import SampleBank
 
 Progress = Optional[Callable[[float, str], None]]
@@ -166,8 +166,11 @@ MAIN_LINE_CELLS = ["t0", "t1", "t2", "t3", "r", "l"]
 MAIN_FIXED = {"bass": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "crash": "b3", "corner": "b3", "perc": "b3",
               "hat2": "b4", "quote": "b4", "side": "l"}
 
-# Snake order around the 4x4 border then the centre, for cycling pitch clips.
-GRID4_CYCLE = ["c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10"]
+GRID4_FIXED = {"kick": "c30", "snare": "c33", "hat": "c00", "crash": "c03", "bass": "c31", "corner": "c03"}
+# Snake order around the 4x4 border, for cycling pitch clips — past the drums' and the bass's own boxes:
+# a box shows one sound's clip, never a pitch in the kick's box.
+GRID4_CYCLE = [c for c in ("c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10")
+               if c not in GRID4_FIXED.values()]
 GRID3_PITCH = {"pitch1": "mc", "pitch2": "ml", "pitch3": "mr", "pitch4": "tc"}
 # Chord voices (one pitch sample per line) in the 4x4 grid's middle, one box each.
 GRID4_VOICES = {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21", "pitch1": "c22"}
@@ -260,7 +263,7 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
             return GRID4_VOICES.get(e.sample)
         if v in ("main", "center", "full_flash", "center_late", "madness"):
             return "center"
-        return {"kick": "c30", "snare": "c33", "hat": "c00", "crash": "c03", "bass": "c31", "corner": "c03"}.get(v)
+        return GRID4_FIXED.get(v)
     return None
 
 
@@ -690,25 +693,50 @@ def _px(rect: Rect, W: int, H: int, gap: int) -> tuple[int, int, int, int]:
     return x0, y0, max(2, (x1 - x0) // 2 * 2), max(2, (y1 - y0) // 2 * 2)
 
 
-#: A chord's voices are drawn as layers in the chord's box, each this much smaller than the one under it,
-#: all from the box's top-left corner — the root the full box, the third over it, the fifth over that.
-LAYER_STEP = 0.05
+#: A chord's voices are layers in the chord's box, from normal to small: the root the whole box, the third
+#: over it this much of the box smaller, the fifth over that smaller again.
+LAYER_STEP = 0.2
 
 
-def layer_rect(x0: int, y0: int, w: int, h: int, layer: int) -> tuple[int, int, int, int]:
-    """Where a chord's nth voice (0 = the chord's own picture) is drawn inside its box (x0, y0, w, h)."""
-    k = max(0.5, 1.0 - LAYER_STEP * layer)
-    return x0, y0, max(2, int(w * k) // 2 * 2), max(2, int(h * k) // 2 * 2)
+def layer_anchor(x0: int, y0: int, w: int, h: int, W: int, H: int) -> tuple[float, float]:
+    """Where a box's layers sit in it (0 left/top, 0.5 centre, 1 right/bottom): centred in a box in the middle
+    of the frame, against the outer side of one at a side — its left side on the left, its right side on the
+    right (and its top in the top row, its bottom in the bottom row)."""
+    def side(centre: float, total: int) -> float:
+        f = centre / max(total, 1)
+        return 0.0 if f < 1 / 3 - 1e-6 else 1.0 if f > 2 / 3 + 1e-6 else 0.5
+    return side(x0 + w / 2, W), side(y0 + h / 2, H)
 
 
-def _layer_shadow(canvas: np.ndarray, x0: int, y0: int, w: int, h: int, depth: int = 3) -> None:
-    """A thin shadow along a layer's right and bottom edges, so the stacked layers read as cards."""
+def layer_rect(x0: int, y0: int, w: int, h: int, layer: int,
+               anchor: tuple[float, float] = (0.5, 0.5)) -> tuple[int, int, int, int]:
+    """Where a chord's nth voice (0 = the chord's own picture, the whole box) is drawn in its box (x0, y0, w, h)."""
+    k = max(0.4, 1.0 - LAYER_STEP * layer)
+    lw, lh = max(2, int(w * k) // 2 * 2), max(2, int(h * k) // 2 * 2)
+    return x0 + int(round((w - lw) * anchor[0])), y0 + int(round((h - lh) * anchor[1])), lw, lh
+
+
+def _layer_edge(canvas: np.ndarray, x0: int, y0: int, w: int, h: int, box: tuple[int, int, int, int],
+                depth: int = 2) -> None:
+    """A thin dark edge where a layer lies over the one under it (none along the box's own sides): the
+    layers read apart without a colour of their own."""
     H, W = canvas.shape[:2]
-    for ys, xs in ((slice(y0 + 2, y0 + h + depth), slice(x0 + w, x0 + w + depth)),
-                   (slice(y0 + h, y0 + h + depth), slice(x0 + 2, x0 + w))):
+    bx, by, bw, bh = box
+    left, right = x0 > bx, x0 + w < bx + bw
+    xa, xb = x0 - (depth if left else 0), x0 + w + (depth if right else 0)
+    bands = []
+    if left:
+        bands.append((slice(y0, y0 + h), slice(x0 - depth, x0)))
+    if right:
+        bands.append((slice(y0, y0 + h), slice(x0 + w, x0 + w + depth)))
+    if y0 > by:
+        bands.append((slice(y0 - depth, y0), slice(xa, xb)))
+    if y0 + h < by + bh:
+        bands.append((slice(y0 + h, y0 + h + depth), slice(xa, xb)))
+    for ys, xs in bands:
         a0, a1, b0, b1 = max(0, ys.start), min(H, ys.stop), max(0, xs.start), min(W, xs.stop)
         if a1 > a0 and b1 > b0:
-            canvas[a0:a1, b0:b1] = (canvas[a0:a1, b0:b1].astype(np.uint16) * 90 >> 8).astype(np.uint8)
+            canvas[a0:a1, b0:b1] = (canvas[a0:a1, b0:b1].astype(np.uint16) * 70 >> 8).astype(np.uint8)
 
 
 def encode_png(rgb: np.ndarray) -> bytes:
@@ -757,9 +785,10 @@ class Compositor:
             length = max(audible_length(e, s), cfg.min_hold_s)
             if e.choke:
                 length = min(length, max(e.max_len, 1.0 / fps))
+            rate = clip_rate(e, s, arr.pitching)          # the clip runs as fast as its note sounds
             if e.visual == "layer":
                 self.layers.setdefault((e.section, e.track_id, round(e.t, 6)), []).append(
-                    (e.t, e.t + length, e, s.video_rate))
+                    (e.t, e.t + length, e, rate))
                 continue
             sec = arr.sections[e.section]
             cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or cell_for(e, sec.layout)
@@ -767,7 +796,7 @@ class Compositor:
                 continue
             if cell == "full":
                 length = min(length, 2 * arr.step_s)      # the opening hit: an 8th, then the section's frame
-            self.vis.append((e.t, e.t + length, cell, e, s.video_rate))
+            self.vis.append((e.t, e.t + length, cell, e, rate))
         self.vis.sort(key=lambda z: z[0])
         for lst in self.layers.values():
             lst.sort(key=lambda z: z[2].layer)
@@ -869,7 +898,7 @@ class Compositor:
                     current[a[2]] = a
         on_top: list[tuple] = []            # popping clips go over their neighbours
         borders: list[tuple] = []
-        shadows: list[tuple] = []
+        edges: list[tuple] = []
         for cell_name in cells:
             a = current.get(cell_name)
             dim = 1.0
@@ -900,26 +929,27 @@ class Compositor:
             color = self.user_color or PART_COLORS[part_of(e)]
             if cfg.border != "none" and layout != "full":
                 borders.append((ax, ay, aw, ah, color, 1.0 if dim == 1.0 else 0.45))
-            # A chord: its other voices, each a layer over the one under it (while it sounds).
+            # A chord: its other voices, each a smaller layer over the one under it (while it sounds), sat
+            # where the box sits — centred in the middle, against the side at the sides.  No colours of their
+            # own: each shows its voice's clip, the box keeps the one border it has.
+            anchor = layer_anchor(x0, y0, cw, ch, W, H)
             for lay in self.layers.get((e.section, e.track_id, round(e.t, 6)), ()):
                 if dim == 1.0 and not (lay[0] <= t < lay[1]):
                     continue
-                lx, ly, lw, lh = layer_rect(ax, ay, aw, ah, lay[2].layer)
+                lx, ly, lw, lh = layer_rect(ax, ay, aw, ah, lay[2].layer, anchor)
                 lfr = self._clip(lay[2], lay[0], lay[1], lay[3], lw, lh, t, dim)
                 if lfr is None:
                     continue
                 if moved:
                     on_top.append((lfr, lx, ly))
-                    shadows.append((lx, ly, lw, lh))
+                    edges.append((lx, ly, lw, lh, (ax, ay, aw, ah)))
                 else:
                     blit(canvas, lfr, lx, ly)
-                    _layer_shadow(canvas, lx, ly, lw, lh)
-                if cfg.border != "none" and layout != "full":
-                    borders.append((lx, ly, lw, lh, color, 1.0 if dim == 1.0 else 0.45))
+                    _layer_edge(canvas, lx, ly, lw, lh, (ax, ay, aw, ah))
         for fr, ax, ay in on_top:
             blit(canvas, fr, ax, ay)
-        for sx, sy, sw, sh in shadows:
-            _layer_shadow(canvas, sx, sy, sw, sh)
+        for lx, ly, lw, lh, box in edges:
+            _layer_edge(canvas, lx, ly, lw, lh, box)
         for bx, by, bw, bh, color, bright in borders:
             draw_border(canvas, bx, by, bw, bh, color, cfg.border, bright)
         # Kick punch: a short zoom bounce on every kick.

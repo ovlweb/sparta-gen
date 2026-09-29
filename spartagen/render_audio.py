@@ -245,6 +245,18 @@ def audible_length(e: NoteEvent, s: Optional[Sample]) -> float:
     return min(e.dur + 0.012, s.duration if not (e.pitched and s.pitched) else max(s.duration, e.dur), e.max_len + 0.012)
 
 
+def clip_rate(e: NoteEvent, s: Optional[Sample], pitching: str) -> float:
+    """Source seconds per second a note's clip plays at: as fast as its sound.  A note shifted the way a
+    sampler does (the classic pitching, and the bass always) runs faster up and slower down — its clip
+    with it, as a clip's playback rate does in Vegas; a formant-kept (PSOLA) note keeps its length."""
+    if s is None:
+        return 1.0
+    rate = s.video_rate
+    if not e.oneshot and e.pitched and s.pitched and (pitching == "classic" or s.role == "bass" or s.tuned is None):
+        rate *= 2.0 ** (float(e.semis) / 12.0)
+    return rate
+
+
 # ── stems & chains ───────────────────────────────────────────────────────────
 
 

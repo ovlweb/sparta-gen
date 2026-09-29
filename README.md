@@ -7,8 +7,9 @@ SpartaGen turns any video into a **Sparta Remix** the way remixers build them by
 1. **Cuts the source video into samples** with ffmpeg — held vowels/notes become *pitches*, thumps/bangs/hisses become
    *kick, snare/clap, hi-hats and crash*, and speech becomes *quotes*, *Madness words* and *DunDunDenDen syllables*.
 2. **Fixes every pitch sample onto the base's key** (D on the classic bases) with TD-PSOLA hard-tuning — the
-   "Melodyne pitch drift 100 %" treatment — and derives the **bass pitch** (D3, the main pitch played an octave
-   lower like a sampler), **main**, **second**, **third** and **fourth** pitches.
+   "Melodyne pitch drift 100 %" treatment — **main**, **second**, **third** and **fourth** pitches, and the
+   **bass pitch**: a held note of its own (another moment of the video, so its box shows its own clip) played down
+   to D3 like a sampler.
    The **Chorus plays two layers**: the **main phrase** — cut into two parts at the gap between its syllables (on a
    zero crossing) and played as it is on the Chorus pattern, `1` the first part, `2` the second ("the chorus always
    contains the main phrase", Sparta Remix Wiki) — and **several pitches** under it, playing together: the wiki's
@@ -127,8 +128,9 @@ the project you worked on last.
 3. **Samples** — every sample with its picture, where it was cut and its note (e.g. `D#5 → D5 (-1.01 st)`):
    ▶ plays it processed, *Original* plays that stretch of the video. Pick another cut from the list the analysis
    found, or **cut it yourself**: the video's sound as a waveform and its frames as a film strip, the cut between
-   two handles you drag — it opens on where the sample is cut now; play the cut, zoom, or type the times. Pitch
-   octave, bass octave and how straight the notes are tuned; *Cut again* to redo it all.
+   two handles you drag — it opens on where the sample is cut now; play the cut, zoom, or type the times. The bass
+   is picked and cut the same way (a note of its own, played low). Pitch octave, bass octave and how straight the
+   notes are tuned; *Cut again* to redo it all.
 4. **Remix** — title, pitching (classic sampler / normal / hard layers), polish, *Progression Twist* (Original
    `0 1 -2 1`, E Note, F Note, Useful's …), minor patterns, pitched chorus. The **structure** below is a timeline of
    the parts, each as long as it lasts: **drag a part** to move it, **drag its edge** to make it longer or shorter,
@@ -410,16 +412,23 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
 - **Designed hits** (`spartagen/samples.py`): kick = the source's thump, at most an octave down so it keeps its
   knock (body ~90–150 Hz), + pitch-sweep punch + the original click; snare/clap = EQ'd bang with transient boost
   (clap = three retriggers); hats = high-passed hiss with short/long decays; crash = noise + long reverb tail;
-  bass = the lowest tuned pitch played an octave lower (D3, like a sampler), lightly filtered and saturated.
+  bass = a held note of its own — of the good ones clear of the pitches' and the Chorus's moments, the lowest —
+  tuned, then played down to D3 like a sampler, lightly filtered and saturated.
 
-Every sample keeps its source time range, so its **video clip is known** — that is what the renderer shows.
+Every sample keeps its source time range, so its **video clip is known** — that is what the renderer shows, as fast
+as the note plays it: a note shifted the way a sampler does (classic pitching, the bass, a kick pitched down) runs
+its clip faster up and slower down, as a clip's playback rate does in Vegas. **Each box is one sound's**: no sample
+borrows another's clip (the bass is not the main pitch's clip again), and a drum's box never shows a pitch.
 
 ## Look & sound
 
 The **live preview** draws the remix's picture at any moment (the engine draws that one frame, with the current
 look), so an effect shows the moment it is changed; scrub the timeline, jump to a part, step a beat or a 16th.
 A **chord** — its root, third and fifth, each on its own pitch — is one picture in one box: the voices are
-**three layers in one**, each a little smaller than the one under it, from the box's top-left corner.
+**three layers in one**, from normal to small (the root the whole box, the third over it smaller, the fifth
+smaller again), each showing its own voice's clip, with no colours of their own. They sit where the box sits:
+centred in a box in the middle of the frame, against the left side in a box on the left and the right side on the
+right (the top in the top row, the bottom in the bottom row).
 **Volumes**: a fader for the main phrase, the pitches, the chords, the bass, the percussion and the quotes (and your
 base file), from −24 to +12 dB; a part switched off is out of the video too. The look, the sound and the volumes
 stay as you set them for your next projects.

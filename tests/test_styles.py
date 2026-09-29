@@ -107,13 +107,47 @@ def test_a_remix_renders_in_a_style(tmp_path, synthetic_source, style):
     assert info.has_video and (info.width, info.height) == (320, 180) and info.duration > 60
 
 
-def test_a_chord_is_three_layers_in_one_box():
-    """A chord's voices are drawn in its box, each a little smaller, from the box's top-left corner."""
-    assert RV.layer_rect(10, 20, 200, 100, 0) == (10, 20, 200, 100)
-    assert RV.layer_rect(10, 20, 200, 100, 1) == (10, 20, 190, 94)
-    assert RV.layer_rect(10, 20, 200, 100, 2) == (10, 20, 180, 90)
+def test_a_chord_is_three_layers_in_one_box_from_normal_to_small():
+    """A chord's voices are layers in its box — the whole box, then smaller, then smaller again — sat where
+    the box sits: centred in a box in the middle of the frame, against the side of a box at a side."""
+    W, H = 1280, 720
+    mid = RV.layer_anchor(440, 260, 400, 200, W, H)
+    assert mid == (0.5, 0.5)
+    assert [RV.layer_rect(440, 260, 400, 200, k, mid) for k in range(3)] == \
+        [(440, 260, 400, 200), (480, 280, 320, 160), (520, 300, 240, 120)]
+    left = RV.layer_anchor(0, 0, 256, 144, W, H)                  # the top row's first box: left, top
+    assert left == (0.0, 0.0) and RV.layer_rect(0, 0, 256, 144, 2, left) == (0, 0, 152, 86)
+    right = RV.layer_anchor(1024, 0, 256, 144, W, H)              # its last: right, top
+    x, y, w, h = RV.layer_rect(1024, 0, 256, 144, 2, right)
+    assert right == (1.0, 0.0) and (x + w, y, w, h) == (1280, 0, 152, 86)
+    cells = RV.LAYOUT_CELLS["main"]
+    where = {c: RV.layer_anchor(*RV._px(cells[c], W, H, 4), W, H) for c in ("t0", "t1", "t2", "t3", "l", "main", "r", "b0")}
+    assert where == {"t0": (0.0, 0.0), "t1": (0.0, 0.0), "t2": (0.5, 0.0), "t3": (1.0, 0.0), "l": (0.0, 0.5),
+                     "main": (0.5, 0.5), "r": (1.0, 0.5), "b0": (0.0, 1.0)}
     for layout in ("main", "full", "grid3", "split2", "grid4"):
         assert RV.cell_for(_event(visual="layer", layer=1), layout) is None      # never a box of its own
+
+
+def test_a_drums_box_never_shows_a_pitch():
+    """Each box is one sound's: the 4x4 grid's pitch cycle goes past the drums' and the bass's boxes."""
+    fixed = {RV.cell_for(_event(visual=v, sample=v), "grid4") for v in ("kick", "snare", "hat", "crash", "bass")}
+    cycled = {RV.cell_for(_event(index=i), "grid4") for i in range(24)}
+    assert None not in fixed and len(cycled) >= 6 and not cycled & fixed
+
+
+def test_a_clip_runs_as_fast_as_its_note():
+    """A note shifted the way a sampler does (classic pitching, the bass) plays faster up and slower down: its
+    clip too.  A formant-kept note keeps its length, and its clip its speed."""
+    from spartagen.render_audio import clip_rate
+    from spartagen.samples import Sample
+    z = np.zeros(10, np.float32)
+    pitch = Sample("pitch1", "pitch", "pitch1", 0, 1, z, 44100, 62.0, tuned=object())
+    bass = Sample("bass", "bass", "bass", 0, 1, z, 44100, 50.0, video_rate=0.5)
+    up = _event(semis=12.0)
+    assert clip_rate(up, pitch, "normal") == 1.0 and clip_rate(up, pitch, "hard") == 1.0
+    assert clip_rate(up, pitch, "classic") == 2.0
+    assert clip_rate(_event(sample="bass", semis=-12.0), bass, "normal") == 0.25
+    assert clip_rate(_event(pitched=False, semis=12.0), pitch, "classic") == 1.0      # a hit as it is
 
 
 def test_a_still_is_the_frame_the_video_shows_with_the_chord_layers(tmp_path, synthetic_source):
@@ -139,3 +173,13 @@ def test_a_still_is_the_frame_the_video_shows_with_the_chord_layers(tmp_path, sy
         assert np.array_equal(comp.still(k / cfg.fps), f), k
     plain = RV.Compositor(s.project.source_path, arr, [e for e in ev if e.visual != "layer"], bank, cfg)
     assert not np.array_equal(plain.still(k0 / cfg.fps), shown[k0])       # the layers are drawn
+    # No colours of their own: a style's border goes round the chord's box, never round its layers.
+    base = next(a for a in comp.vis if (a[3].section, a[3].track_id, round(a[3].t, 6)) ==
+                (chord.section, chord.track_id, round(chord.t, 6)))
+    x0, y0, w, h = RV._px(RV.LAYOUT_CELLS[arr.sections[chord.section].layout][base[2]], cfg.width, cfg.height, cfg.gap)
+    stills = [RV.Compositor(s.project.source_path, arr, ev, bank, RV.VideoConfig.from_dict(
+        {"preset_name": "preview", "width": 320, "height": 180, "border": b, "border_color": "#00ff00",
+         "punch": 0.0})).still(k0 / cfg.fps) for b in ("none", "line")]         # (no kick zoom moving the boxes)
+    changed = (stills[0] != stills[1]).any(axis=2)
+    assert changed[y0:y0 + h, x0:x0 + w].any()                             # the box has its border …
+    assert not changed[y0 + 2:y0 + h - 2, x0 + 2:x0 + w - 2].any()          # … and nothing inside it

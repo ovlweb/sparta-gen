@@ -176,6 +176,20 @@ void main() {
     expect((sent['end'] as double) > (sent['start'] as double), isTrue);
   });
 
+  testWidgets('the bass is picked and cut like a pitch: a note of its own', (tester) async {
+    final engine = await startApp(tester, size: const Size(1400, 2400));          // every card on screen
+    await open(tester, 'Samples');
+    final bass = find.ancestor(of: find.text('Bass'), matching: find.byType(Card)).first;     // its own card
+    expect(find.descendant(of: bass, matching: find.text('Automatic (best)')), findsOneWidget);
+    await tester.tap(find.descendant(of: bass, matching: find.text('Cut it myself')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use this cut'));
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/samples/select').$2!;
+    expect(sent['role'], 'bass');
+    expect((sent['end'] as double) > (sent['start'] as double), isTrue);
+  });
+
   test('a new project shows the look the engine starts it with', () async {
     final engine = FakeEngine();
     final app = AppState(engine);

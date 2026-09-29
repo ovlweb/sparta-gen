@@ -199,6 +199,27 @@ def test_an_auto_pitch_keeps_enough_of_its_note_inside_one_shot(session):
     assert _overlap(mine, best) and mine.src_end - mine.src_start < 0.3
 
 
+def test_the_bass_is_a_note_of_its_own(session):
+    """The bass box shows the clip the bass plays — so the bass is its own moment of the video, not the main
+    pitch's again (its clip running as slow as the bass plays it); and it can be picked or cut like a pitch."""
+    bank = session.bank()
+    bass = bank.get("bass")
+    pitches = [bank.get(k) for k in ("pitch1", "pitch2", "pitch3", "pitch4") if bank.get(k)]
+    assert "from" not in bass.meta and bass.meta.get("source_note")
+    assert not any(_overlap(bass, p) for p in pitches)
+    assert int(round(bass.root_midi)) == 50
+    cands = session.analysis().candidates["pitch"]
+    idx = min(range(len(cands)), key=lambda i: abs(cands[i].start - pitches[0].src_start))
+    session.project.samples["selections"] = {"bass": idx}                  # the main pitch's note, picked by hand
+    try:
+        mine = session.bank().get("bass")
+        assert _overlap(mine, pitches[0]) and "from" not in mine.meta
+        session.project.samples["selections"] = {"bass": "pitch2"}         # an older project: the bass of pitch 2
+        assert session.bank().get("bass").meta == {"from": "pitch2"}
+    finally:
+        session.project.samples["selections"] = {}
+
+
 def test_a_new_pick_reuses_the_tuned_candidates(session):
     session.bank()
     n = len(session._pitch_cache)

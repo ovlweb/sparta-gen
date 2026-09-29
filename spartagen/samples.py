@@ -7,7 +7,8 @@ processed the way remixers prepare them by hand:
 * chorus_a/b — the main phrase cut into two parts (Chorus slots 1 and 2), played as is
 * chorus_c  — a third word of the voice, played as is (the Epicness's slot 3); chorus_c_a/_b
                its two halves (the DunDunDenDen's 3A and 3B)
-* bass       — the main pitch played an octave lower (D3), like a sampler; the bass pitch
+* bass       — a held note of its own (another moment than the pitches) played down to D3 like a
+               sampler; the bass pitch
 * kick       — a thump from the source, pitched down for body, with a pitch
                sweep for punch and the original transient on top
 * snare/clap — a noisy "bang" from the source, EQ'd for body + snap
@@ -484,10 +485,11 @@ def _up_factor(drop_db: float) -> float:
     return float(np.clip(1.0 - (drop_db - 6.0) / 10.0, 0.2, 1.0))
 
 
-def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
-    """The bass pitch: a pitch sample played lower the way a sampler does (slower, deeper), in octave 3
+def make_bass(p: Sample, cfg: SampleConfig, own: bool = False) -> Sample:
+    """The bass pitch: a tuned note played lower the way a sampler does (slower, deeper), in octave 3
     by default — real Sparta basslines sit there (root and octave bounces around D3), where the voice
-    still reads as a pitch instead of a rumble under the base's own bass."""
+    still reads as a pitch instead of a rumble under the base's own bass.  ``own``: the note is the
+    bass's own cut, not one of the pitches (its clip is then the bass's alone)."""
     sr = p.sr
     target = 12 * (cfg.bass_octave + 1) + pitch_class(cfg.key)
     shift = target - p.root_midi
@@ -498,8 +500,15 @@ def make_bass(p: Sample, cfg: SampleConfig) -> Sample:
     y = fx.saturate(y, 6.0 if low else 3.0, "tanh")
     y = dsp.lowpass(y, sr, 1800.0 if low else 5000.0, order=2)
     y = dsp.declick(dsp.normalize_rms(y, -15.0, -1.0), sr, 2.0)
+    if own:
+        f0 = p.meta.get("source_f0")
+        meta = {k: p.meta[k] for k in ("source_note", "score", "isolated", "shot_trimmed", "core_trimmed")
+                if p.meta.get(k) is not None}
+        meta["shift_semitones"] = round(target - hz_to_midi(f0), 2) if f0 else None
+    else:
+        meta = {"from": p.id}
     return Sample("bass", "bass", f"bass ({note_name(target)})", p.src_start, p.src_end, y, sr,
-                  float(target), None, 2.0 ** (shift / 12.0), {"from": p.id})
+                  float(target), None, 2.0 ** (shift / 12.0), meta)
 
 
 def make_kick(x: np.ndarray, sr: int, cand: Candidate) -> Sample:
@@ -523,7 +532,9 @@ def make_kick(x: np.ndarray, sr: int, cand: Candidate) -> Sample:
     y = fx.saturate(y, 5.0, "tanh")
     y = dsp.apply_fades(y, sr, 0.3, 8.0)
     y = dsp.normalize_peak(y, -1.0)
+    # Its clip runs as slow as its body does (a kick pitched down an octave: the clip at half speed).
     return Sample("kick", "kick", "kick", cand.start, cand.start + 0.3, y, sr,
+                  video_rate=2.0 ** (shift / 12.0) if shift < -0.5 else 1.0,
                   meta={"shift_semitones": round(shift, 2), "score": round(float(cand.score), 4)})
 
 
@@ -691,6 +702,48 @@ def _cached(cache: Optional[dict], key: tuple, make: Callable):
     if key not in cache:
         cache[key] = make()
     return cache[key]
+
+
+#: The bass is picked from this many of the best notes left: the lowest-sitting of them.
+BASS_TRIES = 12
+
+
+def _bass_note(x: np.ndarray, sr: int, cfg: SampleConfig, bsel, pitches: list[Candidate], ranked: list[Candidate],
+               made: dict, worth: dict, taken: list[tuple[float, float]], cut_away: set,
+               shot_cuts: Optional[Callable[[float, float], list[float]]], cache: Optional[dict]) -> Optional[Sample]:
+    """The bass's own held note, tuned (the bass is played down from it): the user's pick — an index in the
+    pitch candidates or a range they cut — or, of the good notes clear of the pitches' and the Chorus's
+    moments, the lowest-sitting one (the least way down to the bass octave keeps the most body).  Another
+    moment of the video than the pitches: the bass's box shows the clip it plays, not the main pitch's
+    again.  None when no note is left."""
+    explicit = isinstance(bsel, dict) or (isinstance(bsel, int) and not isinstance(bsel, bool))
+    if explicit:
+        c = _pick(pitches, bsel)
+        pool = [c] if c is not None else []
+    else:
+        def low_first(c: Candidate) -> float:
+            smp = made.get(id(c))
+            root = float(smp.root_midi) if smp is not None and smp.pitched else 62.0
+            return worth.get(id(c), c.score) * float(np.clip(1.0 + (62.0 - root) / 48.0, 0.75, 1.25))
+        # Far from the pitches first (likely another shot), then nearer, then only not the same moment.
+        left = [c for c in ranked if id(c) not in cut_away]
+        pool = []
+        for gap in (2.0, 0.3, 0.05):
+            tier = [c for c in left if _clear_of(c, taken, gap) and all(c is not p for p in pool)]
+            pool += sorted(tier[:BASS_TRIES], key=low_first, reverse=True) + tier[BASS_TRIES:]
+    for c in pool:
+        cand = c
+        if shot_cuts is not None:
+            trimmed = trim_to_shot(c, shot_cuts(c.start, c.end))
+            if not explicit and (trimmed is None or trimmed.duration < AUTO_PITCH_MIN_S):
+                continue
+            cand = trimmed or c
+        pre = made.get(id(cand)) if cfg.pitch_octave is None else None
+        if pre is not None:
+            return replace(pre, meta=dict(pre.meta))
+        key = ("bass", round(cand.start, 4), round(cand.end, 4), cfg.key, float(cfg.flatten), bool(cfg.clean_pitch))
+        return _cached(cache, key, lambda: make_pitch(x, sr, cand, "bass", replace(cfg, pitch_octave=None)))
+    return None
 
 
 def _assign_voice_roles(bank: SampleBank, roles: list[str]) -> None:
@@ -876,12 +929,18 @@ def build_bank(x: np.ndarray, sr: int, an: Analysis, cfg: Optional[SampleConfig]
     pitched = [bank.samples[k] for k in PITCH_ROLES if k in bank.samples]
     if pitched:
         step(0.35, "building bass")
-        # The lowest tuned pitch needs the smallest drop to reach the bass octave,
-        # so it keeps the most body and the fewest resampling artefacts.
-        src = bank.samples.get(sel.get("bass")) if isinstance(sel.get("bass"), str) else None
+        bsel = sel.get("bass")
+        src = bank.samples.get(bsel) if isinstance(bsel, str) else None        # "the bass of pitch 2" (older projects)
+        own = False
         if src is None or not src.pitched:
+            src = _bass_note(x, sr, cfg, bsel, pitches, ranked, made, worth, used + reserved, cut_away, shot_cuts,
+                             cache)
+            own = src is not None
+        if src is None:
+            # Nothing else voiced in the video: the lowest tuned pitch, which needs the smallest drop to reach
+            # the bass octave (it keeps the most body and the fewest resampling artefacts).
             src = min(pitched, key=lambda smp: (smp.root_midi, smp.id))
-        bank.samples["bass"] = make_bass(src, cfg)
+        bank.samples["bass"] = make_bass(src, cfg, own=own)
 
     # ── percussion ──
     step(0.45, "designing percussion")
