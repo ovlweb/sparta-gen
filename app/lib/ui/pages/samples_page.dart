@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../state/app_state.dart';
 import '../widgets/common.dart';
+import '../widgets/cutter.dart';
 
 const _groups = <(String, String?, List<String>?)>[
   ('Chorus, Epicness & DunDunDenDen', 'The main phrase cut in two, and a third word — they play as they are, not tuned.',
@@ -167,45 +168,43 @@ class _SampleTile extends StatefulWidget {
 }
 
 class _SampleTileState extends State<_SampleTile> {
-  final _start = TextEditingController();
-  final _end = TextEditingController();
-  bool _custom = false;
-
   Map<String, dynamic> get s => widget.sample;
   String get id => '${s['id']}';
   String get selectKey => _selectKey[id] ?? id;
 
   dynamic get selection => ((widget.bank['config'] as Map?)?['selections'] as Map?)?[selectKey];
 
-  @override
-  void initState() {
-    super.initState();
-    _syncRange();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SampleTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _syncRange();
-  }
-
-  void _syncRange() {
+  /// Where the sample is cut now, in seconds of the video (the main phrase: both its parts, cut as one).
+  (double, double) _currentCut() {
     final sel = selection;
-    if (sel is Map) {
-      _custom = true;
-      _start.text = '${sel['start']}';
-      _end.text = '${sel['end']}';
-    } else if (!_custom) {
-      _start.text = (s['src_start'] as num?)?.toStringAsFixed(2) ?? '';
-      _end.text = (s['src_end'] as num?)?.toStringAsFixed(2) ?? '';
+    if (sel is Map && sel['start'] is num && sel['end'] is num) {
+      return ((sel['start'] as num).toDouble(), (sel['end'] as num).toDouble());
     }
+    final all = [for (final x in (widget.bank['samples'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
+    Map<String, dynamic>? byId(String k) => all.where((x) => x['id'] == k).firstOrNull;
+    double at(Map<String, dynamic>? m, String k, double fallback) => ((m?[k] as num?) ?? fallback).toDouble();
+    final a = at(s, 'src_start', 0);
+    final z = at(s, 'src_end', a + 0.5);
+    if (selectKey == 'chorus') return (at(byId('chorus_a'), 'src_start', a), at(byId('chorus_b'), 'src_end', z));
+    if (selectKey == 'chorus_c') return (at(byId('chorus_c'), 'src_start', a), at(byId('chorus_c'), 'src_end', z));
+    return (a, z);
   }
 
-  @override
-  void dispose() {
-    _start.dispose();
-    _end.dispose();
-    super.dispose();
+  Future<void> _cutIt() async {
+    final app = widget.app;
+    final (a, z) = _currentCut();
+    final duration = ((widget.bank['analysis'] as Map?)?['duration'] as num?)?.toDouble() ?? z + 5;
+    final cut = await showSampleCutter(
+      context,
+      app: app,
+      title: selectKey == 'chorus' ? 'the main phrase (both Chorus parts)' : (_roleName[id] ?? id),
+      start: a,
+      end: z,
+      sourceDuration: duration,
+      sourcePath: app.source?['path'] as String?,
+    );
+    if (cut == null) return;
+    await app.selectSample(selectKey, start: cut.$1, end: cut.$2);
   }
 
   String _meta() {
@@ -220,16 +219,6 @@ class _SampleTileState extends State<_SampleTile> {
     if ((role == 'syllable' || role == 'word') && m['tuned_to'] != null) return 'tuned copy on ${m['tuned_to']}';
     if (role == 'chorus') return 'main phrase, as it is · cut at ${m['split'] ?? 'the middle'}';
     return '';
-  }
-
-  Future<void> _setRange() async {
-    final a = double.tryParse(_start.text.replaceAll(',', '.'));
-    final z = double.tryParse(_end.text.replaceAll(',', '.'));
-    if (a == null || z == null || z <= a) {
-      widget.app.fail('The end must be after the start (in seconds of the video).');
-      return;
-    }
-    await widget.app.selectSample(selectKey, start: a, end: z);
   }
 
   @override
@@ -335,7 +324,6 @@ class _SampleTileState extends State<_SampleTile> {
                       },
                       onChanged: (v) {
                         if (v == -2) return;
-                        setState(() => _custom = false);
                         if (v == -1) {
                           app.selectSample(selectKey, reset: true);
                         } else {
@@ -346,23 +334,11 @@ class _SampleTileState extends State<_SampleTile> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(
-                        onPressed: () => setState(() => _custom = !_custom),
-                        icon: Icon(_custom ? Icons.expand_less : Icons.tune, size: 18),
-                        label: const Text('Cut it myself'),
+                        onPressed: app.busy ? null : _cutIt,
+                        icon: const Icon(Icons.content_cut, size: 18),
+                        label: Text(sel is Map ? 'Change my cut' : 'Cut it myself'),
                       ),
                     ),
-                    if (_custom)
-                      Row(children: [
-                        Expanded(child: _secField(_start, 'from (s)')),
-                        const SizedBox(width: 6),
-                        Expanded(child: _secField(_end, 'to (s)')),
-                        const SizedBox(width: 6),
-                        IconButton.filledTonal(
-                          tooltip: 'Use this cut',
-                          onPressed: app.busy ? null : _setRange,
-                          icon: const Icon(Icons.check),
-                        ),
-                      ]),
                   ],
                 ]),
               ),
@@ -377,13 +353,6 @@ class _SampleTileState extends State<_SampleTile> {
     padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 10)),
     visualDensity: VisualDensity.compact,
   );
-
-  Widget _secField(TextEditingController c, String label) => TextField(
-        controller: c,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: InputDecoration(labelText: label),
-        onSubmitted: (_) => _setRange(),
-      );
 
   static String _candLabel(int i, Map<String, dynamic> c) {
     final info = (c['info'] as Map?) ?? {};

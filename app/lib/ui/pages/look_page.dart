@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../state/app_state.dart';
 import '../widgets/common.dart';
+import '../widgets/live_preview.dart';
 
 const _choiceNames = <String, Map<String, String>>{
   'flip_mode': {'auto': 'Each track its own', 'none': 'No flips', 'alternate': 'Alternate', 'rotate': 'Rotate', 'mirror': 'Mirror'},
@@ -96,15 +97,102 @@ class LookPage extends StatelessWidget {
     if (look == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    return PageBody(
-      title: 'Look & sound',
-      subtitle: 'How the video moves and how the mix sounds. Start from a style or a sound, then change any effect.',
-      children: [
-        _PreviewCard(app: app),
-        _styleCard(context, look),
-        _effectsCard(context, look),
-        _soundCard(context, look),
-      ],
+    const title = 'Look & sound';
+    const subtitle = 'How the video moves and how the mix sounds. Start from a style or a sound, then change any '
+        'effect — the picture shows it at once. What you choose stays for your next projects too.';
+    final controls = [
+      _styleCard(context, look),
+      _effectsCard(context, look),
+      _volumesCard(context, look),
+      _soundCard(context, look),
+    ];
+    return LayoutBuilder(builder: (context, box) {
+      if (box.maxWidth < 1100) {
+        return PageBody(title: title, subtitle: subtitle, children: [
+          LivePreview(app: app),
+          ...controls,
+          _PreviewCard(app: app),
+        ]);
+      }
+      // Side by side: the picture stays in view while the effects change it.
+      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: box.maxWidth * 0.46,
+          child: ListView(padding: const EdgeInsets.fromLTRB(24, 20, 8, 32), children: [
+            LivePreview(app: app),
+            const SizedBox(height: 16),
+            _PreviewCard(app: app),
+          ]),
+        ),
+        Expanded(child: PageBody(title: title, subtitle: subtitle, children: controls)),
+      ]);
+    });
+  }
+
+  static String _db(double v) {
+    final t = v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
+    return v > 0 ? '+$t dB' : '$t dB';
+  }
+
+  Widget _volumesCard(BuildContext context, Map<String, dynamic> look) {
+    final groups = _m(look['volume_groups']);
+    final range = (look['volume_range'] as List?) ?? const [-24, 12];
+    final lo = (range[0] as num).toDouble();
+    final hi = (range[1] as num).toDouble();
+    final vols = app.volumes;
+    final muted = app.mutedGroups;
+    final mix = _m(look['mix']);
+    final enabled = !app.busy;
+    final changed = vols.values.any((v) => (v as num) != 0) || muted.isNotEmpty;
+    return SectionCard(
+      title: 'Volumes',
+      subtitle: 'How loud each part is. A part you switch off is out of the video too.',
+      trailing: changed
+          ? TextButton.icon(
+              onPressed: enabled ? app.resetVolumes : null,
+              icon: const Icon(Icons.restart_alt),
+              label: const Text('All back to 0 dB'),
+            )
+          : null,
+      child: Wrap(spacing: 24, runSpacing: 2, children: [
+        if (look['has_base'] == true)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            const Padding(padding: EdgeInsets.all(12), child: Icon(Icons.album_outlined)),
+            SliderRow(
+              label: 'Your base',
+              value: ((mix['base_gain_db'] as num?) ?? -3).toDouble(),
+              min: -24,
+              max: 6,
+              divisions: 60,
+              width: 300,
+              format: _db,
+              onChanged: (v) => app.baseOptions({'base_gain_db': double.parse(v.toStringAsFixed(1))}),
+            ),
+          ]),
+        for (final e in groups.entries)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              tooltip: muted.contains(e.key) ? 'Switch ${e.value} on' : 'Switch ${e.value} off',
+              isSelected: !muted.contains(e.key),
+              icon: const Icon(Icons.volume_off),
+              selectedIcon: const Icon(Icons.volume_up),
+              onPressed: enabled ? () => app.muteGroup(e.key, !muted.contains(e.key)) : null,
+            ),
+            Opacity(
+              opacity: muted.contains(e.key) ? 0.45 : 1,
+              child: SliderRow(
+                label: '${e.value}',
+                value: ((vols[e.key] as num?) ?? 0).toDouble(),
+                min: lo,
+                max: hi,
+                divisions: ((hi - lo) * 2).round(),
+                width: 300,
+                format: _db,
+                onChanged: (v) => app.setVolume(e.key, v),
+              ),
+            ),
+          ]),
+      ]),
     );
   }
 

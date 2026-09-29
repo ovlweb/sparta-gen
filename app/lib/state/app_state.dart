@@ -39,6 +39,7 @@ class AppState extends ChangeNotifier {
   String? working; // something short but not instant (copying a picked video in, saving a copy out)
   AppPage page = AppPage.source;
   String? lastRender; // the file the preview player shows
+  int pictureVersion = 0; // bumped whenever what the remix looks like may have changed (the live preview redraws)
 
   final _messages = StreamController<AppMessage>.broadcast();
   Stream<AppMessage> get messages => _messages.stream;
@@ -156,6 +157,7 @@ class AppState extends ChangeNotifier {
   Future<T?> _call<T>(Future<T> Function() fn, {String? done}) async {
     try {
       final r = await fn();
+      pictureVersion++;
       if (done != null) info(done);
       return r;
     } catch (e) {
@@ -189,6 +191,7 @@ class AppState extends ChangeNotifier {
         fail(j.error ?? '$label failed.');
         return null;
       }
+      pictureVersion++;
       return j.result;
     } catch (e) {
       fail(e);
@@ -464,6 +467,39 @@ class AppState extends ChangeNotifier {
     await _call(() async => _setProject(await engine.post('/api/mix', mix)));
   }
 
+  Map<String, dynamic> get volumes => _map(_map(look?['mix'])?['volumes']) ?? {};
+  List<String> get mutedGroups => [for (final g in (_map(look?['mix'])?['mute_groups'] as List? ?? const [])) '$g'];
+
+  /// A fader's level in dB (0 = as the mix has it).
+  Future<void> setVolume(String group, double db) =>
+      setLook(mix: {'volumes': {...volumes, group: double.parse(db.toStringAsFixed(1))}});
+
+  /// A part out of the mix — and out of the picture — or back in.
+  Future<void> muteGroup(String group, bool muted) => setLook(mix: {
+        'mute_groups': [for (final g in mutedGroups) if (g != group) g, if (muted) group],
+      });
+
+  Future<void> resetVolumes() => setLook(mix: {'volumes': <String, dynamic>{}, 'mute_groups': <String>[]});
+
+  /// The remix's picture at [t] seconds with the current look (drawn by the engine, no render needed).
+  String frameUrl(double t, {int width = 640, int height = 360}) =>
+      engine.url('/api/frame?t=${t.toStringAsFixed(3)}&w=$width&h=$height&v=$pictureVersion');
+
+  /// The source's sound from [start] to [end] seconds, as [n] peaks from 0 to 1.
+  Future<List<double>?> waveform(double start, double end, {int n = 600}) async {
+    try {
+      final r = _map(await engine.get(
+          '/api/waveform?start=${start.toStringAsFixed(3)}&end=${end.toStringAsFixed(3)}&n=$n'));
+      return [for (final p in (r?['peaks'] as List? ?? const [])) (p as num).toDouble()];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// A frame of the source video (for the sample cutter's film strip).
+  String thumbUrl(double t, {int width = 160, int height = 90}) =>
+      engine.url('/api/thumb?t=${t.toStringAsFixed(3)}&w=$width&h=$height');
+
   // ── exports ──
   Future<bool> exportFile(String file, String dest, {String? audioFormat}) async {
     final r = await _call(() => engine.post('/api/export/file', {
@@ -496,6 +532,7 @@ class AppState extends ChangeNotifier {
   Future<void> openProject(String path) async {
     await _call(() async {
       _setProject(await engine.post('/api/project/open', {'path': path}));
+      look = _map(await engine.get('/api/look')); // its own look, not the one shown before
       bank = null;
       arrangement = null;
       lastRender = null;
@@ -505,9 +542,12 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// A new project starts with the look and sound chosen last (the engine keeps them): what the Look page
+  /// shows is what renders.
   Future<void> newProject() async {
     await _call(() async {
       _setProject(await engine.post('/api/project/new'));
+      look = _map(await engine.get('/api/look'));
       bank = null;
       arrangement = null;
       lastRender = null;

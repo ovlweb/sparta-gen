@@ -264,9 +264,10 @@ def test_a_looping_lead_in_replaces_the_end_of_the_previous_loop():
     assert min(steps) == 2.0     # a lead-in before the song starts is dropped; "__1*" follows it
 
 
-def test_a_chord_is_one_picture_and_lines_never_share_a_box():
-    """A chord's voices (0/3/7 lines, a pitch sample each) all sound, but the chord is seen once, in its
-    line's box — not one box per voice, which covered the other lines' boxes."""
+def test_a_chord_is_three_layers_in_one_box_and_lines_never_share_a_box():
+    """A chord's voices (0/3/7 lines, a pitch sample each) all sound and are seen together in its line's box:
+    the root is the chord's picture, the third and fifth layers over it — not one box per voice, which
+    covered the other lines' boxes."""
     from spartagen.render_video import cell_for, line_cells, line_of, LINE_VISUALS
     arr = AR.build_from_base(_classic_map())
     avail = {"pitch1", "pitch2", "pitch3", "pitch4", "chorus_a", "chorus_b", "bass", "kick", "clap", "hat_closed"}
@@ -279,8 +280,11 @@ def test_a_chord_is_one_picture_and_lines_never_share_a_box():
         by_onset.setdefault(round(e.t, 6), []).append(e)
     assert by_onset and all(len(v) == 3 for v in by_onset.values())           # root, third and fifth sound …
     for v in by_onset.values():
-        shown = [e for e in v if e.visual != "none"]
-        assert [e.sample for e in shown] == ["pitch1"]                          # … the root is the one seen
+        shown = [e for e in v if e.visual not in ("none", "layer")]
+        assert [e.sample for e in shown] == ["pitch1"]                          # … the root is the picture …
+        layers = sorted((e.layer, e.sample) for e in v if e.visual == "layer")
+        assert layers == [(1, "pitch2"), (2, "pitch3")]                         # … third and fifth over it
+        assert len({e.index for e in v}) == 1                                   # (they flip together)
     assert lines[(si, "pitch")] == "t0"
     fc = max(i for i, s in enumerate(arr.sections) if s.kind == "chorus")
     assert lines[(fc, "pitch")] == "t0" and lines[(fc, "pitch_low")] == "t3"
@@ -290,14 +294,15 @@ def test_a_chord_is_one_picture_and_lines_never_share_a_box():
     assert lines[(ep, "pitch")] == "t0" and lines[(ep, "chords")] == "t3"
     melody = {e.sample for e in ev if e.section == ep and e.track_id == "pitch"}
     chords = [e for e in ev if e.section == ep and e.track_id == "chords"]
-    seen = [e for e in chords if e.visual != "none"]
+    seen = [e for e in chords if e.visual not in ("none", "layer")]
     assert melody == {"pitch1", "pitch2", "pitch3"}
     assert {e.sample for e in chords} == {"pitch2", "pitch3", "pitch4"} and {e.sample for e in seen} == {"pitch4"}
     assert [e.index for e in seen[:4]] == [0, 1, 2, 3]                          # the box flips chord by chord
     assert cell_for(seen[0], "grid4") == "c21"
     # Where the melody shows only pitch 1 (the Awesomeness), the chords keep their own order.
     aw = next(i for i, s in enumerate(arr.sections) if s.kind == "awesomeness")
-    assert {e.sample for e in ev if e.section == aw and e.track_id == "chords" and e.visual != "none"} == {"pitch2"}
+    assert {e.sample for e in ev if e.section == aw and e.track_id == "chords"
+            and e.visual not in ("none", "layer")} == {"pitch2"}
     # No two lines share a box in any part.
     for s, sec in enumerate(arr.sections):
         mine = {v for k, v in lines.items() if k[0] == s}

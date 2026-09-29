@@ -185,7 +185,43 @@ def test_a_doubled_channel_starts_off(tmp_path):
     assert roles["Lead"] == "pitch1" and roles["Lead copy"] == "off"
 
 
-def test_a_midi_chord_is_one_picture_and_every_line_has_its_own_box(base_mid):
+def test_a_bass_is_found_by_what_it_plays_not_by_its_name(tmp_path):
+    """Stroll's "Generic saw bass" plays thirds up in the 4th octave: a pitch like the others.  The bass is the
+    part playing the chords' roots — even written an octave up."""
+    roots = [61, 62, 59, 62]                                   # C#, D, B, D: a chord every two beats
+    pad, root_line, thirds, lead = [], [], [], []
+    for bar in range(8):
+        for half in range(2):
+            r, t = roots[(bar * 2 + half) % 4], bar * 4 + half * 2
+            pad += [(t, 2.0, r + iv, 70) for iv in (0, 3, 7, 10)]
+            root_line.append((t, 2.0, r, 90))
+            thirds += [(t + k * 0.5, 0.25, r + 7 + iv, 90) for k in range(4) for iv in (0, 3)]
+            lead += [(t + k * 0.25, 0.25, r + 12 + (k % 3) * 2, 90) for k in range(8)]
+    path = M.write_midi(str(tmp_path / "stroll.mid"), [
+        {"name": "Lead", "channel": 0, "notes": lead}, {"name": "Pad", "channel": 1, "notes": pad},
+        {"name": "Generic saw bass", "channel": 2, "notes": thirds},
+        {"name": "Zombitronic", "channel": 3, "notes": root_line}])
+    song = M.read_midi(path)
+    roles = {song.part(pid).name: m["role"] for pid, m in M.suggest_roles(song).items()}
+    assert roles["Zombitronic"] == "bass" and roles["Generic saw bass"].startswith("pitch")
+    assert roles["Pad"] == "chords" and roles["Lead"] == "pitch1"
+
+
+def test_channels_that_never_play_together_share_a_pitch(tmp_path):
+    def line(first_bar, bars, note):
+        return [(b * 4 + k, 0.5, note + k, 90) for b in range(first_bar, first_bar + bars) for k in range(4)]
+    tracks = [{"name": f"Lead {i}", "channel": i, "notes": line(0, 8, 60 + i)} for i in range(3)]
+    tracks += [{"name": "Early", "channel": 4, "notes": line(0, 4, 72)},
+               {"name": "Late", "channel": 5, "notes": line(4, 4, 74)},
+               {"name": "Again", "channel": 6, "notes": line(2, 4, 76)}]
+    song = M.read_midi(M.write_midi(str(tmp_path / "six.mid"), tracks))
+    roles = {song.part(pid).name: m["role"] for pid, m in M.suggest_roles(song).items()}
+    assert sorted(roles[f"Lead {i}"] for i in range(3)) == ["pitch1", "pitch2", "pitch3"]
+    assert roles["Early"] == roles["Late"] == "pitch4"         # one after the other: one pitch, heard both times
+    assert roles["Again"] == "off"                             # it plays with every one of them
+
+
+def test_a_midi_chord_is_layers_in_one_box_and_every_line_has_its_own_box(base_mid):
     from spartagen.render_video import line_cells
     song = M.read_midi(base_mid)
     arr = M.build_from_midi(song)
@@ -195,7 +231,8 @@ def test_a_midi_chord_is_one_picture_and_every_line_has_its_own_box(base_mid):
     for e in chords:
         by_onset.setdefault(round(e.t, 6), []).append(e)
     assert by_onset and all(len(v) == 3 for v in by_onset.values())
-    assert all(sum(e.visual != "none" for e in v) == 1 for v in by_onset.values())
+    assert all(sum(e.visual not in ("none", "layer") for e in v) == 1 for v in by_onset.values())
+    assert all(sorted(e.layer for e in v) == [0, 1, 2] for v in by_onset.values())       # one picture, two layers
     lines = line_cells(arr, ev)
     for si in range(len(arr.sections)):
         boxes = [c for (s, _line), c in lines.items() if s == si]

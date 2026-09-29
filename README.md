@@ -116,7 +116,9 @@ the project you worked on last.
      whether our drums and bass play over it.
    - **MIDI**: open the MIDI of any base — even one that is not public. Each channel is listed with its notes and
      range: say what it plays (the main phrase, a pitch, the chords, the bass, drums, kick/snare/clap/hat/crash,
-     quotes, Madness words) or switch it **off**, move it an octave (a channel that doubles another starts off);
+     quotes, Madness words) or switch it **off**, move it an octave, set its volume (a channel that doubles another
+     starts off; two that never play together can share a pitch; the bass is the channel that plays the bass line
+     — low, or on the chords' roots — not one just named "bass" that plays up with the pitches);
      add **Sparta percussion when no channel has drums**, and the main phrase where no channel plays it. The
      base's parts are read from what its channels play — the Chorus is the full texture that keeps coming back,
      the Intro what comes before it, the dips the DunDunDenDen and the Madness — so the main phrase comes in where
@@ -124,16 +126,19 @@ the project you worked on last.
    - **Key**: *Auto* follows the base (template, audio or MIDI); or pick one of the 12 keys.
 3. **Samples** — every sample with its picture, where it was cut and its note (e.g. `D#5 → D5 (-1.01 st)`):
    ▶ plays it processed, *Original* plays that stretch of the video. Pick another cut from the list the analysis
-   found, or **cut it yourself** (from/to in seconds). Pitch octave, bass octave and how straight the notes are
-   tuned; *Cut again* to redo it all.
+   found, or **cut it yourself**: the video's sound as a waveform and its frames as a film strip, the cut between
+   two handles you drag — it opens on where the sample is cut now; play the cut, zoom, or type the times. Pitch
+   octave, bass octave and how straight the notes are tuned; *Cut again* to redo it all.
 4. **Remix** — title, pitching (classic sampler / normal / hard layers), polish, *Progression Twist* (Original
-   `0 1 -2 1`, E Note, F Note, Useful's …), minor patterns, pitched chorus. The **structure** below: a timeline, and
-   every part — rename it, change its bars and its picture layout, move it, duplicate it, remove it, **add** parts
-   (Intro, Chorus, DunDunDenDen, Epicness, Chords, Awesomeness, Madness, Execution, Final Chorus, Ending). Open a
-   part to change each track: its pattern (a searchable list of every wiki pattern, or your own in wiki
-   notation), sample, volume, octave, crisp, mute. *Save structure* keeps your edits.
-5. **Look & sound** — see [Look & sound](#look--sound): pick a visual style and a sound, change any effect, and
-   render a preview right there to see and hear it.
+   `0 1 -2 1`, E Note, F Note, Useful's …), minor patterns, pitched chorus. The **structure** below is a timeline of
+   the parts, each as long as it lasts: **drag a part** to move it, **drag its edge** to make it longer or shorter,
+   tap one to rename it, pick its picture (the layouts drawn as they look), duplicate or remove it; **add** parts
+   (Intro, Chorus, DunDunDenDen, Epicness, Chords, Awesomeness, Madness, Execution, Final Chorus, Ending) with a
+   tap. Open a part's tracks to change each one: its pattern (a searchable list of every wiki pattern, or your own
+   in wiki notation), sample, volume, octave, crisp, mute. *Save structure* keeps your edits.
+5. **Look & sound** — see [Look & sound](#look--sound): pick a visual style and a sound, change any effect, set each
+   part's **volume** — and see it at once: the **live preview** draws the remix at any moment with every change
+   (scrub it, jump to a part, step a beat), no render needed. What you choose there stays for your next projects.
 6. **Export** — render a **preview** (quick), **720p**, **1080p** or **audio only**; watch it; **Save video…** and
    **Save audio…** (WAV or MP3) open the system's *Save* dialog. Also the **sample pack** (ZIP, or into a folder),
    the remix's **MIDI** (to finish it in a DAW) and the **project** (*Save* / *Save as…*).
@@ -410,6 +415,14 @@ Where a wiki transcription did not add up to whole bars, the obvious typo is fix
 Every sample keeps its source time range, so its **video clip is known** — that is what the renderer shows.
 
 ## Look & sound
+
+The **live preview** draws the remix's picture at any moment (the engine draws that one frame, with the current
+look), so an effect shows the moment it is changed; scrub the timeline, jump to a part, step a beat or a 16th.
+A **chord** — its root, third and fifth, each on its own pitch — is one picture in one box: the voices are
+**three layers in one**, each a little smaller than the one under it, from the box's top-left corner.
+**Volumes**: a fader for the main phrase, the pitches, the chords, the bass, the percussion and the quotes (and your
+base file), from −24 to +12 dB; a part switched off is out of the video too. The look, the sound and the volumes
+stay as you set them for your next projects.
 
 **Visual styles** (each one a set of the effects below; pick one, then change any effect):
 **Classic** (the Vegas grid), **Clean** (no flips or flashes, thin borders, black background), **Xleth** (rotating

@@ -843,8 +843,9 @@ class NoteEvent:
     section_kind: str
     visual: str
     flip: str
-    index: int = 0           # nth note on this track (drives flips / cell cycling)
+    index: int = 0           # nth note on this track (drives flips / cell cycling); a chord's voices share it
     max_len: float = 0.0     # hard cut (choke), filled in by the compiler
+    layer: int = 0           # a chord's voice over its picture (visual "layer"): 1 = the first one over it …
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -1010,8 +1011,9 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
             # A chord is seen through its lowest voice: that voice gets a sample no other line shows, if one is left.
             voice_samples = sorted(tr.voice_samples, key=lambda s: _available(s, available) in taken)
             count = 0
-            chords = 0                  # a chord's voices (a line each) are seen as one: one visual per onset
+            chords = 0                  # a chord's voices (a line each) are seen as one: one picture per onset
             seen_step: Optional[float] = None
+            layers = 0                  # the chord's voices so far, over its picture
             written_prog = parse_progression(written) if written else None
             for st, du, value, sharp, voice in notes:
                 # Which sample(s), and how many semitones from its D?
@@ -1037,15 +1039,19 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                                   key=lambda s: int(s[3:]) if s[3:].isdigit() else 0)
                     entries = [{"sample": syls[count % len(syls)] if syls else tr.sample}]
                 emitted = False
-                # Chord voices: the first voice at an onset shows the chord, the others only sound.
+                # A chord's voices: the first at an onset is the chord's picture, each other one a layer over
+                # it, in the same box (three voices: three layers in one).
                 chord_tone = bool(tr.voice_samples) and seen_step is not None and abs(st - seen_step) < 1e-6
+                layer = layers + 1 if chord_tone else 0
                 for k, ent in enumerate(entries):
                     sample = _available(ent["sample"], available)
                     if sample is None:
                         continue
                     offset = int(ent.get("offset", 0))
                     semis = root + offset + sharp + 12 * tr.octave + tr.transpose
-                    visual = "none" if chord_tone else ent.get("visual", tr.visual if k == 0 else "none")
+                    visual = ent.get("visual", tr.visual if k == 0 else "none")
+                    if layer and visual != "none":
+                        visual = "layer"
                     events.append(NoteEvent(
                         t=t0 + st * step, dur=du * step, track=f"{si}:{tr.id}" + (f"#{k}" if k else ""),
                         track_id=tr.id, stem=tr.stem or _default_stem(tr), kind=tr.kind, sample=sample,
@@ -1053,11 +1059,13 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                         crisp=tr.crisp, sustain=tr.sustain, oneshot=tr.oneshot,
                         pitched=tr.pitched and tr.kind in ("pitch", "bass", "chop", "words"),
                         choke=tr.choke, section=si, section_kind=sec.kind,
-                        visual=visual, flip=tr.flip, index=chords if tr.voice_samples else count,
+                        visual=visual, flip=tr.flip,
+                        index=(chords - 1 if chord_tone else chords) if tr.voice_samples else count, layer=layer,
                     ))
                     emitted = True
                 if emitted:
                     count += 1
+                    layers = layer
                     if tr.voice_samples and not chord_tone:
                         seen_step = st
                         chords += 1

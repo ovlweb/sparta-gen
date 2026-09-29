@@ -209,3 +209,47 @@ def test_every_change_is_saved_at_once(tmp_path):
         assert json.load(open(path, encoding="utf-8"))["video"]["style"] == "neon"
     finally:
         httpd.shutdown()
+
+
+def test_a_new_project_keeps_the_look_and_sound_chosen_last(tmp_path):
+    """Changes to the look are permanent: a new project starts with them, and renders with them."""
+    httpd, url = make_server("127.0.0.1", 0, str(tmp_path / "work"), token=TOKEN, web_ui=False)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = url.rstrip("/")
+    try:
+        call(base, "/api/look", {"video": {"style": "neon", "shake": 0.4},
+                                 "mix": {"fx_preset": "lofi", "volumes": {"pitches": -6, "drums": 3},
+                                         "mute_groups": ["quotes"]}})
+        first = call(base, "/api/project")["workspace"]
+        new = call(base, "/api/project/new", {})
+        assert new["workspace"] != first
+        assert new["video"] == {"style": "neon", "shake": 0.4}               # what the render reads
+        lk = call(base, "/api/look")
+        assert lk["video"]["style"] == "neon" and lk["video"]["shake"] == 0.4 and lk["video"]["border"] == "glow"
+        assert lk["mix"]["fx_preset"] == "lofi" and lk["mix"]["volumes"] == {"pitches": -6.0, "drums": 3.0}
+        assert lk["mix"]["mute_groups"] == ["quotes"] and "base_path" not in new["mix"]
+        assert lk["volume_groups"]["pitches"] == "Pitches" and lk["volume_range"] == [-24.0, 12.0]
+    finally:
+        httpd.shutdown()
+    from spartagen.gui.server import App
+    assert App(str(tmp_path / "work")).session.project.video["style"] == "neon"   # the next start too
+
+
+def test_a_still_of_the_remix_and_the_sound_of_the_source_are_served(engine, synthetic_source):
+    """The Look page's live preview (a picture of the remix at any time) and the sample cutter's waveform."""
+    call(engine, "/api/source/path", {"path": synthetic_source})
+    call(engine, "/api/frame?t=1", expect=400)                              # nothing cut yet
+    assert wait(engine, call(engine, "/api/analyze", {}))["status"] == "done"
+    req = urllib.request.Request(engine + "/api/frame?t=6.5&w=320&h=180")
+    req.add_header("X-Sparta-Token", TOKEN)
+    with urllib.request.urlopen(req, timeout=120) as r:
+        png = r.read()
+        assert r.headers["Content-Type"] == "image/png"
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    import struct
+    assert struct.unpack(">II", png[16:24]) == (320, 180)
+    wf = call(engine, "/api/waveform?start=0.5&end=2.5&n=100")
+    assert (wf["start"], wf["end"]) == (0.5, 2.5) and len(wf["peaks"]) == 100
+    assert max(wf["peaks"]) == 1.0 and min(wf["peaks"]) >= 0.0 and wf["duration"] > 5
+    arr = call(engine, "/api/project")["arrangement"]
+    assert arr["sections"][0]["start"] == 0.0 and arr["sections"][1]["start"] > 0

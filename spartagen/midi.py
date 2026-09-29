@@ -394,10 +394,54 @@ def estimate_key(notes: list) -> tuple[int, bool]:
 # ── roles ────────────────────────────────────────────────────────────────────
 
 
+def _root_line(song: MidiSong, part: MidiPart, chord_ids: set) -> float:
+    """How often a part plays the lowest note of the chords sounding with it (as a pitch class): a bass line
+    written an octave or two up still follows the roots, a counter-line does not."""
+    buckets: dict[int, list] = {}
+    for n in song.notes:
+        if f"t{n.track}c{n.channel}" in chord_ids:
+            for b in range(int(n.start), int(n.start + max(n.dur, 1e-3) - 1e-6) + 1):
+                buckets.setdefault(b, []).append(n)
+    starts: dict[float, int] = {}
+    for n in song.notes:
+        if f"t{n.track}c{n.channel}" == part.id:
+            k = round(n.start, 3)
+            starts[k] = min(starts.get(k, 999), n.pitch)
+    hit = total = 0
+    for t, pitch in starts.items():
+        under = [n.pitch for n in buckets.get(int(t), ()) if n.start <= t + 1e-6 < n.start + n.dur]
+        if under:
+            total += 1
+            hit += pitch % 12 == min(under) % 12
+    return hit / total if total >= 4 else 0.0
+
+
+def _bass_part(song: MidiSong, melodic: list, playing: dict) -> Optional[MidiPart]:
+    """The part that plays the bass: one named so that sits low (below middle C) — of several, the one playing
+    through most of the song — else the lowest part when it is really low, else one playing the chords'
+    roots.  A "bass" playing up where the pitches are (thirds in the 4th octave) is not one: it plays at its
+    own pitch, like the others."""
+    named = [p for p in melodic if "bass" in p.name.lower() and p.median < 60]
+    if named:
+        return max(named, key=lambda p: (len(playing[p.id]), -p.median))
+    lowest = min(melodic, key=lambda p: p.median)
+    if lowest.median < 52:
+        return lowest
+    chord_ids = {p.id for p in melodic if p.polyphony >= 3}
+    roots = []
+    for p in melodic:
+        if p.id not in chord_ids and p.median < 64 and p.onsets >= 0.8 * p.notes:
+            score = _root_line(song, p, chord_ids)
+            if score >= 0.75:
+                roots.append((score, p.notes, p))
+    return max(roots, key=lambda r: (r[0], r[1]))[2] if roots else None
+
+
 def suggest_roles(song: MidiSong) -> dict[str, dict]:
     """A first mapping: drums to the drum map, the busiest melodic channel (by note starts) to the main
-    pitch, a bass channel (by its name, else the lowest) to the bass, a chordal one to the chords, the rest
-    to the other pitches (then off).  A channel doubling another starts off — one line, one pitch."""
+    pitch, the bass line to the bass (see :func:`_bass_part`), a chordal one to the chords, the rest to the
+    other pitches — two channels that never play together can share one — then off.  A channel doubling
+    another starts off — one line, one pitch."""
     mapping: dict[str, dict] = {}
     melodic = []
     for p in song.parts:
@@ -412,18 +456,24 @@ def suggest_roles(song: MidiSong) -> dict[str, dict]:
             mapping[p.id] = {"role": "quotes" if "quote" in n else "chorus"}
         else:
             melodic.append(p)
-    if melodic:
-        named = [p for p in melodic if "bass" in p.name.lower()]
-        bass = min(named or melodic, key=lambda p: p.median)
-        if named or bass.median < 52:
-            mapping[bass.id] = {"role": "bass"}
-            melodic.remove(bass)
+    bars = bar_parts(song)
+    playing = {p.id: {b for b, ps in enumerate(bars) if p.id in ps} for p in song.parts}
+    bass = _bass_part(song, melodic, playing) if melodic else None
+    if bass is not None:
+        mapping[bass.id] = {"role": "bass"}
+        melodic.remove(bass)
     chordal = [p for p in melodic if p.polyphony >= 3 and any(w in p.name.lower() for w in ("chord", "pad", "string"))]
     chordal = chordal or [p for p in melodic if p.polyphony >= 3]
     lead_pool = [p for p in melodic if p not in chordal[:1]] or melodic
-    free = list(PITCH_ROLES)
+    sharing: dict[str, list[str]] = {}
     for p in sorted(lead_pool, key=lambda p: -p.onsets):
-        mapping[p.id] = {"role": free.pop(0) if free else "off"}
+        role = next((r for r in PITCH_ROLES if r not in sharing), None)
+        if role is None:        # all four taken: one whose channels never play with this one (a bar at most)
+            role = next((r for r in PITCH_ROLES
+                         if all(len(playing[p.id] & playing[q]) <= 1 for q in sharing[r])), "off")
+        mapping[p.id] = {"role": role}
+        if role != "off":
+            sharing.setdefault(role, []).append(p.id)
     for p in chordal[:1]:
         if p.id not in mapping:
             mapping[p.id] = {"role": "chords"}

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sparta_gen/engine/engine.dart';
 import 'package:sparta_gen/main.dart';
+import 'package:sparta_gen/state/app_state.dart';
 import 'package:sparta_gen/state/settings.dart';
 import 'package:sparta_gen/ui/widgets/common.dart';
 
@@ -34,6 +35,11 @@ class FakeEngine extends Engine {
     posts.add((path, body));
     if (path == '/api/look') return _copy(data['look']);
     if (path == '/api/arrangement') return _copy(data['arrangement']);
+    if (path == '/api/arrangement/section') {
+      final kind = body?['kind'] ?? 'chorus';
+      return {'name': 'New part', 'kind': kind, 'bars': body?['bars'] ?? 8, 'layout': 'main', 'tracks': []};
+    }
+    if (path == '/api/samples/select') return _copy(data['samples']);
     return {'project': _copy(data['project'])};
   }
 
@@ -52,6 +58,9 @@ Future<FakeEngine> startApp(WidgetTester tester, {Size size = const Size(1400, 9
   await tester.pumpAndSettle();
   return engine;
 }
+
+/// The Look page's settings column (the live preview has a column of its own beside it).
+Finder _settingsList() => find.descendant(of: find.byType(PageBody), matching: find.byType(Scrollable)).first;
 
 Future<void> open(WidgetTester tester, String page) async {
   await tester.tap(find.descendant(of: find.byType(NavigationRail), matching: find.text(page)));
@@ -78,10 +87,14 @@ void main() {
     expect(find.text('Chorus — part 1'), findsOneWidget);
     await open(tester, 'Remix');
     expect(find.text('Structure'), findsOneWidget);
-    expect(find.text('Add before the ending'), findsOneWidget);
+    expect(find.text('Add a part:'), findsOneWidget);
+    expect(find.text('Picture'), findsOneWidget); // the part shown under the timeline
     await open(tester, 'Look & sound');
     expect(find.text('Visual style'), findsOneWidget);
     expect(find.text('Neon'), findsOneWidget);
+    expect(find.text('Live preview'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Volumes'), 300, scrollable: _settingsList());
+    expect(find.text('Volumes'), findsOneWidget);
     await open(tester, 'Export');
     expect(find.text('Also export'), findsOneWidget);
     expect(find.text('Export MIDI…'), findsOneWidget);
@@ -122,6 +135,55 @@ void main() {
     final saved = engine.posts.lastWhere((p) => p.$1 == '/api/arrangement').$2!;
     final before = (engine.data['arrangement']['sections'] as List).length;
     expect((saved['sections'] as List).length, before + 1);
+  });
+
+  testWidgets('a part added from the palette lands after the part shown, and is saved on Save', (tester) async {
+    final engine = await startApp(tester);
+    await open(tester, 'Remix');
+    final before = (engine.data['arrangement']['sections'] as List).length;
+    await tester.tap(find.widgetWithText(ActionChip, 'Epicness'));
+    await tester.pumpAndSettle();
+    expect(engine.posts.any((p) => p.$1 == '/api/arrangement/section' && p.$2?['kind'] == 'epicness'), isTrue);
+    await tester.tap(find.text('Save structure'));
+    await tester.pumpAndSettle();
+    final saved = engine.posts.lastWhere((p) => p.$1 == '/api/arrangement').$2!;
+    final sections = saved['sections'] as List;
+    expect(sections.length, before + 1);
+    expect((sections[1] as Map)['kind'], 'epicness'); // after the first part, the one shown
+  });
+
+  testWidgets('a volume can be switched off and back', (tester) async {
+    final engine = await startApp(tester);
+    await open(tester, 'Look & sound');
+    await tester.scrollUntilVisible(find.byTooltip('Switch Pitches off'), 300, scrollable: _settingsList());
+    await tester.tap(find.byTooltip('Switch Pitches off'));
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/look').$2!;
+    expect((sent['mix'] as Map)['mute_groups'], ['pitches']);
+  });
+
+  testWidgets('a sample is cut by eye, starting from its cut', (tester) async {
+    final engine = await startApp(tester);
+    await open(tester, 'Samples');
+    await tester.tap(find.text('Cut it myself').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Use this cut'), findsOneWidget);
+    expect(find.text('Type the times'), findsOneWidget); // typing them stays possible
+    await tester.tap(find.text('Use this cut'));
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/samples/select').$2!;
+    expect(sent['start'], isA<double>());
+    expect((sent['end'] as double) > (sent['start'] as double), isTrue);
+  });
+
+  test('a new project shows the look the engine starts it with', () async {
+    final engine = FakeEngine();
+    final app = AppState(engine);
+    await app.init();
+    (engine.data['look']['video'] as Map)['style'] = 'neon'; // the engine carries the look over
+    await app.newProject();
+    expect(app.look!['video']['style'], 'neon');
+    expect(engine.posts.any((p) => p.$1 == '/api/project/new'), isTrue);
   });
 
   testWidgets('a phone gets a bottom bar and a menu', (tester) async {

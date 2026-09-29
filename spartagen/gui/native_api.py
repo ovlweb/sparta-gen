@@ -39,9 +39,10 @@ def arrangement_view(session) -> Optional[dict]:
             "custom": bool(session.project.arrangement),
             "progression": arr.progression, "pitching": arr.pitching, "polish": arr.polish,
             "duration": round(arr.duration, 2), "bars": arr.total_bars,
-            "sections": [{"name": s.name, "kind": s.kind, "bars": s.bars, "layout": s.layout,
+            "sections": [{"name": s.name, "kind": s.kind, "bars": s.bars, "layout": s.layout, "start": round(t0, 3),
                           "tracks": [{"id": t.id, "kind": t.kind, "pattern": t.pattern, "muted": t.muted,
-                                      "gain_db": t.gain_db} for t in s.tracks]} for s in arr.sections]}
+                                      "gain_db": t.gain_db} for t in s.tracks]}
+                         for s, t0 in zip(arr.sections, arr.section_starts())]}
 
 
 def extra_view(session) -> dict:
@@ -63,7 +64,8 @@ def extra_view(session) -> dict:
 
 
 def look_view(session) -> dict:
-    from ..render_audio import FX_AMOUNTS, FX_PRESET_NAMES, FX_PRESETS, FX_SWITCHES, MixConfig
+    from ..render_audio import FX_AMOUNTS, FX_PRESET_NAMES, FX_PRESETS, FX_SWITCHES, VOLUME_GROUPS, VOLUME_RANGE, \
+        MixConfig
     from ..render_video import STYLE_NAMES, STYLE_OPTIONS, STYLES, VideoConfig
     p = session.project
     v = VideoConfig.from_dict(dict(p.video, preset_name="720p"))
@@ -76,8 +78,63 @@ def look_view(session) -> dict:
             "fx_presets": FX_PRESET_NAMES, "fx_settings": FX_PRESETS,
             "fx_amounts": {k: {"default": d, "min": lo, "max": hi} for k, (d, lo, hi) in FX_AMOUNTS.items()},
             "fx_switches": FX_SWITCHES,
-            "mix": {k: getattr(m, k) for k in ["fx_preset", *FX_AMOUNTS, *FX_SWITCHES, "base_gain_db", "base_mode"]},
+            "volume_groups": {g: name for g, (name, _stems) in VOLUME_GROUPS.items()},
+            "volume_range": list(VOLUME_RANGE),
+            "has_base": bool(p.mix.get("base_path")),
+            "mix": {k: getattr(m, k) for k in ["fx_preset", *FX_AMOUNTS, *FX_SWITCHES, "base_gain_db", "base_mode",
+                                               "volumes", "mute_groups"]},
             "mix_set": {k: v for k, v in p.mix.items() if k not in ("base_path", "base_offset")}}
+
+
+# ── the look a new project starts with ───────────────────────────────────────
+
+LOOK_FILE = "look.json"
+#: What of a project's look and sound carries over to the next one (not its size, its base or its offset).
+_VIDEO_SKIP = ("width", "height", "fps", "crf", "preset", "memory_mb", "preset_name")
+
+
+def _look_keys() -> tuple:
+    from ..render_audio import FX_AMOUNTS, FX_SWITCHES
+    return ("fx_preset", *FX_AMOUNTS, *FX_SWITCHES, "volumes", "mute_groups")
+
+
+def save_look_defaults(root: str, project) -> None:
+    """The look and sound just chosen, kept for the projects that come next (changes are permanent)."""
+    import json
+    keys = _look_keys()
+    d = {"video": {k: v for k, v in project.video.items() if k not in _VIDEO_SKIP},
+         "mix": {k: v for k, v in project.mix.items() if k in keys}}
+    try:
+        os.makedirs(root, exist_ok=True)
+        tmp = os.path.join(root, LOOK_FILE + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(d, fh, indent=1)
+        os.replace(tmp, os.path.join(root, LOOK_FILE))
+    except OSError:
+        pass
+
+
+def apply_look_defaults(root: str, project) -> None:
+    """A new project starts with the look and sound chosen last."""
+    import json
+    try:
+        with open(os.path.join(root, LOOK_FILE), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return
+    if not isinstance(d, dict):
+        return
+    from ..render_audio import MixConfig
+    from ..render_video import VideoConfig
+    video = {k: v for k, v in dict(d.get("video") or {}).items() if k not in _VIDEO_SKIP}
+    mix = {k: v for k, v in dict(d.get("mix") or {}).items() if k in _look_keys()}
+    try:
+        VideoConfig.from_dict(dict(video, preset_name="720p"))      # nothing stale or broken gets in
+        MixConfig.from_dict(mix)
+    except (ValueError, TypeError):
+        return
+    project.video = dict(project.video, **video)
+    project.mix = dict(project.mix, **mix)
 
 
 def route(h, method: str, path: str, q: dict) -> bool:
@@ -204,7 +261,31 @@ def route(h, method: str, path: str, q: dict) -> bool:
         MixConfig.from_dict(new_mix)
         s.project.video = new_video
         s.project.mix = new_mix
+        save_look_defaults(app.root, s.project)
         return ok(look_view(s))
+
+    # ── seeing it before rendering it ──
+    if path == "/api/frame" and method == "GET":
+        # The remix's picture at t seconds with the current look: the Look page's live preview.
+        from ..render_video import encode_png
+        w = min(1920, max(160, int(float(q.get("w", 640)))))
+        hh = min(1080, max(90, int(float(q.get("h", 360)))))
+        h._send_bytes(encode_png(s.still(float(q.get("t", 0.0)), w // 2 * 2, hh // 2 * 2)), "image/png")
+        return True
+    if path == "/api/waveform" and method == "GET":
+        # The source's sound between two times, as peaks (0-1): what the sample cutter draws.
+        import numpy as np
+        from .. import SAMPLE_RATE
+        x = s.audio()
+        total = len(x) / SAMPLE_RATE
+        a = min(max(0.0, float(q.get("start", 0.0))), total)
+        z = min(max(a, float(q.get("end", a + 4.0))), total)
+        n = min(4000, max(16, int(q.get("n", 600))))
+        seg = np.abs(x[int(a * SAMPLE_RATE):int(z * SAMPLE_RATE)])
+        peaks = [float(c.max()) if c.size else 0.0 for c in np.array_split(seg, n)] if seg.size else [0.0] * n
+        top = max(max(peaks), 1e-6)
+        return ok({"start": round(a, 4), "end": round(z, 4), "duration": round(total, 4),
+                   "peaks": [round(p / top, 4) for p in peaks]})
 
     # ── exports (to paths the user chose in a Save dialog) ──
     if path == "/api/export/file" and method == "POST":

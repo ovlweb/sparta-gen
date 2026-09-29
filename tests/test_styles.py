@@ -105,3 +105,37 @@ def test_a_remix_renders_in_a_style(tmp_path, synthetic_source, style):
     from spartagen import ffmpeg as ff
     info = ff.probe(res["file"])
     assert info.has_video and (info.width, info.height) == (320, 180) and info.duration > 60
+
+
+def test_a_chord_is_three_layers_in_one_box():
+    """A chord's voices are drawn in its box, each a little smaller, from the box's top-left corner."""
+    assert RV.layer_rect(10, 20, 200, 100, 0) == (10, 20, 200, 100)
+    assert RV.layer_rect(10, 20, 200, 100, 1) == (10, 20, 190, 94)
+    assert RV.layer_rect(10, 20, 200, 100, 2) == (10, 20, 180, 90)
+    for layout in ("main", "full", "grid3", "split2", "grid4"):
+        assert RV.cell_for(_event(visual="layer", layer=1), layout) is None      # never a box of its own
+
+
+def test_a_still_is_the_frame_the_video_shows_with_the_chord_layers(tmp_path, synthetic_source):
+    from spartagen.arrangement import compile_events
+    from spartagen.project import Session
+    s = Session(workspace=str(tmp_path / "w"))
+    s.set_source(synthetic_source)
+    s.set_variant("unextended")
+    bank = s.bank()
+    arr = s.arrangement()
+    ev = compile_events(arr, set(bank.samples))
+    cfg = RV.VideoConfig.from_dict({"preset_name": "preview", "width": 320, "height": 180})
+    comp = RV.Compositor(s.project.source_path, arr, ev, bank, cfg)
+    starts = arr.section_starts()               # (a part's opening hit covers every box for an 8th)
+    chord = next(e for e in ev if e.visual == "layer" and e.t - starts[e.section] > 2.5 * arr.step_s)
+    k0 = int(chord.t * cfg.fps) + 1
+    shown = {}
+    for k in range(k0 + 3):
+        f = comp.next_frame(k)
+        if k >= k0:
+            shown[k] = f
+    for k, f in shown.items():
+        assert np.array_equal(comp.still(k / cfg.fps), f), k
+    plain = RV.Compositor(s.project.source_path, arr, [e for e in ev if e.visual != "layer"], bank, cfg)
+    assert not np.array_equal(plain.still(k0 / cfg.fps), shown[k0])       # the layers are drawn

@@ -67,14 +67,29 @@ class App:
     def __init__(self, workspace_root: Optional[str] = None, resume: bool = False):
         self.root = workspace_root or default_workspace()
         os.makedirs(self.root, exist_ok=True)
+        self._claimed: list[str] = []               # folders handed out (a project's folder appears on its save)
         self.session = self._last_session() if resume else None
         if self.session is None:
-            self.session = Session(workspace=self._new_workspace())
+            self.session = self.new_session()
         self.jobs: dict[str, Job] = {}
         self.heavy_lock = threading.Lock()
 
     def _new_workspace(self) -> str:
-        return os.path.join(self.root, time.strftime("remix-%Y%m%d-%H%M%S"))
+        """A folder of its own for a new project (two made in the same second must not share one)."""
+        base = os.path.join(self.root, time.strftime("remix-%Y%m%d-%H%M%S"))
+        path, n = base, 1
+        while os.path.exists(path) or any(os.path.abspath(path) == os.path.abspath(ws) for ws in self._claimed):
+            n += 1
+            path = f"{base}-{n}"
+        self._claimed.append(path)
+        return path
+
+    def new_session(self) -> "Session":
+        """A new project, with the look and sound chosen last."""
+        from .native_api import apply_look_defaults
+        s = Session(workspace=self._new_workspace())
+        apply_look_defaults(self.root, s.project)
+        return s
 
     def _last_session(self) -> Optional["Session"]:
         """The project worked on last (the app opens where you left it)."""
@@ -204,6 +219,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _error(self, msg: str, status: int = 400) -> None:
         self._json({"error": msg}, status)
+
+    def _send_bytes(self, data: bytes, ctype: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _body_json(self) -> dict:
         cached = getattr(self, "_body_cache", None)
@@ -387,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/project" and method == "GET":
             return self._json(app.project_view())
         if path == "/api/project/new" and method == "POST":
-            app.session = Session(workspace=app._new_workspace())
+            app.session = app.new_session()
             return self._json(app.project_view())
         if path == "/api/project/save" and method == "POST":
             where = s.project.save()

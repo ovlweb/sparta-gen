@@ -51,6 +51,17 @@ FX_PRESET_NAMES = {"xleth": "Xleth polish", "clean": "Clean", "loud": "Loud & cr
 FX_AMOUNTS = {"reverb": (1.0, 0.0, 2.5), "delay": (1.0, 0.0, 2.5), "ott": (1.0, 0.0, 2.0), "pump": (1.0, 0.0, 2.0),
               "drive": (1.0, 0.0, 2.0), "width": (1.0, 0.5, 1.8), "lofi": (0.0, 0.0, 1.0)}
 FX_SWITCHES = {"tape_stop_end": False, "risers": False, "stutter_fills": False}
+#: The volume faders, and the stems each one moves (the base file under the remix has its own: base_gain_db).
+VOLUME_GROUPS = {
+    "phrase": ("Main phrase", ("chorus", "chop")),
+    "pitches": ("Pitches", ("pitch", "pitch_soft")),
+    "chords": ("Chords", ("pitch_layers", "pad")),
+    "bass": ("Bass", ("bass",)),
+    "drums": ("Percussion", ("drums",)),
+    "quotes": ("Quotes", ("quotes",)),               # (the Madness words too)
+}
+VOLUME_RANGE = (-24.0, 12.0)            # dB a fader moves its stems by
+GROUP_OF_STEM = {stem: g for g, (_n, stems) in VOLUME_GROUPS.items() for stem in stems}
 
 
 @dataclass
@@ -65,6 +76,8 @@ class MixConfig:
     base_mode: str = "replace"        # replace (mute our drums/bass/pad) | remix (keep the source percussion) | layer
     stem_gains: dict = field(default_factory=dict)
     mute: list = field(default_factory=list)
+    volumes: dict = field(default_factory=dict)      # fader (VOLUME_GROUPS) → dB
+    mute_groups: list = field(default_factory=list)  # faders switched off: out of the mix and the picture
     tail_s: float = 2.5
     # ── sound FX (see FX_PRESETS) ──
     fx_preset: str = "xleth"
@@ -97,7 +110,15 @@ class MixConfig:
             setattr(c, k, float(min(hi, max(lo, float(getattr(c, k))))))
         for k in FX_SWITCHES:
             setattr(c, k, bool(getattr(c, k)))
+        lo, hi = VOLUME_RANGE
+        c.volumes = {g: float(min(hi, max(lo, float(v)))) for g, v in dict(c.volumes or {}).items()
+                     if g in VOLUME_GROUPS and v is not None}
+        c.mute_groups = [g for g in (c.mute_groups or []) if g in VOLUME_GROUPS]
         return c
+
+    def stem_db(self, stem: str) -> float:
+        """What the faders add to a stem's level."""
+        return self.volumes.get(GROUP_OF_STEM.get(stem, ""), 0.0)
 
 
 def muted_stems(cfg: MixConfig) -> set:
@@ -105,6 +126,8 @@ def muted_stems(cfg: MixConfig) -> set:
     replaces — on a base the remix keeps its source-made percussion and bass ("remix") or not
     ("replace"), and leaves the held chords to the base."""
     muted = set(cfg.mute)
+    for g in cfg.mute_groups:
+        muted |= set(VOLUME_GROUPS.get(g, ("", ()))[1])
     if cfg.base_path and os.path.isfile(cfg.base_path):
         if cfg.base_mode == "replace":
             muted |= BACKING_STEMS
@@ -409,7 +432,7 @@ def render_mix(arr: Arrangement, events: list[NoteEvent], bank: SampleBank, cfg:
         if sidechain is not None and name in SIDECHAINED:
             amt = SIDECHAINED[name]
             y = fx.apply_env(y, 1.0 - amt * (1.0 - sidechain))
-        lvl = STEM_LEVEL_DB.get(name, 0.0) + float(stem_gains.get(name, 0.0))
+        lvl = STEM_LEVEL_DB.get(name, 0.0) + float(stem_gains.get(name, 0.0)) + cfg.stem_db(name)
         y *= dsp.db_to_gain(lvl)
         rv, dl = STEM_SENDS.get(name, (0.0, 0.0))
         if cfg.polish == "hard":

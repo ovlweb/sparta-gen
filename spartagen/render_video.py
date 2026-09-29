@@ -221,7 +221,7 @@ def line_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[tuple[int, str
 
 def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
     v = e.visual
-    if v == "none":
+    if v in ("none", "layer"):              # (a chord's voice is drawn over the chord, in its box)
         return None
     if layout == "full":
         if v in ("kick", "snare", "hat", "hat2", "perc", "crash", "bass", "corner", "side", "voices"):
@@ -690,6 +690,248 @@ def _px(rect: Rect, W: int, H: int, gap: int) -> tuple[int, int, int, int]:
     return x0, y0, max(2, (x1 - x0) // 2 * 2), max(2, (y1 - y0) // 2 * 2)
 
 
+#: A chord's voices are drawn as layers in the chord's box, each this much smaller than the one under it,
+#: all from the box's top-left corner — the root the full box, the third over it, the fifth over that.
+LAYER_STEP = 0.05
+
+
+def layer_rect(x0: int, y0: int, w: int, h: int, layer: int) -> tuple[int, int, int, int]:
+    """Where a chord's nth voice (0 = the chord's own picture) is drawn inside its box (x0, y0, w, h)."""
+    k = max(0.5, 1.0 - LAYER_STEP * layer)
+    return x0, y0, max(2, int(w * k) // 2 * 2), max(2, int(h * k) // 2 * 2)
+
+
+def _layer_shadow(canvas: np.ndarray, x0: int, y0: int, w: int, h: int, depth: int = 3) -> None:
+    """A thin shadow along a layer's right and bottom edges, so the stacked layers read as cards."""
+    H, W = canvas.shape[:2]
+    for ys, xs in ((slice(y0 + 2, y0 + h + depth), slice(x0 + w, x0 + w + depth)),
+                   (slice(y0 + h, y0 + h + depth), slice(x0 + 2, x0 + w))):
+        a0, a1, b0, b1 = max(0, ys.start), min(H, ys.stop), max(0, xs.start), min(W, xs.stop)
+        if a1 > a0 and b1 > b0:
+            canvas[a0:a1, b0:b1] = (canvas[a0:a1, b0:b1].astype(np.uint16) * 90 >> 8).astype(np.uint8)
+
+
+def encode_png(rgb: np.ndarray) -> bytes:
+    """An RGB frame as PNG bytes (zlib only: no ffmpeg or Pillow needed, so phones can show previews too)."""
+    import struct
+    import zlib
+    h, w = rgb.shape[:2]
+    rows = np.ascontiguousarray(rgb, dtype=np.uint8).reshape(h, w * 3)
+    raw = np.concatenate([np.zeros((h, 1), dtype=np.uint8), rows], axis=1).tobytes()     # filter 0 per row
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 3)) + chunk(b"IEND", b""))
+
+
+class Compositor:
+    """The remix's picture: every part's boxes with the clips playing in them.  :meth:`next_frame` draws the
+    frames in order (the video); :meth:`still` draws any one moment (a preview of the look)."""
+
+    def __init__(self, source: str, arr: Arrangement, events: list[NoteEvent], bank: SampleBank,
+                 cfg: Optional[VideoConfig] = None, duration: Optional[float] = None,
+                 cache: Optional["ClipCache"] = None, backdrop: Optional["BlurredSource"] = None):
+        cfg = cfg or VideoConfig()
+        self.cfg, self.arr, self.bank = cfg, arr, bank
+        self.W, self.H, self.fps = W, H, fps = cfg.width, cfg.height, cfg.fps
+        info = ff.probe(source)
+        memory_mb = cfg.memory_mb
+        if os.environ.get("SPARTAGEN_MEMORY_MB", "").isdigit():      # a cap for small devices (the Android app)
+            memory_mb = min(memory_mb, int(os.environ["SPARTAGEN_MEMORY_MB"]))
+        self.cache = cache if cache is not None else ClipCache(source, bank, fps, memory_mb, info.has_video)
+        self.starts = arr.section_starts()
+        self.total = duration if duration is not None else arr.duration + 0.5
+        self.titles = Titles(W, H) if cfg.titles else None
+
+        # Visible events with their cell, sorted by start.  Each pitch line has a box of its own; a chord's
+        # other voices are layers over the chord's picture, in its box.
+        lines = line_cells(arr, events)
+        self.vis: list[tuple] = []
+        self.layers: dict[tuple, list[tuple]] = {}
+        for e in events:
+            s = bank.get(e.sample)
+            if s is None:
+                continue
+            length = max(audible_length(e, s), cfg.min_hold_s)
+            if e.choke:
+                length = min(length, max(e.max_len, 1.0 / fps))
+            if e.visual == "layer":
+                self.layers.setdefault((e.section, e.track_id, round(e.t, 6)), []).append(
+                    (e.t, e.t + length, e, s.video_rate))
+                continue
+            sec = arr.sections[e.section]
+            cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or cell_for(e, sec.layout)
+            if cell is None:
+                continue
+            if cell == "full":
+                length = min(length, 2 * arr.step_s)      # the opening hit: an 8th, then the section's frame
+            self.vis.append((e.t, e.t + length, cell, e, s.video_rate))
+        self.vis.sort(key=lambda z: z[0])
+        for lst in self.layers.values():
+            lst.sort(key=lambda z: z[2].layer)
+        self._vis_starts = [a[0] for a in self.vis]
+        self.kicks = sorted(e.t for e in events if e.sample == "kick")
+        self.crashes = sorted(e.t for e in events if e.sample == "crash")
+
+        self.bg_val = 0 if cfg.background == "black" else 14
+        self.blur_bg = (backdrop or BlurredSource(source, W, H, fps, info.duration)) \
+            if (cfg.background in ("blur", "mirror") and info.has_video) else None
+        self.gradient = _gradient(W, H) if cfg.background == "gradient" or (
+            cfg.background == "mirror" and self.blur_bg is None) else None
+        self.post = PostFX(cfg, W, H)
+        self.user_color = _hex_rgb(cfg.border_color) if cfg.border_color != "auto" else None
+        # (drawing in order)
+        self._ptr = 0
+        self._active: list[tuple] = []
+        self._last: dict[tuple[int, str], tuple] = {}
+
+    @property
+    def n_frames(self) -> int:
+        return int(math.ceil(self.total * self.fps))
+
+    def section_at(self, t: float) -> int:
+        return min(max(0, int(np.searchsorted(self.starts, t, side="right")) - 1), len(self.arr.sections) - 1)
+
+    def next_frame(self, k: int) -> np.ndarray:
+        """Frame k of the video (call in order: 0, 1, 2 …)."""
+        t = k / self.fps
+        while self._ptr < len(self.vis) and self.vis[self._ptr][0] <= t:
+            self._active.append(self.vis[self._ptr])
+            self._ptr += 1
+        self._active = [a for a in self._active if a[1] > t - 2.0 / self.fps]
+        return self._draw(t, k, self._active, self._last, remember=True)
+
+    def still(self, t: float) -> np.ndarray:
+        """The picture at t seconds, drawn on its own (what the video shows then)."""
+        t = min(max(0.0, t), max(0.0, self.total - 1.0 / self.fps))
+        si = self.section_at(t)
+        upto = int(np.searchsorted(self._vis_starts, t, side="right"))
+        started = self.vis[:upto]
+        active = [a for a in started if a[1] > t - 2.0 / self.fps]
+        last: dict[tuple[int, str], tuple] = {}
+        for a in started:                      # what each box showed last in this part (held, dimmed)
+            if a[3].section == si:
+                prev = last.get((si, a[2]))
+                if prev is None or a[0] >= prev[0]:
+                    last[(si, a[2])] = a
+        return self._draw(t, int(round(t * self.fps)), active, last, remember=False)
+
+    def _since(self, times: list, t: float) -> float:
+        i = int(np.searchsorted(times, t, side="right")) - 1
+        return t - times[i] if i >= 0 else 1e9
+
+    def _clip(self, e: NoteEvent, t0: float, t1: float, rate: float, w: int, h: int, t: float,
+              dim: float) -> Optional[np.ndarray]:
+        """The clip of a visible event (shown t0 … t1) at time t, flipped and coloured, sized w×h."""
+        cfg = self.cfg
+        age = t - t0
+        t_src = age * rate if dim == 1.0 else (t1 - t0) * rate
+        fr = self.cache.frame(e.sample, w, h, t_src)
+        if fr is None:
+            return None
+        fr = _apply_flip(fr, flip_for(e, cfg.flip_mode))
+        fresh = dim == 1.0 and age < 1.6 / self.fps
+        if cfg.color_fx != "none":
+            fr = cell_fx(fr, e, cfg, fresh)
+        if cfg.flash and fresh:
+            fr = np.minimum(fr.astype(np.uint16) * 3 // 2 + 20, 255).astype(np.uint8)
+        elif dim != 1.0:
+            fr = (fr.astype(np.uint16) * int(dim * 256) >> 8).astype(np.uint8)
+        return fr[:h, :w]
+
+    def _draw(self, t: float, k: int, active: list[tuple], last_in_cell: dict, remember: bool) -> np.ndarray:
+        cfg, arr, W, H = self.cfg, self.arr, self.W, self.H
+        si = self.section_at(t)
+        sec = arr.sections[si]
+        layout = sec.layout
+        cells = LAYOUT_CELLS[layout]
+        canvas = np.full((H, W, 3), self.bg_val, dtype=np.uint8)
+        if self.blur_bg is not None and sec.kind not in cfg.blink_sections:
+            # Our source, blurred and dimmed, behind the boxes (the blink sections stay black
+            # between their hits — silence in between).
+            bg = self.blur_bg.frame(t)
+            if bg is not None:
+                if cfg.background == "mirror":
+                    bg = _mirror_bg(bg)
+                canvas = (bg.astype(np.uint16) * int(cfg.background_dim * 256) >> 8).astype(np.uint8)
+        elif self.gradient is not None and sec.kind not in cfg.blink_sections:
+            canvas = self.gradient.copy()
+        elif layout == "full" or self.bg_val == 0:
+            canvas[:] = 0
+        # Latest event per cell wins.
+        current: dict[str, tuple] = {}
+        for a in active:
+            if a[0] <= t < a[1] and arr.sections[a[3].section].layout == layout:
+                prev = current.get(a[2])
+                if prev is None or a[0] >= prev[0]:
+                    current[a[2]] = a
+        on_top: list[tuple] = []            # popping clips go over their neighbours
+        borders: list[tuple] = []
+        shadows: list[tuple] = []
+        for cell_name in cells:
+            a = current.get(cell_name)
+            dim = 1.0
+            if a is None:
+                if not cfg.hold_last or sec.kind in cfg.blink_sections or cell_name == "full":
+                    continue
+                a = last_in_cell.get((si, cell_name))
+                if a is None:
+                    continue
+                dim = cfg.hold_dim if layout != "full" else 0.55
+            elif remember:
+                last_in_cell[(si, cell_name)] = a
+            x0, y0, cw, ch = _px(cells[cell_name], W, H, cfg.gap if layout != "full" else 0)
+            e = a[3]
+            fr = self._clip(e, a[0], a[1], a[4], cw, ch, t, dim)
+            if fr is None:
+                continue
+            ax, ay, aw, ah = (x0, y0, cw, ch)
+            if dim == 1.0 and cfg.hit_anim != "none" and layout != "full":
+                ax, ay, aw, ah = anim_rect(x0, y0, cw, ch, e, t - a[0], cfg, W, H)
+                if (aw, ah) != (cw, ch):
+                    fr = _resize_nn(fr, aw, ah)
+            moved = (ax, ay, aw, ah) != (x0, y0, cw, ch)
+            if moved:
+                on_top.append((fr, ax, ay))
+            else:
+                canvas[y0:y0 + ch, x0:x0 + cw] = fr
+            color = self.user_color or PART_COLORS[part_of(e)]
+            if cfg.border != "none" and layout != "full":
+                borders.append((ax, ay, aw, ah, color, 1.0 if dim == 1.0 else 0.45))
+            # A chord: its other voices, each a layer over the one under it (while it sounds).
+            for lay in self.layers.get((e.section, e.track_id, round(e.t, 6)), ()):
+                if dim == 1.0 and not (lay[0] <= t < lay[1]):
+                    continue
+                lx, ly, lw, lh = layer_rect(ax, ay, aw, ah, lay[2].layer)
+                lfr = self._clip(lay[2], lay[0], lay[1], lay[3], lw, lh, t, dim)
+                if lfr is None:
+                    continue
+                if moved:
+                    on_top.append((lfr, lx, ly))
+                    shadows.append((lx, ly, lw, lh))
+                else:
+                    blit(canvas, lfr, lx, ly)
+                    _layer_shadow(canvas, lx, ly, lw, lh)
+                if cfg.border != "none" and layout != "full":
+                    borders.append((lx, ly, lw, lh, color, 1.0 if dim == 1.0 else 0.45))
+        for fr, ax, ay in on_top:
+            blit(canvas, fr, ax, ay)
+        for sx, sy, sw, sh in shadows:
+            _layer_shadow(canvas, sx, sy, sw, sh)
+        for bx, by, bw, bh, color, bright in borders:
+            draw_border(canvas, bx, by, bw, bh, color, cfg.border, bright)
+        # Kick punch: a short zoom bounce on every kick.
+        kick_dt = self._since(self.kicks, t)
+        if cfg.punch > 0 and 0 <= kick_dt < 0.12 and layout != "full":
+            canvas = _zoom(canvas, 1.0 + cfg.punch * (1.0 - kick_dt / 0.12))
+        canvas = self.post.apply(canvas, k, t, kick_dt, self._since(self.crashes, t), t - self.starts[si])
+        if self.titles is not None and self.titles.ok:
+            _draw_titles(canvas, self.titles, arr, si, t - self.starts[si], W, H, cfg.intro_title)
+        return canvas
+
+
 def render_video(
     out_path: str,
     source: str,
@@ -701,141 +943,14 @@ def render_video(
     progress: Progress = None,
     duration: Optional[float] = None,
 ) -> str:
-    cfg = cfg or VideoConfig()
-    W, H, fps = cfg.width, cfg.height, cfg.fps
-    info = ff.probe(source)
-    memory_mb = cfg.memory_mb
-    if os.environ.get("SPARTAGEN_MEMORY_MB", "").isdigit():      # a cap for small devices (the Android app)
-        memory_mb = min(memory_mb, int(os.environ["SPARTAGEN_MEMORY_MB"]))
-    cache = ClipCache(source, bank, fps, memory_mb, info.has_video)
-    starts = arr.section_starts()
-    total = duration if duration is not None else arr.duration + 0.5
-    n_frames = int(math.ceil(total * fps))
-    titles = Titles(W, H) if cfg.titles else None
-
-    # Visible events with their cell, sorted by start.  Each pitch line has a box of its own.
-    lines = line_cells(arr, events)
-    vis = []
-    for e in events:
-        sec = arr.sections[e.section]
-        cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or cell_for(e, sec.layout)
-        if cell is None:
-            continue
-        s = bank.get(e.sample)
-        if s is None:
-            continue
-        length = max(audible_length(e, s), cfg.min_hold_s)
-        if e.choke:
-            length = min(length, max(e.max_len, 1.0 / fps))
-        if cell == "full":
-            length = min(length, 2 * arr.step_s)      # the opening hit: an 8th, then the section's frame
-        vis.append((e.t, e.t + length, cell, e, s.video_rate))
-    vis.sort(key=lambda z: z[0])
-    kicks = sorted(e.t for e in events if e.sample == "kick")
-    crashes = sorted(e.t for e in events if e.sample == "crash")
-
-    bg_val = 0 if cfg.background == "black" else 14
-    blur_bg = BlurredSource(source, W, H, fps, info.duration) \
-        if (cfg.background in ("blur", "mirror") and info.has_video) else None
-    gradient = _gradient(W, H) if cfg.background == "gradient" or (cfg.background == "mirror" and blur_bg is None) \
-        else None
-    post = PostFX(cfg, W, H)
-    user_color = _hex_rgb(cfg.border_color) if cfg.border_color != "auto" else None
-    ptr = 0
-    active: list[tuple] = []
-    last_in_cell: dict[tuple[int, str], tuple] = {}
-
-    def since(times: list, t: float) -> float:
-        i = int(np.searchsorted(times, t, side="right")) - 1
-        return t - times[i] if i >= 0 else 1e9
-
-    with ff.VideoWriter(out_path, W, H, fps, audio_path=audio_wav, crf=cfg.crf, preset=cfg.preset) as vw:
-        for k in range(n_frames):
-            t = k / fps
-            si = max(0, np.searchsorted(starts, t, side="right") - 1)
-            sec = arr.sections[min(si, len(arr.sections) - 1)]
-            layout = sec.layout
-            cells = LAYOUT_CELLS[layout]
-            canvas = np.full((H, W, 3), bg_val, dtype=np.uint8)
-            if blur_bg is not None and sec.kind not in cfg.blink_sections:
-                # Our source, blurred and dimmed, behind the boxes (the blink sections stay black
-                # between their hits — silence in between).
-                bg = blur_bg.frame(t)
-                if bg is not None:
-                    if cfg.background == "mirror":
-                        bg = _mirror_bg(bg)
-                    canvas = (bg.astype(np.uint16) * int(cfg.background_dim * 256) >> 8).astype(np.uint8)
-            elif gradient is not None and sec.kind not in cfg.blink_sections:
-                canvas = gradient.copy()
-            elif layout == "full" or bg_val == 0:
-                canvas[:] = 0
-            while ptr < len(vis) and vis[ptr][0] <= t:
-                active.append(vis[ptr])
-                ptr += 1
-            active = [a for a in active if a[1] > t - 2.0 / fps]
-            # Latest event per cell wins.
-            current: dict[str, tuple] = {}
-            for a in active:
-                if a[0] <= t < a[1] and arr.sections[a[3].section].layout == layout:
-                    prev = current.get(a[2])
-                    if prev is None or a[0] >= prev[0]:
-                        current[a[2]] = a
-            on_top: list[tuple] = []            # popping clips go over their neighbours
-            borders: list[tuple] = []
-            for cell_name in cells:
-                a = current.get(cell_name)
-                dim = 1.0
-                if a is None:
-                    if not cfg.hold_last or sec.kind in cfg.blink_sections or cell_name == "full":
-                        continue
-                    a = last_in_cell.get((si, cell_name))
-                    if a is None:
-                        continue
-                    dim = cfg.hold_dim if layout != "full" else 0.55
-                else:
-                    last_in_cell[(si, cell_name)] = a
-                x0, y0, cw, ch = _px(cells[cell_name], W, H, cfg.gap if layout != "full" else 0)
-                e = a[3]
-                age = t - a[0]
-                t_src = age * a[4] if dim == 1.0 else (a[1] - a[0]) * a[4]
-                fr = cache.frame(e.sample, cw, ch, t_src)
-                if fr is None:
-                    continue
-                fr = _apply_flip(fr, flip_for(e, cfg.flip_mode))
-                fresh = dim == 1.0 and age < 1.6 / fps
-                if cfg.color_fx != "none":
-                    fr = cell_fx(fr, e, cfg, fresh)
-                if cfg.flash and fresh:
-                    fr = np.minimum(fr.astype(np.uint16) * 3 // 2 + 20, 255).astype(np.uint8)
-                elif dim != 1.0:
-                    fr = (fr.astype(np.uint16) * int(dim * 256) >> 8).astype(np.uint8)
-                fr = fr[:ch, :cw]
-                ax, ay, aw, ah = (x0, y0, cw, ch)
-                if dim == 1.0 and cfg.hit_anim != "none" and layout != "full":
-                    ax, ay, aw, ah = anim_rect(x0, y0, cw, ch, e, age, cfg, W, H)
-                    if (aw, ah) != (cw, ch):
-                        fr = _resize_nn(fr, aw, ah)
-                if (ax, ay, aw, ah) != (x0, y0, cw, ch):
-                    on_top.append((fr, ax, ay))
-                else:
-                    canvas[y0:y0 + ch, x0:x0 + cw] = fr
-                if cfg.border != "none" and layout != "full":
-                    color = user_color or PART_COLORS[part_of(e)]
-                    borders.append((ax, ay, aw, ah, color, 1.0 if dim == 1.0 else 0.45))
-            for fr, ax, ay in on_top:
-                blit(canvas, fr, ax, ay)
-            for bx, by, bw, bh, color, bright in borders:
-                draw_border(canvas, bx, by, bw, bh, color, cfg.border, bright)
-            # Kick punch: a short zoom bounce on every kick.
-            kick_dt = since(kicks, t)
-            if cfg.punch > 0 and 0 <= kick_dt < 0.12 and layout != "full":
-                canvas = _zoom(canvas, 1.0 + cfg.punch * (1.0 - kick_dt / 0.12))
-            canvas = post.apply(canvas, k, t, kick_dt, since(crashes, t), t - starts[si])
-            if titles is not None and titles.ok:
-                _draw_titles(canvas, titles, arr, si, t - starts[si], W, H, cfg.intro_title)
-            vw.write(canvas)
+    comp = Compositor(source, arr, events, bank, cfg, duration)
+    n = comp.n_frames
+    with ff.VideoWriter(out_path, comp.W, comp.H, comp.fps, audio_path=audio_wav, crf=comp.cfg.crf,
+                        preset=comp.cfg.preset) as vw:
+        for k in range(n):
+            vw.write(comp.next_frame(k))
             if progress and k % 48 == 0:
-                progress(k / n_frames, "rendering video")
+                progress(k / n, "rendering video")
     if progress:
         progress(1.0, "video done")
     return out_path

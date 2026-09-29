@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -12,6 +13,36 @@ const _layouts = {
   'grid3': '3×3 grid',
   'grid4': '4×4 grid',
 };
+
+const _layoutIcons = {
+  'main': Icons.dashboard_outlined,
+  'full': Icons.crop_din,
+  'split2': Icons.vertical_split_outlined,
+  'grid3': Icons.grid_view,
+  'grid4': Icons.apps,
+};
+
+/// Each picture's boxes (x, y, w, h from 0 to 1), as the engine lays them out.
+List<Rect> _layoutBoxes(String layout) {
+  Rect r(double x, double y, double w, double h) => Rect.fromLTWH(x, y, w, h);
+  List<Rect> grid(int n) => [
+        for (var row = 0; row < n; row++)
+          for (var col = 0; col < n; col++) r(col / n, row / n, 1 / n, 1 / n),
+      ];
+  return switch (layout) {
+    'main' => [
+        r(0.2, 0.2, 0.6, 0.6),
+        for (var i = 0; i < 5; i++) r(0.2 * i, 0, 0.2, 0.2),
+        for (var i = 0; i < 5; i++) r(0.2 * i, 0.8, 0.2, 0.2),
+        r(0, 0.2, 0.2, 0.6),
+        r(0.8, 0.2, 0.2, 0.6),
+      ],
+    'full' => [r(0, 0, 1, 1)],
+    'split2' => [r(0, 0, 0.5, 1), r(0.5, 0, 0.5, 1)],
+    'grid4' => grid(4),
+    _ => grid(3),
+  };
+}
 
 /// Which pattern families fit which kind of track.
 const _trackSections = {
@@ -51,8 +82,9 @@ class _RemixPageState extends State<RemixPage> {
   final _title = TextEditingController();
   final _titleFocus = FocusNode();
   int _gen = 0; // bumped whenever the list is rebuilt, so the text fields start over
-  String _addKind = 'chorus';
-  int _addBars = 8;
+  int _sel = 0; // the part shown under the timeline
+  double _barPx = 0; // the timeline's zoom: pixels per bar (0: the whole remix fits)
+  double _dragBars = 0; // bars while a part's edge is dragged
 
   AppState get app => widget.app;
 
@@ -244,9 +276,8 @@ class _RemixPageState extends State<RemixPage> {
     return tip == null ? w : Tooltip(message: tip, child: w);
   }
 
-  // ── structure ──
+  // ── structure: the parts on a timeline ──
   Widget _structureCard(BuildContext context, Map<String, dynamic>? summary) {
-    final cs = Theme.of(context).colorScheme;
     final err = summary?['error'];
     if (err != null && _arr == null) {
       return SectionCard(
@@ -267,7 +298,8 @@ class _RemixPageState extends State<RemixPage> {
       );
     }
     final secs = _sections;
-    final bars = secs.fold<int>(0, (x, s) => x + ((s['bars'] as num?)?.toInt() ?? 0));
+    if (_sel >= secs.length) _sel = secs.isEmpty ? 0 : secs.length - 1;
+    final bars = secs.fold<int>(0, (x, s) => x + _barsOf(s));
     final bpm = (a['bpm'] as num?)?.toDouble() ?? 140;
     final seconds = bars * 4 * 60 / bpm;
     return SectionCard(
@@ -276,76 +308,208 @@ class _RemixPageState extends State<RemixPage> {
           'key ${a['key']}${_dirty ? ' · not saved yet' : ''}',
       trailing: summary?['custom'] == true ? const Pill('edited', icon: Icons.edit) : null,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _timeline(secs),
-        const SizedBox(height: 14),
-        for (var i = 0; i < secs.length; i++) _sectionTile(context, i, secs[i]),
+        Text('Drag a part to move it, drag its right edge to make it longer or shorter, tap it to change it.',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
         const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: cs.surfaceContainer, borderRadius: BorderRadius.circular(10)),
-          child: Wrap(spacing: 12, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            const Text('Add a part'),
-            LabeledDropdown<String>(
-              label: 'Part',
-              width: 200,
-              value: _addKind,
-              items: {for (final k in _addable) k: partNames[k] ?? k},
-              onChanged: (v) => setState(() => _addKind = v),
-            ),
-            _Stepper(label: 'bars', value: _addBars, min: 1, max: 64, onChanged: (v) => setState(() => _addBars = v)),
-            FilledButton.tonalIcon(
-              onPressed: app.busy ? null : _addSection,
-              icon: const Icon(Icons.add),
-              label: const Text('Add before the ending'),
-            ),
-          ]),
-        ),
+        _timeline(context, secs, bpm),
+        const SizedBox(height: 10),
+        _palette(context),
+        const SizedBox(height: 14),
+        if (secs.isNotEmpty) _partEditor(context, _sel, secs[_sel]),
       ]),
     );
   }
 
-  Future<void> _addSection() async {
-    final sec = await app.newSection(_addKind, _addBars);
+  static int _barsOf(Map<String, dynamic> s) => (s['bars'] as num?)?.toInt() ?? 1;
+
+  static const _minBlock = 52.0; // a part on the timeline is never narrower than this (px)
+
+  static const _defaultBars = {
+    'intro': 4, 'intro_hits': 2, 'chorus': 8, 'dundundenden': 8, 'epicness': 8, 'chords': 4, 'awesomeness1': 4, //
+    'awesomeness2': 4, 'madness': 8, 'execution': 8, 'chorus_final': 8, 'ending': 2,
+  };
+
+  /// A new part after the one shown (an ending stays last).
+  Future<void> _addSection(String kind) async {
+    final sec = await app.newSection(kind, _defaultBars[kind] ?? 8);
     if (sec == null || _arr == null) return;
     final list = _arr!['sections'] as List;
-    final at = list.isEmpty
-        ? 0
-        : ((list.last as Map)['kind'] == 'ending' ? list.length - 1 : list.length);
+    var at = list.isEmpty ? 0 : _sel + 1;
+    if (kind != 'ending' && at == list.length && list.isNotEmpty && (list.last as Map)['kind'] == 'ending') {
+      at = list.length - 1;
+    }
     setState(() {
       list.insert(at, sec);
+      _sel = at;
       _gen++;
-      _open
-        ..clear()
-        ..add(at);
+      _open.clear();
       _dirty = true;
     });
   }
 
-  Widget _timeline(List<Map<String, dynamic>> secs) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        height: 34,
-        child: Row(children: [
-          for (final s in secs)
-            Expanded(
-              flex: ((s['bars'] as num?)?.toInt() ?? 1).clamp(1, 999),
-              child: Tooltip(
-                message: '${_name(s)} · ${s['bars']} bars',
-                child: Container(
-                  margin: const EdgeInsets.only(right: 1),
-                  color: partColor('${s['kind']}'),
-                  alignment: Alignment.center,
-                  child: Text(_name(s),
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                      style: TextStyle(fontSize: 11, color: onPartColor('${s['kind']}'), fontWeight: FontWeight.w600)),
-                ),
-              ),
-            ),
+  Widget _timeline(BuildContext context, List<Map<String, dynamic>> secs, double bpm) {
+    final cs = Theme.of(context).colorScheme;
+    final list = _arr!['sections'] as List;
+    final total = secs.fold<int>(0, (x, s) => x + _barsOf(s));
+    return LayoutBuilder(builder: (context, box) {
+      // To fit the whole remix: short parts keep a readable width, the others share what is left.
+      final room = box.maxWidth - 6.0 * secs.length;
+      var fit = total == 0 ? 24.0 : room / total;
+      for (var k = 0; k < 3 && total > 0; k++) {
+        final small = secs.where((s) => _barsOf(s) * fit < _minBlock).toList();
+        final rest = total - small.fold<int>(0, (x, s) => x + _barsOf(s));
+        if (rest <= 0) break;
+        fit = (room - small.length * _minBlock) / rest;
+      }
+      final px = (_barPx > 0 ? _barPx : fit).clamp(4.0, 90.0).toDouble();
+      final starts = <int>[];
+      var bar = 0;
+      for (final s in secs) {
+        starts.add(bar);
+        bar += _barsOf(s);
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SizedBox(
+          height: 96,
+          child: ReorderableListView.builder(
+            scrollDirection: Axis.horizontal,
+            buildDefaultDragHandles: false,
+            itemCount: secs.length,
+            proxyDecorator: (child, i, animation) => Material(color: Colors.transparent, elevation: 8, child: child),
+            onReorderItem: (from, to) {
+              if (to == from) return;
+              list.insert(to, list.removeAt(from));
+              _sel = to;
+              _changed(rebuilt: true);
+            },
+            itemBuilder: (context, i) =>
+                _block(context, i, secs[i], px, starts[i], bpm, key: ValueKey('part-$_gen-$i')),
+          ),
+        ),
+        Row(children: [
+          IconButton(
+            tooltip: 'Zoom out',
+            icon: const Icon(Icons.zoom_out),
+            onPressed: () => setState(() => _barPx = max(4, px / 1.5)),
+          ),
+          IconButton(
+            tooltip: 'Zoom in',
+            icon: const Icon(Icons.zoom_in),
+            onPressed: () => setState(() => _barPx = min(90, px * 1.5)),
+          ),
+          if (_barPx > 0)
+            TextButton(onPressed: () => setState(() => _barPx = 0), child: const Text('Fit the whole remix')),
+          const Spacer(),
+          Text('${secs.length} parts', style: TextStyle(color: cs.onSurfaceVariant)),
         ]),
+      ]);
+    });
+  }
+
+  /// A part on the timeline: as wide as it is long, its colour, name, length, picture and start.
+  Widget _block(BuildContext context, int i, Map<String, dynamic> s, double px, int startBar, double bpm,
+      {required Key key}) {
+    final cs = Theme.of(context).colorScheme;
+    final kind = '${s['kind']}';
+    final bars = _barsOf(s);
+    final selected = i == _sel;
+    final color = partColor(kind);
+    final on = onPartColor(kind);
+    final width = max(_minBlock, bars * px);
+    final platform = Theme.of(context).platform;
+    final touch = platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+    final body = GestureDetector(
+      onTap: () => setState(() => _sel = i),
+      child: Tooltip(
+        message: '${_name(s)} · $bars bars · from ${fmtDuration(startBar * 4 * 60 / bpm)}',
+        waitDuration: const Duration(milliseconds: 600),
+        child: Container(
+          width: width - 12,
+          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
+            border: Border.all(color: selected ? cs.onSurface : Colors.transparent, width: 3),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_name(s),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: on, fontWeight: FontWeight.w700, fontSize: 12.5)),
+            Text('$bars bar${bars == 1 ? '' : 's'}',
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: TextStyle(color: on.withValues(alpha: 0.85), fontSize: 11)),
+            const Spacer(),
+            Row(children: [
+              Icon(_layoutIcons['${s['layout']}'] ?? Icons.dashboard_outlined, size: 14, color: on),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(fmtDuration(startBar * 4 * 60 / bpm),
+                    maxLines: 1, overflow: TextOverflow.clip, style: TextStyle(color: on, fontSize: 10.5)),
+              ),
+            ]),
+          ]),
+        ),
       ),
     );
+    // Its right edge: drag it to make the part longer or shorter, a bar at a time.
+    final edge = MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) => _dragBars = bars.toDouble(),
+        onHorizontalDragUpdate: (d) {
+          _dragBars += d.delta.dx / px;
+          final nb = _dragBars.round().clamp(1, 64);
+          if (nb != _barsOf(s)) {
+            s['bars'] = nb;
+            _sel = i;
+            _changed();
+          }
+        },
+        child: Tooltip(
+          message: 'Drag to change its length',
+          waitDuration: const Duration(milliseconds: 600),
+          child: Container(
+            width: 12,
+            decoration: BoxDecoration(
+              color: Color.lerp(color, Colors.black, 0.3),
+              borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+            ),
+            alignment: Alignment.center,
+            child: Container(width: 2, height: 30, color: on.withValues(alpha: 0.7)),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      key: key,
+      padding: const EdgeInsets.only(right: 6),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        touch
+            ? ReorderableDelayedDragStartListener(index: i, child: body)
+            : ReorderableDragStartListener(index: i, child: body),
+        edge,
+      ]),
+    );
+  }
+
+  /// The parts one can add: a tap puts one after the part shown.
+  Widget _palette(BuildContext context) {
+    return Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      const Text('Add a part:'),
+      for (final k in _addable)
+        ActionChip(
+          avatar: CircleAvatar(backgroundColor: partColor(k), radius: 7),
+          label: Text(partNames[k] ?? k),
+          tooltip: 'Add ${partNames[k] ?? k} after the part shown',
+          onPressed: app.busy ? null : () => _addSection(k),
+        ),
+    ]);
   }
 
   static String _name(Map<String, dynamic> s) {
@@ -353,121 +517,127 @@ class _RemixPageState extends State<RemixPage> {
     return n.isNotEmpty ? n : (partNames['${s['kind']}'] ?? '${s['kind']}');
   }
 
-  Widget _sectionTile(BuildContext context, int i, Map<String, dynamic> s) {
+  /// The part tapped on the timeline: its name, length, place, picture and tracks.
+  Widget _partEditor(BuildContext context, int i, Map<String, dynamic> s) {
     final cs = Theme.of(context).colorScheme;
+    final kind = '${s['kind']}';
     final open = _open.contains(i);
     final list = _arr!['sections'] as List;
     final tracks = [for (final t in (s['tracks'] as List? ?? const [])) (t as Map).cast<String, dynamic>()];
+    final layout = '${s['layout'] ?? 'grid3'}';
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
       decoration: BoxDecoration(
         color: cs.surfaceContainer,
-        borderRadius: BorderRadius.circular(10),
-        border: Border(left: BorderSide(color: partColor('${s['kind']}'), width: 5)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: partColor(kind), width: 6)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
-          child: Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            SizedBox(
-              width: 200,
-              child: _InlineField(
-                key: ValueKey('name-$_gen-$i'),
-                initial: _name(s),
-                onChanged: (v) {
-                  s['name'] = v;
-                  _changed();
-                },
-              ),
-            ),
-            SizedBox(
-              width: 120,
-              child: Text(partNames['${s['kind']}'] ?? '${s['kind']}',
-                  overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onSurfaceVariant)),
-            ),
-            _Stepper(
-              label: 'bars',
-              value: (s['bars'] as num?)?.toInt() ?? 8,
-              min: 1,
-              max: 64,
+        Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          SizedBox(
+            width: 220,
+            child: _InlineField(
+              key: ValueKey('name-$_gen-$i'),
+              initial: _name(s),
+              label: 'Part ${i + 1} of ${list.length}',
               onChanged: (v) {
-                s['bars'] = v;
+                s['name'] = v;
                 _changed();
               },
             ),
-            LabeledDropdown<String>(
-              label: 'Picture',
-              width: 170,
-              value: '${s['layout'] ?? 'grid3'}',
-              items: _layouts,
-              onChanged: (v) {
-                s['layout'] = v;
-                _changed();
-              },
-            ),
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(
-                tooltip: 'Move earlier',
-                icon: const Icon(Icons.arrow_upward),
-                onPressed: i == 0
-                    ? null
-                    : () {
-                        list.insert(i - 1, list.removeAt(i));
-                        _changed(rebuilt: true);
-                      },
-              ),
-              IconButton(
-                tooltip: 'Move later',
-                icon: const Icon(Icons.arrow_downward),
-                onPressed: i == list.length - 1
-                    ? null
-                    : () {
-                        list.insert(i + 1, list.removeAt(i));
-                        _changed(rebuilt: true);
-                      },
-              ),
-              IconButton(
-                tooltip: 'Duplicate',
-                icon: const Icon(Icons.copy_all_outlined),
-                onPressed: () {
-                  list.insert(i + 1, jsonDecode(jsonEncode(s)));
-                  _changed(rebuilt: true);
-                },
-              ),
-              IconButton(
-                tooltip: 'Remove',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: list.length <= 1
-                    ? null
-                    : () async {
-                        final ok = await showDialog<bool>(
-                          context: context,
-                          builder: (c) => AlertDialog(
-                            title: Text('Remove ${_name(s)}?'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Remove')),
-                            ],
-                          ),
-                        );
-                        if (ok != true) return;
-                        list.removeAt(i);
-                        _changed(rebuilt: true);
-                      },
-              ),
-              TextButton.icon(
-                onPressed: () => setState(() => open ? _open.remove(i) : _open.add(i)),
-                icon: Icon(open ? Icons.expand_less : Icons.expand_more),
-                label: Text('Tracks (${tracks.length})'),
-              ),
-            ]),
-          ]),
-        ),
-        if (open)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: Column(children: [for (var j = 0; j < tracks.length; j++) _trackRow(context, tracks[j], 'pt-$_gen-$i-$j')]),
           ),
+          Pill(partNames[kind] ?? kind, color: partColor(kind)),
+          _Stepper(
+            label: 'bars',
+            value: _barsOf(s),
+            min: 1,
+            max: 64,
+            onChanged: (v) {
+              s['bars'] = v;
+              _changed();
+            },
+          ),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              tooltip: 'Move earlier',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: i == 0
+                  ? null
+                  : () {
+                      list.insert(i - 1, list.removeAt(i));
+                      _sel = i - 1;
+                      _changed(rebuilt: true);
+                    },
+            ),
+            IconButton(
+              tooltip: 'Move later',
+              icon: const Icon(Icons.arrow_forward),
+              onPressed: i == list.length - 1
+                  ? null
+                  : () {
+                      list.insert(i + 1, list.removeAt(i));
+                      _sel = i + 1;
+                      _changed(rebuilt: true);
+                    },
+            ),
+            IconButton(
+              tooltip: 'Duplicate',
+              icon: const Icon(Icons.copy_all_outlined),
+              onPressed: () {
+                list.insert(i + 1, jsonDecode(jsonEncode(s)));
+                _sel = i + 1;
+                _changed(rebuilt: true);
+              },
+            ),
+            IconButton(
+              tooltip: 'Remove',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: list.length <= 1
+                  ? null
+                  : () async {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (c) => AlertDialog(
+                          title: Text('Remove ${_name(s)}?'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Remove')),
+                          ],
+                        ),
+                      );
+                      if (ok != true) return;
+                      list.removeAt(i);
+                      _sel = max(0, i - 1);
+                      _changed(rebuilt: true);
+                    },
+            ),
+          ]),
+        ]),
+        const SizedBox(height: 12),
+        Text('Picture', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          for (final e in _layouts.entries)
+            _LayoutChoice(
+              layout: e.key,
+              label: e.value,
+              selected: layout == e.key,
+              onTap: () {
+                s['layout'] = e.key;
+                _changed();
+              },
+            ),
+        ]),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => setState(() => open ? _open.remove(i) : _open.add(i)),
+            icon: Icon(open ? Icons.expand_less : Icons.expand_more),
+            label: Text('Tracks (${tracks.length})'),
+          ),
+        ),
+        if (open) ...[for (var j = 0; j < tracks.length; j++) _trackRow(context, tracks[j], 'pt-$_gen-$i-$j')],
       ]),
     );
   }
@@ -656,6 +826,79 @@ class _RemixPageState extends State<RemixPage> {
   }
 }
 
+/// A picture a part can have, drawn as its boxes; tap to use it.
+class _LayoutChoice extends StatelessWidget {
+  const _LayoutChoice({required this.layout, required this.label, required this.selected, required this.onTap});
+
+  final String layout;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: 118,
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: selected ? cs.primary.withValues(alpha: 0.12) : cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? cs.primary : cs.outlineVariant, width: selected ? 2 : 1),
+          ),
+          child: Column(children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: CustomPaint(
+                painter: _LayoutPainter(
+                  boxes: _layoutBoxes(layout),
+                  main: layout == 'main' || layout == 'full',
+                  fill: selected ? cs.primary : cs.onSurfaceVariant,
+                  back: Colors.black,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _LayoutPainter extends CustomPainter {
+  _LayoutPainter({required this.boxes, required this.main, required this.fill, required this.back});
+
+  final List<Rect> boxes;
+  final bool main; // the first box is the main phrase's (drawn stronger)
+  final Color fill;
+  final Color back;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRRect(RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(4)), Paint()..color = back);
+    for (var i = 0; i < boxes.length; i++) {
+      final b = boxes[i];
+      final rect = Rect.fromLTWH(b.left * size.width + 1, b.top * size.height + 1, b.width * size.width - 2,
+          b.height * size.height - 2);
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(2)),
+          Paint()..color = fill.withValues(alpha: main && i == 0 ? 0.95 : 0.55));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LayoutPainter old) => old.fill != fill || old.boxes.length != boxes.length;
+}
+
 class _PatternDialog extends StatefulWidget {
   const _PatternDialog({required this.groups, required this.current});
 
@@ -780,7 +1023,10 @@ class _Stepper extends StatelessWidget {
         ),
         SizedBox(
           width: 64,
-          child: Text('${signed && value > 0 ? '+' : ''}$value $label', textAlign: TextAlign.center),
+          child: Text(
+              '${signed && value > 0 ? '+' : ''}$value '
+              '${value == 1 && label == 'bars' ? 'bar' : label}',
+              textAlign: TextAlign.center),
         ),
         IconButton(
           visualDensity: VisualDensity.compact,

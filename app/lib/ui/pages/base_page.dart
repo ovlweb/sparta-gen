@@ -543,8 +543,12 @@ class _BasePageState extends State<BasePage> {
     final m = (mapping[id] as Map?)?.cast<String, dynamic>() ?? {'role': 'off'};
     final role = '${m['role']}';
     final octave = (m['octave'] as num?)?.toInt() ?? 0;
+    final gain = (m['gain_db'] as num?)?.toDouble() ?? 0;
     final on = role != 'off';
     final cs = Theme.of(context).colorScheme;
+    // A channel's whole setting, with one thing changed (the engine replaces a channel's setting whole).
+    void change({String? r, int? oct, double? db}) =>
+        app.midiMapping(mapping: {id: {'role': r ?? role, 'octave': oct ?? octave, 'gain_db': db ?? gain}});
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Wrap(spacing: 12, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -553,10 +557,9 @@ class _BasePageState extends State<BasePage> {
           onChanged: (v) {
             if (!v) {
               _lastRole[id] = role;
-              app.midiMapping(mapping: {id: {'role': 'off', 'octave': octave}});
+              change(r: 'off');
             } else {
-              final back = _lastRole[id] ?? (part['drums'] == true ? 'drums' : 'pitch2');
-              app.midiMapping(mapping: {id: {'role': back, 'octave': octave}});
+              change(r: _lastRole[id] ?? (part['drums'] == true ? 'drums' : 'pitch2'));
             }
           },
         ),
@@ -575,22 +578,33 @@ class _BasePageState extends State<BasePage> {
           value: role,
           width: 250,
           items: roles,
-          onChanged: (v) => app.midiMapping(mapping: {id: {'role': v, 'octave': octave}}),
+          onChanged: (v) => change(r: v),
         ),
         if (on && part['drums'] != true)
           Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
               tooltip: 'Octave down',
-              onPressed: octave <= -3 ? null : () => app.midiMapping(mapping: {id: {'role': role, 'octave': octave - 1}}),
+              onPressed: octave <= -3 ? null : () => change(oct: octave - 1),
               icon: const Icon(Icons.remove_circle_outline),
             ),
             Text('octave ${octave >= 0 ? '+' : ''}$octave'),
             IconButton(
               tooltip: 'Octave up',
-              onPressed: octave >= 3 ? null : () => app.midiMapping(mapping: {id: {'role': role, 'octave': octave + 1}}),
+              onPressed: octave >= 3 ? null : () => change(oct: octave + 1),
               icon: const Icon(Icons.add_circle_outline),
             ),
           ]),
+        if (on)
+          SliderRow(
+            label: 'Volume',
+            value: gain,
+            min: -24,
+            max: 12,
+            divisions: 36,
+            width: 280,
+            format: (v) => '${v > 0 ? '+' : ''}${v.toStringAsFixed(0)} dB',
+            onChanged: (v) => change(db: v.roundToDouble()),
+          ),
       ]),
     );
   }

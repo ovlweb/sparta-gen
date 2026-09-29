@@ -85,3 +85,13 @@ def test_presets_render_differently(tmp_path, synthetic_source):
     y = ff.decode_audio(lofi["file"], sr=SR, mono=True)
     n = min(x.size, y.size)
     assert np.abs(x[:n] - y[:n]).mean() > 0.005
+
+
+def test_volume_faders_move_their_stems_and_can_switch_a_part_off():
+    from spartagen.render_audio import VOLUME_GROUPS, MixConfig, muted_stems
+    c = MixConfig.from_dict({"volumes": {"pitches": -40, "bass": 5, "nonsense": 3, "drums": None},
+                             "mute_groups": ["quotes", "nope"]})
+    assert c.volumes == {"pitches": -24.0, "bass": 5.0}                     # clamped, unknown ones dropped
+    assert c.stem_db("pitch") == c.stem_db("pitch_soft") == -24.0 and c.stem_db("bass") == 5.0
+    assert c.stem_db("drums") == 0.0 and c.mute_groups == ["quotes"]
+    assert set(VOLUME_GROUPS["quotes"][1]) <= muted_stems(c)                # out of the mix and the picture

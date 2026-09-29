@@ -100,6 +100,7 @@ class Session:
         self._bank_key: Optional[str] = None
         self._pitch_cache: dict = {}         # tried pitch candidates of this source (see build_bank)
         self._midi = None                    # the parsed MIDI base (spartagen.midi.MidiSong)
+        self._still: dict = {}               # the picture drawn last for the look's live preview, and its clips
 
     # ── paths ──
     def path(self, *parts: str) -> str:
@@ -382,6 +383,36 @@ class Session:
                 # Community naming: "<Source> has a Sparta Unextended Remix".
                 arr.title = f"{self.project.name} has a {arr.title}"
             return arr
+
+    def still(self, t: float, width: int = 640, height: int = 360) -> np.ndarray:
+        """The remix's picture at t seconds, with the current look — what the video shows then, drawn on its own
+        in a moment (the clips it needs stay decoded, so changing an effect redraws at once)."""
+        from .render_video import BlurredSource, Compositor
+        if not self.project.source_path:
+            raise ValueError("open a video first")
+        if self.project.analysis is None:
+            raise ValueError("cut the samples first")
+        bank = self.bank()
+        arr = self.arrangement()
+        mix_cfg = MixConfig.from_dict({"pitching": arr.pitching, "polish": arr.polish, **self.mix_settings()})
+        muted = muted_stems(mix_cfg)
+        cfg = VideoConfig.from_dict({"preset_name": "preview", **self.project.video, "width": width, "height": height})
+        key = json.dumps([arr.to_dict(), self.project.video, sorted(muted), self._bank_key, width, height],
+                         sort_keys=True, default=str)
+        with self.lock:
+            st = self._still
+            comp = st.get("comp") if st.get("key") == key else None
+            if comp is None:
+                events = [e for e in compile_events(arr, set(bank.samples)) if e.stem not in muted]
+                media = (self.project.source_path, self._bank_key, width, height)
+                same = st.get("media") == media
+                info = self.project.source_info or {}
+                backdrop = st.get("backdrop") if same else BlurredSource(
+                    self.project.source_path, width, height, cfg.fps, float(info.get("duration") or 1.0))
+                comp = Compositor(self.project.source_path, arr, events, bank, cfg,
+                                  cache=st.get("cache") if same else None, backdrop=backdrop)
+                self._still = {"key": key, "comp": comp, "media": media, "cache": comp.cache, "backdrop": backdrop}
+            return comp.still(t)
 
     def mix_settings(self) -> dict:
         """The mix as rendered: a loaded base file plays under the remix only when the remix is built on it
