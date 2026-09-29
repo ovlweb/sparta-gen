@@ -208,6 +208,7 @@ class _ShellState extends State<Shell> {
         _Menu('Help', [
           _Item('Sparta Remix Wiki', () => openLink(wikiUrl), null),
           _Item('Krasen (CassidyBOTRR) on YouTube', () => openLink(krasenChannel), null),
+          _Item('Krasen (composition-cassidy) on GitHub', () => openLink(krasenGithub), null),
           null,
           _Item('About SpartaGen', _about, null),
         ]),
@@ -387,10 +388,14 @@ class _ShellState extends State<Shell> {
 
   Widget _desktopLayout(BuildContext context, BoxConstraints box) {
     final cs = Theme.of(context).colorScheme;
-    final extended = box.maxWidth >= 1180;
+    // On a computer the side panel is its icons alone (their words show on the pointer); a tablet keeps the words.
+    final words = !iconButtons(context);
+    final extended = words && box.maxWidth >= 1180;
+    Widget icon(String label, IconData data) => words ? Icon(data) : Tooltip(message: label, child: Icon(data));
     final rail = NavigationRail(
       extended: extended,
       minExtendedWidth: 200,
+      labelType: words && !extended ? NavigationRailLabelType.all : NavigationRailLabelType.none,
       selectedIndex: app.page.index,
       onDestinationSelected: (i) => app.go(AppPage.values[i]),
       leading: Padding(
@@ -401,7 +406,7 @@ class _ShellState extends State<Shell> {
                 SizedBox(width: 10),
                 Text('SpartaGen', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
               ])
-            : const AppLogo(size: 36),
+            : const Tooltip(message: 'SpartaGen', child: AppLogo(size: 36)),
       ),
       trailing: Expanded(
         child: Align(
@@ -415,8 +420,8 @@ class _ShellState extends State<Shell> {
       destinations: [
         for (final pg in AppPage.values)
           NavigationRailDestination(
-            icon: Icon(_pages[pg]!.$2),
-            selectedIcon: Icon(_pages[pg]!.$3),
+            icon: icon(_pages[pg]!.$1, _pages[pg]!.$2),
+            selectedIcon: icon(_pages[pg]!.$1, _pages[pg]!.$3),
             label: Text(_pages[pg]!.$1),
           ),
       ],
@@ -431,17 +436,21 @@ class _ShellState extends State<Shell> {
             height: 40,
             child: Row(children: [
               if (!Platform.isMacOS) _menuBar(),
-              const Spacer(),
-              IconButton(
-                tooltip: AppSettings.nameOf(widget.settings.theme),
-                onPressed: widget.settings.nextTheme,
-                icon: Icon(AppSettings.iconOf(widget.settings.theme), size: 20),
+              // The project's name and base shorten (…) before anything spills over on a narrow window.
+              Expanded(
+                child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  IconButton(
+                    tooltip: AppSettings.nameOf(widget.settings.theme),
+                    onPressed: widget.settings.nextTheme,
+                    icon: Icon(AppSettings.iconOf(widget.settings.theme), size: 20),
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(child: _projectTitle()),
+                  const SizedBox(width: 6),
+                  if (app.variant.isNotEmpty) Flexible(child: Pill(app.builtOn, icon: Icons.queue_music, ellipsis: true)),
+                  const SizedBox(width: 12),
+                ]),
               ),
-              const SizedBox(width: 4),
-              _projectTitle(),
-              const SizedBox(width: 6),
-              if (app.variant.isNotEmpty) Pill(app.builtOn, icon: Icons.queue_music),
-              const SizedBox(width: 12),
             ]),
           ),
           _jobBar(),

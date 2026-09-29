@@ -93,7 +93,9 @@ def test_base_upload_maps_and_fits(base_url, tmp_path):
     arr = call(base_url, "/api/arrangement")
     assert arr["variant"] == "base" and arr["total_bars"] == r["base"]["bars"]
     r = call(base_url, "/api/mix", {"clear_base": True})
-    assert r["base"] is None and "base_path" not in r["mix"] and r["variant"] != "base"
+    # Your base goes; the remix is back on the Extended base, its own audio under it.
+    assert r["template_id"] == "extended" and r["mix"]["base_path"].endswith("sparta_remix_extended.mp3")
+    assert r["base"]["bpm"] == 140.0 and r["base_path"] == r["mix"]["base_path"]
 
 
 def test_one_click_auto_remix(tmp_path_factory, synthetic_source):

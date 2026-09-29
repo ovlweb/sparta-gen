@@ -93,7 +93,7 @@ BEGIN
             VALUE "FileDescription", "SpartaGen" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "SpartaGen" "\0"
-            VALUE "LegalCopyright", "SpartaGen contributors" "\0"
+            VALUE "LegalCopyright", "No copyright: public domain (The Unlicense)" "\0"
             VALUE "OriginalFilename", "SpartaGen.exe" "\0"
             VALUE "ProductName", "SpartaGen" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

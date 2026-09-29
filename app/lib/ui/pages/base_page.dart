@@ -24,7 +24,8 @@ class _BasePageState extends State<BasePage> {
   String get mode {
     if (_mode != null) return _mode!;
     if (app.variant == 'midi') return app.templateId.isNotEmpty ? 'template' : 'midi';
-    if (app.variant == 'base' || app.baseMap != null) return 'audio';
+    if (app.variant == 'base') return app.templateId.isNotEmpty ? 'template' : 'audio';
+    if (app.baseMap != null) return 'audio';
     return 'template';
   }
 
@@ -173,12 +174,14 @@ class _BasePageState extends State<BasePage> {
     final bpmCtrl = TextEditingController(text: '${opts['bpm'] ?? t['bpm']}');
     final plan = (t['plan'] as List).map((e) => (e as List)).toList();
     final isMidi = '${t['midi'] ?? ''}' != '';
+    final hasAudio = '${t['audio'] ?? ''}' != '';          // it comes with its base: the remix plays on it
     return SectionCard(
       title: '${t['name']}',
       subtitle: '${t['group']}',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Wrap(spacing: 8, runSpacing: 8, children: [
           if (isMidi) const Pill('MIDI base', icon: Icons.piano),
+          if (hasAudio) const Pill('Its base plays under the remix', icon: Icons.graphic_eq),
           Pill(_bpm(t), icon: Icons.speed),
           Pill('Key ${t['key']}${t['minor'] == true ? ' minor' : ''}', icon: Icons.music_note),
           Pill('${t['bars']} bars', icon: Icons.view_week),
@@ -209,7 +212,7 @@ class _BasePageState extends State<BasePage> {
               label: Text('${partNames[part[0]] ?? part[0]} · ${part[1]}'),
             ),
         ]),
-        if (!isMidi) ...[
+        if (!isMidi && !hasAudio) ...[                       // (a base's own audio keeps its tempo)
           const SizedBox(height: 16),
           Row(children: [
             SizedBox(

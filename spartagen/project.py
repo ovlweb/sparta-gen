@@ -8,7 +8,7 @@ import os
 import shutil
 import threading
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from typing import Callable, Optional
 
 import numpy as np
@@ -27,6 +27,17 @@ Progress = Optional[Callable[[float, str], None]]
 QUALITIES = ("audio", "preview", "720p", "1080p")
 #: The base a remix is built on until another is chosen: the Sparta Remix's own (Extended) base.
 DEFAULT_VARIANT = "extended"
+#: How far the pitches go deeper or higher (Samples → Tuning), in octaves: the key stays.
+PITCH_REGISTER = (-2, 2)
+
+
+def pitch_register(samples: dict) -> int:
+    """The deep ↔ high setting of a project's samples (octaves; 0: where they are tuned)."""
+    try:
+        k = int(round(float((samples or {}).get("pitch_register") or 0)))
+    except (TypeError, ValueError):
+        return 0
+    return max(PITCH_REGISTER[0], min(PITCH_REGISTER[1], k))
 
 
 def default_workspace() -> str:
@@ -166,7 +177,9 @@ class Session:
 
     # ── samples ──
     def bank(self, progress: Progress = None) -> SampleBank:
-        key = json.dumps(self.project.samples, sort_keys=True, default=str)
+        # (Deeper or higher pitches are the same samples played elsewhere: nothing to cut again.)
+        key = json.dumps({k: v for k, v in self.project.samples.items() if k != "pitch_register"},
+                         sort_keys=True, default=str)
         with self.lock:
             if self._bank is not None and self._bank_key == key:
                 return self._bank
@@ -244,17 +257,27 @@ class Session:
             return None
 
     def set_base(self, path: str, progress: Progress = None, fit: bool = True,
-                 template: Optional[str] = None) -> dict:
+                 template: Optional[str] = None, base_map: Optional[dict] = None) -> dict:
         """Load a Sparta base: map its tempo, bars, chords and sections, line bar 1 up with the remix
         and (``fit``) build the remix on the base's own structure.  ``template`` names the base
-        template it is (its tempo guides the analysis, its patterns go on the parts)."""
-        from .audio.base import analyze_base_file
+        template it is (its tempo guides the analysis, its patterns go on the parts); ``base_map`` is
+        the base's map already read (a template's own base)."""
+        from .audio.base import BaseMap, analyze_base_file
         path = os.path.abspath(path)
+        if self.project.options.get("base_from_template") and template is None:
+            # Another base after a template's own: read as it is (the template's guide went with its base).
+            self.project.options.pop("base_template", None)
+            if self.project.options.get("base_structure") == "template":
+                self.project.options["base_structure"] = "detected"
         if template is not None:
             self.project.options["base_template"] = template or ""
         tpl = self.base_template()
-        bm = analyze_base_file(path, progress, bpm_hint=tpl.bpm if tpl else None)
+        if base_map:
+            bm = BaseMap.from_dict(dict(base_map, path=path))
+        else:
+            bm = analyze_base_file(path, progress, bpm_hint=tpl.bpm if tpl else None)
         with self.lock:
+            self.project.options.pop("base_from_template", None)    # the user's own base now
             self.project.base = bm.to_dict()
             self.project.mix.update({"base_path": path, "base_offset": bm.offset,
                                      "base_mode": self.project.mix.get("base_mode") or "remix"})
@@ -269,6 +292,7 @@ class Session:
     def clear_base(self) -> None:
         with self.lock:
             self.project.base = None
+            self.project.options.pop("base_from_template", None)
             for k in ("base_path", "base_offset"):
                 self.project.mix.pop(k, None)
             if self.project.variant == "base":
@@ -297,6 +321,8 @@ class Session:
                 shutil.copy2(path, dst)
             path = dst
             song.path = dst
+        if use:
+            self._drop_template_base()                 # another base's audio would play under these notes
         with self.lock:
             self._midi = song
             self.project.midi = {"path": path, "summary": song.summary(), "mapping": suggest_roles(song),
@@ -335,6 +361,36 @@ class Session:
             self.project.arrangement = None
         self.follow_key(tpl.key)
         return self.project.midi
+
+    def use_audio_template(self, tpl, options: Optional[dict] = None) -> dict:
+        """Build the remix on a template that comes with its base's audio (the Extended base): that base
+        plays under the remix, and the remix follows it as it is read from the audio — its parts bar for
+        bar, just as when the base file is opened by hand."""
+        if options is not None:
+            with self.lock:
+                keep = {k: self.project.options[k] for k in ("key_mode",) if k in self.project.options}
+                self.project.options = dict(keep, **options)
+        with self.lock:
+            self.project.options["base_structure"] = "detected"
+        self.set_base(tpl.audio_path(), template="", base_map=tpl.audio_map())
+        with self.lock:
+            self.project.options["base_from_template"] = tpl.id
+        return self.project.base
+
+    def _drop_template_base(self) -> None:
+        """Take away the base a template brought (another base is being used)."""
+        if self.project.options.get("base_from_template"):
+            self.clear_base()
+            with self.lock:
+                for k in ("base_template", "base_structure"):
+                    self.project.options.pop(k, None)
+
+    def apply_template_base(self) -> None:
+        """A remix on a template that comes with its base's audio plays on that audio: put it under the remix
+        (a new project, or one saved before the template brought it)."""
+        tpl = self._template(self.project.variant)
+        if tpl is not None and tpl.audio and not self.project.arrangement and os.path.isfile(tpl.audio_path()):
+            self.use_audio_template(tpl)
 
     def set_midi_mapping(self, mapping: Optional[dict] = None, auto_percussion: Optional[bool] = None,
                          auto_phrase: Optional[bool] = None, section_bars: Optional[int] = None) -> dict:
@@ -384,6 +440,7 @@ class Session:
 
     # ── arrangement ──
     def arrangement(self) -> Arrangement:
+        self.apply_template_base()
         with self.lock:
             if self.project.arrangement:
                 return Arrangement.from_dict(self.project.arrangement)
@@ -436,6 +493,16 @@ class Session:
                 arr.title = f"{self.project.name} has a {arr.title}"
             return arr
 
+    def events(self, arr: Optional[Arrangement] = None, bank: Optional[SampleBank] = None) -> list:
+        """The remix's notes on the samples there are — the pitches moved deeper or higher by whole octaves as
+        the samples' tuning asks (``pitch_register``), so the key stays."""
+        bank = bank or self.bank()
+        ev = compile_events(arr or self.arrangement(), set(bank.samples))
+        k = pitch_register(self.project.samples)
+        if k:
+            ev = [replace(e, semis=e.semis + 12 * k) if e.pitched and e.sample.startswith("pitch") else e for e in ev]
+        return ev
+
     def still(self, t: float, width: int = 640, height: int = 360) -> np.ndarray:
         """The remix's picture at t seconds, with the current look — what the video shows then, drawn on its own
         in a moment (the clips it needs stay decoded, so changing an effect redraws at once)."""
@@ -449,13 +516,13 @@ class Session:
         mix_cfg = MixConfig.from_dict({"pitching": arr.pitching, "polish": arr.polish, **self.mix_settings()})
         muted = muted_stems(mix_cfg)
         cfg = VideoConfig.from_dict({"preset_name": "preview", **self.project.video, "width": width, "height": height})
-        key = json.dumps([arr.to_dict(), self.project.video, sorted(muted), self._bank_key, width, height],
-                         sort_keys=True, default=str)
+        key = json.dumps([arr.to_dict(), self.project.video, sorted(muted), self._bank_key, width, height,
+                          pitch_register(self.project.samples)], sort_keys=True, default=str)
         with self.lock:
             st = self._still
             comp = st.get("comp") if st.get("key") == key else None
             if comp is None:
-                events = [e for e in compile_events(arr, set(bank.samples)) if e.stem not in muted]
+                events = [e for e in self.events(arr, bank) if e.stem not in muted]
                 media = (self.project.source_path, self._bank_key, width, height)
                 same = st.get("media") == media
                 info = self.project.source_info or {}
@@ -470,6 +537,11 @@ class Session:
         """The mix as rendered: a loaded base file plays under the remix only when the remix is built on it
         (or it backs a MIDI base) — on a template it waits, silent, instead of clashing with another tempo."""
         mix = dict(self.project.mix)
+        tid = self.project.options.get("base_from_template")
+        if tid and not os.path.isfile(mix.get("base_path") or ""):
+            tpl = self._template(tid)                 # the app moved since the project was saved: its base came along
+            if tpl is not None and tpl.audio:
+                mix["base_path"] = tpl.audio_path()
         if self.project.variant not in ("base", "midi"):
             mix.pop("base_path", None)
         return mix
@@ -490,6 +562,10 @@ class Session:
             if tpl is not None and tpl.midi:
                 self.use_midi_template(tpl, options)
                 return self.arrangement()
+            if tpl is not None and tpl.audio and os.path.isfile(tpl.audio_path()):
+                self.use_audio_template(tpl, options)
+                return self.arrangement()
+            self._drop_template_base()
             key = variant_def(variant).get("key") or "D"  # raises for an unknown template
         with self.lock:
             self.project.variant = variant
@@ -513,7 +589,7 @@ class Session:
 
         bank = self.bank(sub(0.0, 0.2))
         arr = self.arrangement()
-        events = compile_events(arr, set(bank.samples))
+        events = self.events(arr, bank)
         if not events:
             raise ValueError("the arrangement produced no notes — check the sample selection")
         mix_cfg = MixConfig.from_dict({"pitching": arr.pitching, "polish": arr.polish, **self.mix_settings()})

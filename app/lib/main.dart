@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -19,6 +20,10 @@ import 'ui/widgets/common.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  // The font the app ships with, on the Licenses page with the packages' own.
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(['Inter (font)'], await rootBundle.loadString('assets/fonts/Inter-LICENSE.txt'));
+  });
   runApp(SpartaGenApp(settings: await AppSettings.load()));
 }
 

@@ -232,6 +232,27 @@ def test_a_new_pick_reuses_the_tuned_candidates(session):
         session.project.samples["selections"] = {}
 
 
+def test_pitches_go_deeper_or_higher_by_whole_octaves(session):
+    """Samples → Tuning's deep ↔ high: every pitch an octave (or two) lower or higher — the key stays; the bass,
+    the main phrase and the drums stay where they are, and nothing is cut again."""
+    from spartagen.project import pitch_register
+    assert pitch_register({"pitch_register": 5}) == 2 and pitch_register({"pitch_register": "x"}) == 0
+    bank = session.bank()
+    arr = AR.build_arrangement("unextended")
+    before = session.events(arr, bank)
+    session.project.samples["pitch_register"] = -1
+    try:
+        assert session.bank() is bank
+        deep = session.events(arr, bank)
+        assert len(deep) == len(before)
+        for a, b in zip(before, deep):
+            assert b.semis == a.semis - (12 if a.pitched and a.sample.startswith("pitch") else 0), a.sample
+        assert any(a.pitched and a.sample.startswith("pitch") for a in before)
+        assert any(a.sample == "bass" for a in before) and any(a.sample.startswith("chorus") for a in before)
+    finally:
+        session.project.samples.pop("pitch_register", None)
+
+
 def test_voices_are_dealt_by_how_they_take_an_octave_up():
     """The Chorus lifts the third pitch highest (+19), the second next (+16); the fourth plays low."""
     from spartagen.samples import Sample, SampleBank, _assign_voice_roles

@@ -74,6 +74,8 @@ class AppState extends ChangeNotifier {
     }
     if (variant == 'base' && baseMap != null) {
       final b = baseMap!;
+      final own = template;                              // a template that came with this base (its audio)
+      if (templateId.isNotEmpty && own != null) return '${own['name']} · ${_fmtBpm(b['bpm'])} · $key';
       final t = _map(project['base_template_info']);
       return 'your base${t != null ? ' (${t['name']})' : ''} · ${_fmtBpm(b['bpm'])} · $key';
     }

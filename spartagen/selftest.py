@@ -121,14 +121,18 @@ def run(out_json: Optional[str] = None, quality: str = "preview",
                       has_video=info.has_video, saved=saved_ok)
         samples = call("/api/samples")["samples"]
         report["samples"] = sorted(s["id"] for s in samples)
-        # The MIDI bases that come with the app: their files have to be inside it (a frozen engine drops data files
-        # nobody asked it to keep).
+        # The bases that come with the app: their files have to be inside it (a frozen engine drops data files
+        # nobody asked it to keep) — the MIDI bases, and the Extended base's own audio.
         tpl = call("/api/template/use", {"id": "stroll"})
-        report["templates"] = tpl.get("template_id") == "stroll" and (tpl.get("arrangement") or {}).get("bars") == 26
+        midi_ok = tpl.get("template_id") == "stroll" and (tpl.get("arrangement") or {}).get("bars") == 26
+        ext = call("/api/template/use", {"id": "extended"})
+        audio_ok = ext.get("template_id") == "extended" and ext.get("variant") == "base" \
+            and os.path.isfile((ext.get("mix") or {}).get("base_path") or "")
+        report["templates"] = bool(midi_ok and audio_ok)
         report["ok"] = report["ok"] and report["templates"]
         log(f"remix: {report['duration']} s, {res['events']} notes, {res['lufs']} LUFS, "
-            f"{len(samples)} samples cut, saved as MP4 and MP3: {saved_ok}, MIDI bases there: {report['templates']}"
-            f" — {'OK' if report['ok'] else 'NOT OK'}")
+            f"{len(samples)} samples cut, saved as MP4 and MP3: {saved_ok}, bases there (MIDI: {bool(midi_ok)}, "
+            f"Extended audio: {bool(audio_ok)}) — {'OK' if report['ok'] else 'NOT OK'}")
     except Exception as exc:                      # the report says what broke
         report["error"] = f"{exc.__class__.__name__}: {exc}"
         log("self-test failed: " + report["error"])

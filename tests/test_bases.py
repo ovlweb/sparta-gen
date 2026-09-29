@@ -52,13 +52,14 @@ def test_a_midi_base_template_plays_its_notes_with_its_roles_and_parts(tmp_path)
 
 
 @pytest.mark.parametrize("tid", ["blend_s", "decline_cte"])
-def test_blend_s_and_decline_cte_are_laid_out_like_the_extended_base(tmp_path, tid):
-    """Both bases follow the Sparta Extended base bar for bar — Blend S after a one-bar pickup, Decline CTE with a
-    bar more of ending — so the main phrase, the Madness words and the drums come in where their parts do."""
-    ext = [({"intro3": "intro", "chorus_final": "chorus"}.get(k, k.rstrip("12")), b)
-           for k, b in bases.get_template("extended").plan]
+def test_blend_s_and_decline_cte_follow_their_parts(tmp_path, tid):
+    """Both bases are laid out the Extended way — an Awesomeness before their first Epicness (Blend S after a
+    one-bar pickup, Decline CTE with a bar more of ending) — so the main phrase, the Madness words and the drums
+    come in where their parts do."""
+    layout = [("chorus", 4), ("dundundenden", 6), ("chorus", 4), ("awesomeness", 4), ("epicness", 4), ("chorus", 8),
+              ("madness", 8), ("chorus", 8), ("epicness", 12), ("awesomeness", 4), ("chorus", 8)]
     arr = Session(workspace=str(tmp_path / "w")).set_variant(tid)
-    assert [(x.kind, x.bars) for x in arr.sections][1:-1] == ext[1:-1]
+    assert [(x.kind, x.bars) for x in arr.sections][1:-1] == layout
     awe = [x for x in arr.sections if x.kind == "awesomeness"]
     assert [x.name for x in awe] == ["Awesomeness 1", "Awesomeness 2"]
     assert all(any(t.stem == "chorus" for t in x.tracks) and any(t.id == "crash_auto" for t in x.tracks)

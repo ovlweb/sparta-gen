@@ -59,6 +59,7 @@ class BaseTemplate:
     path: str = ""
     midi: str = ""                                 # a MIDI base: its file (in TEMPLATE_DIR for the built-in ones)
     roles: dict = field(default_factory=dict)      # a MIDI base: what the samples play of each part ({part id: role})
+    audio: str = ""                                # a base that comes with its audio: the file, played under the remix
 
     @property
     def bars(self) -> int:
@@ -69,6 +70,24 @@ class BaseTemplate:
         if not self.midi or os.path.isabs(self.midi):
             return self.midi
         return os.path.join(TEMPLATE_DIR, self.midi)
+
+    def audio_path(self) -> str:
+        """The audio of a base that comes with it ("" for a base without)."""
+        if not self.audio or os.path.isabs(self.audio):
+            return self.audio
+        return os.path.join(TEMPLATE_DIR, self.audio)
+
+    def audio_map(self) -> Optional[dict]:
+        """The map of that audio read once and kept beside it (``<file>.json``: tempo, bar 1, chords, parts), so
+        the remix goes on it at once (None: read it from the file)."""
+        path = self.audio_path()
+        if not path:
+            return None
+        try:
+            with open(os.path.splitext(path)[0] + ".json", "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return None
 
     def midi_mapping(self) -> dict:
         """The roles as a MIDI mapping (``{part id: {"role", "octave", "gain_db"}}``)."""
@@ -137,10 +156,11 @@ def _midi(tid: str, name: str, midi: str, bpm: float, key: str, minor: bool, pla
 
 def builtin_templates() -> list[BaseTemplate]:
     return [
-        _std("extended", "Sparta Remix (Extended base)", credit="keatonkeaton999",
-             description="The Sparta Remix's own base, the one most remixes are made on: 2:07 at 140 BPM in D — "
-                         "Intro, Chorus, DunDunDenDen, Epicness, Awesomeness, Madness and the Final Chorus, with "
-                         "the wiki's patterns on them. Load its audio (Base audio file) to play the remix over it."),
+        _std("extended", "Sparta Remix (Extended base)", credit="keatonkeaton999", audio="sparta_remix_extended.mp3",
+             description="The Sparta Remix's own base, the one most remixes are made on — it comes with SpartaGen "
+                         "and plays under the remix, followed as it is read from its audio: 2:08 at 140 BPM in D "
+                         "— Intro, Chorus, DunDunDenDen, Chorus, the Epicness at 0:34, Madness, the long Epicness, "
+                         "Awesomeness and the Final Chorus, with the wiki's patterns on them."),
         _midi("stroll", "Sparta Stroll Base", "stroll.mid", 127.0, "C#", True,
               [["intro", 1], ["chorus", 8], ["chorus", 8], ["dundundenden", 4], ["chorus", 4], ["ending", 1]],
               {"t6c4": "pitch1",        # Greasy: the lead
@@ -170,15 +190,16 @@ def builtin_templates() -> list[BaseTemplate]:
                "t9c7": "off"},          # Pulse-Saw Bass: a sub under the bass
               "2:44 at 130 BPM in F# minor on one chord loop (F#m, E, C#m, D): the parts come from which "
               "instruments play — breaks without the chord plucks, an Epicness on the gated chords."),
-        # The Sparta Extended base's layout bar for bar, its intro one bar short (a pickup): Chorus on the octave
-        # bass, DunDunDenDen from the "E E F F" stops, the Madness on the 3-3-2 arps, the long Epicness on the bells.
+        # Laid out the Extended way, its intro one bar short (a pickup) and an Awesomeness before the first Epicness:
+        # Chorus on the octave bass, the DunDunDenDen and the first Epicness on the "E E F F" stops, Awesomeness 1
+        # on the guitar, the Madness on the 3-3-2 arps, the long Epicness on the bells.
         _midi("blend_s", "Sparta Blend S Base", "blend_s.mid", 140.0, "E", True,
-              [["intro", 1], ["chorus", 4], ["dundundenden", 6], ["chorus", 4], ["epicness", 4], ["awesomeness", 4],
+              [["intro", 1], ["chorus", 4], ["dundundenden", 6], ["chorus", 4], ["awesomeness", 4], ["epicness", 4],
                ["chorus", 8], ["madness", 8], ["chorus", 8], ["epicness", 12], ["awesomeness", 4], ["chorus", 8],
                ["ending", 2]],
               {"t8c6": "pitch1",        # Pluck: the melody
                "t6c4": "pitch2",        # Chords: the off-beat stabs, their top line
-               "t9c7": "pitch3",        # Guitar: the riffs (the first Epicness)
+               "t9c7": "pitch3",        # Guitar: the riffs (Awesomeness 1)
                "t12c11": "pitch3",      # Chip: the second Awesomeness
                "t10c8": "pitch4",       # Bells: the long Epicness
                "t4c2": {"role": "chords", "gain_db": -3.0},   # Pad: the held chords, under the rest
@@ -187,27 +208,30 @@ def builtin_templates() -> list[BaseTemplate]:
                "t5c3": "off",           # Pluck: the Pad's chords
                "t7c5": "off",           # Pluck: 16th chords
                "t11c10": "off"},        # Filter seq
-              "2:05 at 140 BPM in E (Em7, Fmaj7, Dm7), laid out like the Sparta Extended base after a one-bar "
-              "pickup: the melody on the main pitch, guitar riffs, bells and a chip line on the others.",
+              "2:05 at 140 BPM in E (Em7, Fmaj7, Dm7), laid out the Extended way after a one-bar pickup, with an "
+              "Awesomeness before the first Epicness: the melody on the main pitch, guitar riffs, bells and a chip "
+              "line on the others.",
               credit="enforch sr"),
-        # The Sparta Extended base's layout bar for bar: the three intro hits, Chorus on the running bass, the
-        # DunDunDenDen from its stops, a Madness on the Rhodes, the ending the intro again.
+        # Laid out the Extended way, an Awesomeness before the first Epicness: the three intro hits, Chorus on the
+        # running bass, the DunDunDenDen from its stops, Awesomeness 1 where the synth bass turns to quarter notes
+        # and the arps rest, the Epicness where the running bass stops, a Madness on the Rhodes, the ending the
+        # intro again.
         _midi("decline_cte", "Sparta Decline CTE Base", "decline_cte.mid", 140.0, "C", True,
-              [["intro", 2], ["chorus", 4], ["dundundenden", 6], ["chorus", 4], ["epicness", 4], ["awesomeness", 4],
+              [["intro", 2], ["chorus", 4], ["dundundenden", 6], ["chorus", 4], ["awesomeness", 4], ["epicness", 4],
                ["chorus", 8], ["madness", 8], ["chorus", 8], ["epicness", 12], ["awesomeness", 4], ["chorus", 8],
                ["ending", 3]],
               {"t9c7": "pitch1",        # Wop: the melody
                "t13c12": "pitch2",      # Kirby Super Star #2: the arps
                "t5c3": "pitch3",        # Diddy Kong Racing: the intro's line and the second melody
                "t2c0": "pitch4",        # Lead Rhodes: the Madness lead
-               "t4c2": "pitch4",        # CTK-230: the first Awesomeness
+               "t4c2": "pitch4",        # CTK-230: the Epicness's line
                "t6c4": "pitch4",        # Layer #3: the DunDunDenDen's riff
                "t12c11": "chords",      # ColomboGMGS2: the chords
                "t15c14": "bass",        # Kirby Super Star: the bass line (C, G, F, C#)
                "t14c13": "off",         # TX81z Synthbass: power-chord stabs
                "t16c15": "off"},        # TX Alpha: a low pad
-              "2:09 at 140 BPM in C minor, laid out like the Sparta Extended base: the melody on the main pitch, "
-              "arps on the second, a Rhodes lead under the Madness.",
+              "2:09 at 140 BPM in C minor, laid out the Extended way with an Awesomeness before the first Epicness: "
+              "the melody on the main pitch, arps on the second, a Rhodes lead under the Madness.",
               credit="Citrus"),
     ]
 
@@ -264,6 +288,8 @@ def validate(t: BaseTemplate) -> None:
     kinds = MIDI_PLAN_KINDS if t.midi else PLAN_KINDS
     if t.midi and not os.path.isfile(t.midi_path()):
         raise ValueError(f"the MIDI file of {t.name!r} is missing: {t.midi_path()}")
+    if t.audio and not os.path.isfile(t.audio_path()):
+        raise ValueError(f"the audio of {t.name!r} is missing: {t.audio_path()}")
     for k, b in t.plan:
         if k not in kinds:
             raise ValueError(f"unknown part {k!r} (parts: {', '.join(kinds)})")

@@ -4,7 +4,13 @@ import 'package:url_launcher/url_launcher.dart';
 import 'theme.dart';
 
 const krasenChannel = 'https://www.youtube.com/c/CassidyBOTRR';
+const krasenGithub = 'https://github.com/composition-cassidy';
+const xlethUrl = 'https://github.com/composition-cassidy/Xleth';
 const wikiUrl = 'https://spartaremix.fandom.com/wiki/Sparta_Remix_Wiki';
+
+/// SpartaGen's own terms: it belongs to everyone, not to the people who wrote it.
+const publicDomain = 'No copyright: SpartaGen is public domain (The Unlicense). It belongs to everyone — use, change, '
+    'share or sell it, no permission needed. The parts made by others keep their own licences (see Licenses).';
 
 Future<void> openLink(String url) async {
   try {
@@ -65,14 +71,29 @@ Future<void> showAbout(BuildContext context, {required String version}) {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('Inspired by Krasen (CassidyBOTRR)', style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  const Text('Krasen was the first to make a program for remixers with AI. SpartaGen follows that idea.'),
+                  const Text('Krasen was the first to make a program for remixers and others with AI: Xleth. '
+                      'SpartaGen follows that idea.'),
                   const SizedBox(height: 8),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                    onPressed: () => openLink(krasenChannel),
-                    icon: const Icon(Icons.smart_display_outlined),
-                    label: const Text('youtube.com/c/CassidyBOTRR'),
-                  ),
+                  Wrap(spacing: 16, children: [
+                    TextButton.icon(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () => openLink(krasenChannel),
+                      icon: const Icon(Icons.smart_display_outlined),
+                      label: const Text('youtube.com/c/CassidyBOTRR'),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () => openLink(krasenGithub),
+                      icon: const Icon(Icons.code),
+                      label: const Text('github.com/composition-cassidy'),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () => openLink(xlethUrl),
+                      icon: const Icon(Icons.graphic_eq),
+                      label: const Text('Xleth'),
+                    ),
+                  ]),
                 ]),
               ),
               const SizedBox(height: 16),
@@ -82,6 +103,10 @@ Future<void> showAbout(BuildContext context, {required String version}) {
                   '• FFmpeg, for cutting and encoding.\n'
                   '• mpv / media_kit, for playing video in the app.\n'
                   '• Flutter, for the app itself.'),
+              const SizedBox(height: 16),
+              Text('Free for everyone', style: t.titleSmall),
+              const SizedBox(height: 4),
+              const Text(publicDomain),
               const SizedBox(height: 16),
               Text('This is a release candidate: please try everything and report what breaks.',
                   style: TextStyle(color: cs.onSurfaceVariant)),
@@ -94,6 +119,7 @@ Future<void> showAbout(BuildContext context, {required String version}) {
               context: context,
               applicationName: 'SpartaGen',
               applicationVersion: version,
+              applicationLegalese: publicDomain,
               applicationIcon: const Padding(padding: EdgeInsets.all(8), child: AppLogo(size: 48)),
             ),
             child: const Text('Licenses'),

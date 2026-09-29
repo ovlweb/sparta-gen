@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Sparta Remix generator — the engine of the SpartaGen app: cuts a source video into pitch, percussion and quote samples, tunes the pitches to the base, sequences the Sparta Remix Wiki patterns and renders the remix video with ffmpeg."
 readme = "README.md"
 requires-python = ">=3.9"
+classifiers = ["License :: OSI Approved :: The Unlicense (Unlicense)"]
 dependencies = [
     "numpy>=1.22",
 ]
@@ -31,7 +32,7 @@ include = ["spartagen*"]
 
 [tool.setuptools.package-data]
 "spartagen.gui" = ["static/*", "static/**/*"]
-"spartagen" = ["templates/*.mid"]
+"spartagen" = ["templates/*.mid", "templates/*.mp3", "templates/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

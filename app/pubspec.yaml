@@ -68,6 +68,7 @@ flutter:
 
   assets:
     - assets/icon.png
+    - assets/fonts/Inter-LICENSE.txt
 
   # Inter (SIL Open Font License, assets/fonts/Inter-LICENSE.txt): one clean font for the app on every system,
   # instead of whatever the system's default is.

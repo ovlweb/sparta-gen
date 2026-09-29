@@ -151,6 +151,8 @@ class App:
         return "/file?path=" + quote(ap)
 
     def project_view(self) -> dict:
+        # A template's own base goes under the remix before anything is read (a new project, a base taken away).
+        self.session.apply_template_base()
         p = self.session.project
         d = {
             "name": p.name, "workspace": p.workspace, "variant": p.variant, "options": p.options,
@@ -482,6 +484,9 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("key", "pitch_octave", "flatten", "bass_octave"):
                 if k in body:
                     s.project.samples[k] = body[k] if body[k] not in ("", "auto") else None
+            if "pitch_register" in body:              # deep ↔ high: octaves, played there (nothing is cut again)
+                from ..project import pitch_register
+                s.project.samples["pitch_register"] = pitch_register({"pitch_register": body["pitch_register"]})
             if not s.project.samples.get("key"):
                 s.project.samples["key"] = "D"
             return self._json(app.bank_view())

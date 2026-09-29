@@ -49,9 +49,10 @@ def arrangement_view(session) -> Optional[dict]:
 def extra_view(session) -> dict:
     """What the native app shows on top of the classic project view."""
     p = session.project
-    # The template the remix is built on: a template's own, or the MIDI base's a template loaded.
+    # The template the remix is built on: a template's own, the MIDI base's a template loaded, or the one whose
+    # base (its audio) the remix plays on.
     tid = p.variant if p.variant not in ("base", "midi") else ((p.midi or {}).get("template") if p.variant == "midi"
-                                                               else None)
+                                                               else p.options.get("base_from_template") or None)
     tpl = None
     if tid:
         try:

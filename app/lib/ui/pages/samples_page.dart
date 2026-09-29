@@ -111,6 +111,7 @@ class _TuningCard extends StatelessWidget {
     final octave = cfg['pitch_octave'];
     final bassOctave = (cfg['bass_octave'] as num?)?.toInt() ?? 3;
     final flatten = (cfg['flatten'] as num?)?.toDouble() ?? 1.0;
+    final register = (((app.project['samples_config'] as Map?)?['pitch_register']) as num?)?.toInt() ?? 0;
     final auto = app.keyMode != 'manual';
     return SectionCard(
       title: 'Tuning',
@@ -137,6 +138,22 @@ class _TuningCard extends StatelessWidget {
           items: const {1: 'Octave 1', 2: 'Octave 2', 3: 'Octave 3', 4: 'Octave 4'},
           enabled: !app.busy,
           onChanged: (v) => app.sampleConfig({'bass_octave': v}),
+        ),
+        // Where the pitches play: deeper or higher by whole octaves (the key stays) — some bases sit them high.
+        SliderRow(
+          label: 'Pitches: deep ↔ high',
+          value: register.toDouble(),
+          min: -2,
+          max: 2,
+          divisions: 4,
+          format: (v) => switch (v.round()) {
+            -2 => 'two octaves deeper',
+            -1 => 'an octave deeper',
+            1 => 'an octave higher',
+            2 => 'two octaves higher',
+            _ => 'as tuned',
+          },
+          onChanged: (v) => app.sampleConfig({'pitch_register': v.round()}),
         ),
         SliderRow(
           label: 'Straight notes',

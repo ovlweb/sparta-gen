@@ -23,8 +23,9 @@ SpartaGen turns any video into a **Sparta Remix** the way remixers build them by
 3. **Sequences the patterns from the Sparta Remix Wiki** (standard Chorus `11_11_111_1_1_11222_2_222_222_2_…`,
    DunDunDenDen, Madness call & response, the Epicness and its 13 edits, Awesomeness 1/2 and 30 custom ones,
    Execution, chords, percussion and hi-hat patterns, 43 freestyles…) over the classic D → E♭ → C → E♭ progression.
-4. **Builds on your base** — one of the **base templates** (the Sparta Remix's own Extended base, and four MIDI
-   bases — Stroll, Nana-iro, Blend S and Decline CTE — whose notes the samples play, plus your own), **your base's
+4. **Builds on your base** — one of the **base templates** (the Sparta Remix's own Extended base, whose audio comes
+   with the app and plays under the remix, and four MIDI bases — Stroll, Nana-iro, Blend S and Decline CTE — whose
+   notes the samples play, plus your own), **your base's
    audio file** (tempo, bar 1, key, chord progression and its sections —
    Intro, Chorus, DunDunDenDen, Awesomeness 1, Madness, Epicness, Awesomeness 2, Ending — read from it, and the
    remix built on it bar for bar), or **its MIDI** for bases that are not public (you say what each channel is,
@@ -42,8 +43,9 @@ it — the engine and ffmpeg are inside). **One click** does it all: open your v
 **⚡ Make my Sparta Remix** — the samples are cut automatically, the remix is built on the base and a preview is
 rendered — then fine-tune anything you like, and **Save** it where you want.
 
-> **Inspired by Krasen** ([CassidyBOTRR on YouTube](http://www.youtube.com/c/CassidyBOTRR)) — the first to make a
-> program for remixers with AI. SpartaGen follows that idea.
+> **Inspired by Krasen** ([CassidyBOTRR on YouTube](http://www.youtube.com/c/CassidyBOTRR),
+> [composition-cassidy on GitHub](https://github.com/composition-cassidy)) — the first to make a program for remixers
+> and others with AI: [Xleth](https://github.com/composition-cassidy/Xleth). SpartaGen follows that idea.
 
 > **Release candidate (1.0.0 RC 1)** — everything is in; now it needs testing by everyone.
 > See [Release candidate — please test](#release-candidate--please-test).
@@ -110,14 +112,16 @@ the project you worked on last.
    (downloaded with yt-dlp). The video plays right there. **⚡ Make my Sparta Remix** does everything in one go;
    *Only cut the samples* stops after the samples.
 2. **Base** — what the remix is built on:
-   - **Template**: the *Bases* — the **Sparta Remix (Extended base)** (2:07 at 140 BPM in D: the base most remixes
-     are made on, with the wiki's patterns on its parts) and four **MIDI bases** that come with the app: **Sparta
+   - **Template**: the *Bases* — the **Sparta Remix (Extended base)** (2:08 at 140 BPM in D: the base most remixes
+     are made on — its audio comes with the app and plays under the remix, which follows it as it is read from the
+     audio, bar for bar, with the wiki's patterns on its parts) and four **MIDI bases** that come with the app: **Sparta
      Stroll Base** (0:49, 127 BPM, C# minor), **Sparta Nana-iro Base** (2:44, 130 BPM, F# minor), **Sparta Blend S
      Base** (by enforch sr — 2:05, 140 BPM, E) and **Sparta Decline CTE Base** (by Citrus — 2:09, 140 BPM, C minor).
      A MIDI base's template plays its notes on your samples: which instrument the main pitch, the other pitches,
      the chords and the bass play (its lead, arps, chords and bass line — doubled and padding parts left out), its
      parts bar for bar (Intro, Chorus, DunDunDenDen, Epicness, Awesomeness, Madness, Ending — Blend S and Decline
-     CTE are laid out like the Extended base) and its key are set for each base;
+     CTE are laid out the Extended way, with an Awesomeness before the first Epicness) and its key are set for each
+     base;
      change any channel under *MIDI*. And *My templates* — search, see each one's parts; **save the current structure
      as your own template**, import or delete them (`.spartabase.json`, shareable). (The wiki's pitch patterns are
      all still there to pick for any track.)
@@ -141,7 +145,8 @@ the project you worked on last.
    the pointer, two fingers pinch), drag outside the cut to look around (the waveform and the frames follow at
    once), or type the times. The bass
    is picked and cut the same way (a note of its own, played low). Pitch octave, bass octave and how straight the
-   notes are tuned; *Cut again* to redo it all.
+   notes are tuned; **Pitches: deep ↔ high** plays every pitch an octave or two lower or higher (the key stays, the
+   samples are not cut again) — for bases whose parts sit high; *Cut again* to redo it all.
 4. **Remix** — title, pitching (classic sampler / normal / hard layers), polish, *Progression Twist* (Original
    `0 1 -2 1`, E Note, F Note, Useful's …), minor patterns, pitched chorus. The **structure** below is a timeline of
    the parts, each as long as it lasts: **drag a part** to move it, **drag its edge** to make it longer or shorter,
@@ -279,11 +284,11 @@ their instruments the samples play and their parts bar for bar):
 
 | Template | BPM | Key | Length | Structure |
 |---|---|---|---|---|
-| **Sparta Remix (Extended base)** | 140 | D | 74 bars ≈ 2:07 | 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending |
+| **Sparta Remix (Extended base)** (its audio comes with the app) | 140 | D | 74 bars ≈ 2:08 | 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 8 · Epicness 4 (0:34) · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending |
 | **Sparta Stroll Base** (MIDI) | 127 | C# minor | 26 bars ≈ 0:49 | Intro 1 · Chorus 8 · Chorus 8 · DunDunDenDen 4 · Chorus 4 · Ending |
 | **Sparta Nana-iro Base** (MIDI) | 130 | F# minor | 89 bars ≈ 2:44 | Intro 4 · Chorus 8 · DunDunDenDen 4 · Chorus 12 · Madness 4 · Chorus 8 · Epicness 8 (the gated chords) · Chorus 8 · DunDunDenDen 4 · Chorus 8 · Epicness 8 · Chorus 12 · Ending |
-| **Sparta Blend S Base** (MIDI, enforch sr) | 140 | E | 73 bars ≈ 2:05 | The Extended base's layout after a one-bar pickup: Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending 2 |
-| **Sparta Decline CTE Base** (MIDI, Citrus) | 140 | C minor | 75 bars ≈ 2:09 | The Extended base's layout: 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 (the Rhodes lead) · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending 3 |
+| **Sparta Blend S Base** (MIDI, enforch sr) | 140 | E | 73 bars ≈ 2:05 | The Extended way after a one-bar pickup, an Awesomeness before the first Epicness: Chorus 4 · DunDunDenDen 6 · Chorus 4 · Awesomeness 1 · Epicness 4 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending 2 |
+| **Sparta Decline CTE Base** (MIDI, Citrus) | 140 | C minor | 75 bars ≈ 2:09 | The Extended way, an Awesomeness before the first Epicness: 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Awesomeness 1 · Epicness 4 · Chorus 8 · Madness 8 (the Rhodes lead) · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending 3 |
 | **Your base's audio** | the base's | the base's | the base's | Every section of the base gets its part (see [Using a real Sparta base](#using-a-real-sparta-base)) |
 | **Your base's MIDI** | the MIDI's | the MIDI's | the MIDI's | The MIDI's notes play on your samples, a role per channel |
 
@@ -493,12 +498,12 @@ Remixes normally sit on a Sparta base. Open one on the *Base* page (*Base audio 
 
 ```
 140 BPM, bar 1 at 0.139s, 74 bars, key D, progression 0 1 -2 1
-  bars   1-  2  intro          bars  25- 32  chorus
-  bars   3-  6  chorus         bars  33- 40  madness
-  bars   7- 12  dundundenden   bars  41- 48  chorus
-  bars  13- 16  chorus         bars  49- 60  epicness
-  bars  17- 20  epicness       bars  61- 64  awesomeness2
-  bars  21- 24  awesomeness1   bars  65- 72  chorus
+  bars   1-  2  intro          bars  33- 40  madness
+  bars   3-  6  chorus         bars  41- 48  chorus
+  bars   7- 12  dundundenden   bars  49- 60  epicness
+  bars  13- 20  chorus         bars  61- 64  awesomeness2
+  bars  21- 24  epicness       bars  65- 72  chorus
+  bars  25- 32  chorus
   intro hits: step 0 (-2), step 8 (-2), step 16 (-2)      ending on +1   (bars 73-74)
 ```
 
@@ -549,19 +554,39 @@ a `v*` tag and publishes one release.
 
 ## Credits
 
-- **Inspiration: Krasen** ([CassidyBOTRR](http://www.youtube.com/c/CassidyBOTRR)) — the first to make a program for
-  remixers with AI; SpartaGen follows that idea.
+- **Inspiration: Krasen** ([CassidyBOTRR on YouTube](http://www.youtube.com/c/CassidyBOTRR),
+  [composition-cassidy on GitHub](https://github.com/composition-cassidy)) — the first to make a program for remixers
+  and others with AI, [Xleth](https://github.com/composition-cassidy/Xleth); SpartaGen follows that idea.
 - Pattern data: [Sparta Remix Wiki](https://spartaremix.fandom.com/wiki/Pitch_Patterns) contributors
   (CC BY-SA) — remixer and base names are kept with each pattern.
 - Design references: [Xleth](https://github.com/composition-cassidy/Xleth) (FX set, OTT behaviour, declick,
   PSOLA/loop ideas), [ChorusCrisp](https://github.com/composition-cassidy/ChorusCrisp) (the Jario pluck),
   [Sparta Remix Visual Editor](https://github.com/composition-cassidy/Sparta-Remix-Visual-Editor) (grid/flip
-  conventions) by composition-cassidy.
-- MIDI bases that come with the app: the Stroll, Nana-iro, Blend S (by enforch sr) and Decline CTE (by Citrus) bases.
+  conventions), all by Krasen ([composition-cassidy](https://github.com/composition-cassidy)).
+- Bases that come with the app: the Sparta Remix Extended base (keatonkeaton999), and the MIDI bases Stroll,
+  Nana-iro, Blend S (by enforch sr) and Decline CTE (by Citrus).
 - YIN: de Cheveigné & Kawahara (2002). BS.1770-4 loudness. TD-PSOLA: Moulines & Charpentier (1990).
 - The app: [Flutter](https://flutter.dev), [media_kit](https://github.com/media-kit/media-kit) (mpv) for the players,
   [Chaquopy](https://chaquo.com/chaquopy/) for Python on Android, [FFmpeg](https://ffmpeg.org) and x264, the
   [Inter](https://rsms.me/inter/) font (SIL Open Font License).
+
+## License
+
+**No copyright: SpartaGen is public domain** ([The Unlicense](LICENSE)). It belongs to everyone, not to the people
+who wrote it — use it, change it, share it or sell it; no permission needed.
+
+The parts made by others that it includes keep their own terms:
+
+- the pattern data from the [Sparta Remix Wiki](https://spartaremix.fandom.com/wiki/Pitch_Patterns) — CC BY-SA, with
+  the remixers and bases named at each pattern;
+- the Sparta Remix Extended base's audio (`spartagen/templates/sparta_remix_extended.mp3`) — its maker's
+  (keatonkeaton999);
+- the MIDI bases in `spartagen/templates` — their makers' (Stroll, Nana-iro, Blend S by enforch sr, Decline CTE by
+  Citrus);
+- the Inter font — SIL Open Font License 1.1 (`app/assets/fonts/Inter-LICENSE.txt`, also on the app's *Licenses*
+  page);
+- in the built apps: FFmpeg (LGPL/GPL), Python with numpy, scipy and yt-dlp, Flutter and its packages, media_kit
+  (mpv) and Chaquopy — each under its own licence.
 
 ## Known limitations
 

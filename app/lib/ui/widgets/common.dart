@@ -290,11 +290,14 @@ class EmptyState extends StatelessWidget {
 
 /// A small label: "140 BPM", "D#", "2:08" …
 class Pill extends StatelessWidget {
-  const Pill(this.text, {super.key, this.icon, this.color});
+  const Pill(this.text, {super.key, this.icon, this.color, this.ellipsis = false});
 
   final String text;
   final IconData? icon;
   final Color? color;
+
+  /// Shorten the words (…) to the room it is given (only where its width is bounded, e.g. in a Flexible).
+  final bool ellipsis;
 
   @override
   Widget build(BuildContext context) {
@@ -308,7 +311,15 @@ class Pill extends StatelessWidget {
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         if (icon != null) ...[Icon(icon, size: 14, color: c), const SizedBox(width: 4)],
-        Text(text, style: TextStyle(color: c, fontSize: 12.5, fontWeight: FontWeight.w600)),
+        if (ellipsis)
+          Flexible(
+            child: Text(text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: c, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          )
+        else
+          Text(text, style: TextStyle(color: c, fontSize: 12.5, fontWeight: FontWeight.w600)),
       ]),
     );
   }

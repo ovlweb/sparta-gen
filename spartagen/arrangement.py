@@ -596,14 +596,14 @@ VARIANTS: dict[str, dict] = {
     },
     "extended": {
         "title": "Sparta Extended Remix",
-        "description": "The 2:08 extended base's layout: 3 intro hits, short first Chorus, DunDunDenDen, an "
-                       "Epicness after the Chorus that follows it, Awesomeness 1 (the last pattern before the "
-                       "Madness), the Madness, a 12-bar Epicness after the next Chorus and Awesomeness 2 opening "
-                       "the final Chorus.",
+        "description": "The 2:08 extended base as it is read from its audio: 3 intro hits, short first Chorus, "
+                       "DunDunDenDen, an 8-bar Chorus, the Epicness where the base drops out and rolls (0:34), "
+                       "the Madness, a 12-bar Epicness after the next Chorus and Awesomeness 2 opening the final "
+                       "Chorus.",
         "bpm": 140, "pitching": "normal", "polish": "normal", "wiki_perc": True,
-        "plan": [("intro3", 2), ("chorus", 4), ("dundundenden", 6), ("chorus", 4), ("epicness", 4),
-                 ("awesomeness1", 4), ("chorus", 8), ("madness", 8), ("chorus", 8), ("epicness", 12),
-                 ("awesomeness2", 4), ("chorus_final", 8), ("ending", 2)],
+        "plan": [("intro3", 2), ("chorus", 4), ("dundundenden", 6), ("chorus", 8), ("epicness", 4),
+                 ("chorus", 8), ("madness", 8), ("chorus", 8), ("epicness", 12), ("awesomeness2", 4),
+                 ("chorus_final", 8), ("ending", 2)],
     },
     "hyper": {
         "title": "Sparta Hyper Remix",

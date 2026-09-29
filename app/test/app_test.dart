@@ -64,7 +64,10 @@ Future<FakeEngine> startApp(WidgetTester tester, {Size size = const Size(1400, 9
 Finder _settingsList() => find.descendant(of: find.byType(PageBody), matching: find.byType(Scrollable)).first;
 
 Future<void> open(WidgetTester tester, String page) async {
-  await tester.tap(find.descendant(of: find.byType(NavigationRail), matching: find.text(page)));
+  // On a computer the side panel is icons, their words the tooltips; elsewhere the words themselves.
+  final rail = find.byType(NavigationRail);
+  final tip = find.descendant(of: rail, matching: find.byTooltip(page));
+  await tester.tap(tip.evaluate().isNotEmpty ? tip : find.descendant(of: rail, matching: find.text(page)));
   await tester.pumpAndSettle();
 }
 
@@ -240,6 +243,21 @@ void main() {
     expect(find.byTooltip('Use this cut'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
+  testWidgets('on a computer the side panel is its icons alone, their words as tooltips', (tester) async {
+    await startApp(tester);
+    final rail = find.byType(NavigationRail);
+    expect(tester.widget<NavigationRail>(rail).labelType, NavigationRailLabelType.none);
+    expect(tester.widget<NavigationRail>(rail).extended, isFalse);
+    expect(find.descendant(of: rail, matching: find.byTooltip('Samples')), findsOneWidget);
+    expect(find.descendant(of: rail, matching: find.text('SpartaGen')), findsNothing);
+    expect(find.descendant(of: rail, matching: find.byTooltip('SpartaGen')), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+  testWidgets('a tablet\'s side panel keeps its words', (tester) async {
+    await startApp(tester, size: const Size(1000, 800));
+    expect(tester.widget<NavigationRail>(find.byType(NavigationRail)).labelType, NavigationRailLabelType.all);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
   testWidgets('on a phone they keep their words', (tester) async {
     await startApp(tester, size: const Size(400, 820));
     expect(find.text('Make my Sparta Remix'), findsOneWidget);
@@ -274,6 +292,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Inspired by Krasen (CassidyBOTRR)'), findsOneWidget);
     expect(find.text('youtube.com/c/CassidyBOTRR'), findsOneWidget);
+    expect(find.text('github.com/composition-cassidy'), findsOneWidget);           // Xleth's maker, and a link to it
+    expect(find.textContaining('No copyright'), findsOneWidget);                   // public domain: everyone's
   });
 
   test('an engine command keeps a quoted path with spaces in one piece', () {

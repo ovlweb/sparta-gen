@@ -93,7 +93,14 @@ def test_templates_are_listed_used_saved_and_deleted(engine):
     assert call(engine, "/api/template/use", {"id": "decline_cte"})["key"] == "F"
     assert call(engine, "/api/key", {"key": "auto"})["key_mode"] == "auto"
     v = call(engine, "/api/template/use", {"id": "extended"})
-    assert v["variant"] == "extended" and v["template_id"] == "extended" and v["key"] == "D"
+    assert v["template_id"] == "extended" and v["key"] == "D"
+    # The Extended base comes with its audio: the remix is built on it as it is read (bar for bar), and it plays.
+    assert v["variant"] == "base" and v["base_template"] == "" and v["base_structure"] == "detected"
+    assert v["mix"]["base_path"].endswith("sparta_remix_extended.mp3") and v["base"]["bpm"] == 140.0
+    assert [(x["name"], x["bars"]) for x in v["arrangement"]["sections"][3:6]] == \
+        [("Chorus 2", 8), ("Epicness", 4), ("Chorus 3", 8)]                 # the Epicness at 0:34
+    v = call(engine, "/api/template/use", {"id": "stroll"})                  # another base: that one goes
+    assert v["variant"] == "midi" and not v["mix"].get("base_path") and v["base"] is None
 
 
 def test_volumes_leave_an_edited_structure_alone(engine):
@@ -162,7 +169,8 @@ def test_base_file_by_path_with_a_template(engine, tmp_path):
     assert v["key"] == "D#" and v["base_template"] == "kaosz"
     v = call(engine, "/api/base/options", {"structure": "template", "base_gain_db": -6.0})
     assert v["base_structure"] == "template" and v["mix"]["base_gain_db"] == -6.0
-    assert call(engine, "/api/base/clear", {})["base"] is None
+    v = call(engine, "/api/base/clear", {})                                  # yours goes: back on the Extended base
+    assert v["template_id"] == "extended" and v["mix"]["base_path"].endswith("sparta_remix_extended.mp3")
     call(engine, "/api/base/open", {"path": str(tmp_path / "nope.wav")}, expect=400)
 
 
@@ -233,7 +241,7 @@ def test_every_change_is_saved_at_once(tmp_path):
         call(base, "/api/template/use", {"id": "extended"})
         path = os.path.join(project["workspace"], "project.spartagen.json")
         saved = json.load(open(path, encoding="utf-8"))
-        assert saved["variant"] == "extended"
+        assert saved["variant"] == "base" and saved["options"]["base_from_template"] == "extended"
         call(base, "/api/look", {"video": {"style": "neon"}})
         assert json.load(open(path, encoding="utf-8"))["video"]["style"] == "neon"
     finally:
@@ -256,7 +264,9 @@ def test_a_new_project_keeps_the_look_and_sound_chosen_last(tmp_path):
         lk = call(base, "/api/look")
         assert lk["video"]["style"] == "neon" and lk["video"]["shake"] == 0.4 and lk["video"]["border"] == "glow"
         assert lk["mix"]["fx_preset"] == "lofi" and lk["mix"]["volumes"] == {"pitches": -6.0, "drums": 3.0}
-        assert lk["mix"]["mute_groups"] == ["quotes"] and "base_path" not in new["mix"]
+        assert lk["mix"]["mute_groups"] == ["quotes"]
+        # A new project starts on the Extended base, its own audio under the remix.
+        assert new["mix"]["base_path"].endswith("sparta_remix_extended.mp3") and new["template_id"] == "extended"
         assert lk["volume_groups"]["pitches"] == "Pitches" and lk["volume_range"] == [-24.0, 12.0]
     finally:
         httpd.shutdown()
