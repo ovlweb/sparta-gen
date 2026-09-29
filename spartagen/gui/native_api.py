@@ -27,7 +27,8 @@ def midi_view(session) -> Optional[dict]:
         return None
     return {"path": m["path"], "summary": m["summary"], "mapping": m["mapping"],
             "auto_percussion": m.get("auto_percussion", True), "auto_phrase": m.get("auto_phrase", True),
-            "section_bars": m.get("section_bars", 8), "roles": ROLES}
+            "section_bars": m.get("section_bars", 8), "roles": ROLES,
+            "template": m.get("template") or None, "plan": m.get("plan") or None}
 
 
 def arrangement_view(session) -> Optional[dict]:
@@ -48,14 +49,17 @@ def arrangement_view(session) -> Optional[dict]:
 def extra_view(session) -> dict:
     """What the native app shows on top of the classic project view."""
     p = session.project
+    # The template the remix is built on: a template's own, or the MIDI base's a template loaded.
+    tid = p.variant if p.variant not in ("base", "midi") else ((p.midi or {}).get("template") if p.variant == "midi"
+                                                               else None)
     tpl = None
-    if p.variant not in ("base", "midi"):
+    if tid:
         try:
-            tpl = bases.get_template(p.variant).to_dict()
+            tpl = bases.get_template(tid).to_dict()
         except KeyError:
             tpl = None
     base_tpl = session.base_template()
-    return {"template": tpl, "midi": midi_view(session),
+    return {"template": tpl, "template_id": tpl["id"] if tpl else "", "midi": midi_view(session),
             "base_template": p.options.get("base_template") or "",
             "base_template_info": base_tpl.to_dict() if base_tpl else None,
             "base_structure": p.options.get("base_structure") or "detected",
@@ -208,7 +212,8 @@ def route(h, method: str, path: str, q: dict) -> bool:
                 s.project.mix[k] = b[k]
         if b.get("follow") and s.project.base:
             s.project.variant = "base"
-        s.project.arrangement = None
+        if any(k in b for k in ("template", "structure", "follow")):
+            s.project.arrangement = None             # (the base's level, mode or offset leave the parts as they are)
         return ok()
     if path == "/api/base/clear" and method == "POST":
         s.clear_base()
@@ -283,9 +288,14 @@ def route(h, method: str, path: str, q: dict) -> bool:
         n = min(4000, max(16, int(q.get("n", 600))))
         seg = np.abs(x[int(a * SAMPLE_RATE):int(z * SAMPLE_RATE)])
         peaks = [float(c.max()) if c.size else 0.0 for c in np.array_split(seg, n)] if seg.size else [0.0] * n
-        top = max(max(peaks), 1e-6)
+        # One scale for the whole video (its loudest moment), so zooming or moving the view keeps the heights.
+        cached = getattr(s, "_wave_top", None)
+        if cached is None or cached[0] != len(x):
+            cached = (len(x), max(float(np.max(np.abs(x))) if len(x) else 0.0, 1e-6))
+            s._wave_top = cached
+        top = cached[1]
         return ok({"start": round(a, 4), "end": round(z, 4), "duration": round(total, 4),
-                   "peaks": [round(p / top, 4) for p in peaks]})
+                   "peaks": [round(min(1.0, p / top), 4) for p in peaks]})
 
     # ── exports (to paths the user chose in a Save dialog) ──
     if path == "/api/export/file" and method == "POST":

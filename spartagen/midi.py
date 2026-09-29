@@ -506,6 +506,35 @@ def _ref_pitch(key_pc: int, median: int) -> int:
     return base + 12 if median - base > 6 else base
 
 
+#: A sample is shifted at most this far from its root (further, a note is played an octave nearer).
+MAX_SHIFT = 15
+
+
+def _part_ref(key_pc: int, pitches: list) -> int:
+    """The key root a part's notes are counted from — the octave that keeps them nearest the sample's own
+    note: a note shifted further than 9 semitones costs more the further it goes (a part spread over three
+    octaves is not pulled to one end of it by where most of its notes sit)."""
+    if not pitches:
+        return 60 + (key_pc - 60) % 12
+    ps = sorted(pitches)
+    mid = ps[len(ps) // 2]
+    best, best_cost = None, None
+    for ref in range(key_pc + 12, 128, 12):
+        cost = sum(max(0, abs(q - ref) - 9) ** 2 for q in ps)
+        if best is None or cost < best_cost or (cost == best_cost and abs(mid - ref) < abs(mid - best)):
+            best, best_cost = ref, cost
+    return best
+
+
+def _fold(semis: int, lo: int = -MAX_SHIFT, hi: int = MAX_SHIFT) -> int:
+    """A shift beyond lo … hi played an octave (or two) nearer."""
+    while semis > hi:
+        semis -= 12
+    while semis < lo:
+        semis += 12
+    return semis
+
+
 # ── the base's structure ─────────────────────────────────────────────────────
 
 
@@ -673,11 +702,12 @@ SECTION_LOOK = {"intro": ("Intro", "main"), "chorus": ("Chorus", "main"), "dundu
 def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percussion: bool = True,
                     auto_phrase: bool = True, key: Optional[str] = None, title: str = "Sparta Remix",
                     pitching: str = "normal", polish: str = "normal", section_bars: int = 8,
-                    perc_pattern: str = "perc.sparta"):
+                    perc_pattern: str = "perc.sparta", plan: Optional[list] = None, minor: Optional[bool] = None):
     """The remix on a MIDI base: its notes played by the samples (a track per enabled part), in the base's own
     parts (see :func:`song_structure`) — the main phrase comes in where the base's Chorus does, with the
     part's own pattern (Chorus, DunDunDenDen chops, Epicness, Madness words, quotes in the Intro and at the
-    Ending), and the percussion where the MIDI has none."""
+    Ending), and the percussion where the MIDI has none.  ``plan``: the base's parts as a template knows them,
+    ``[[kind, bars], …]`` from its first bar, instead of reading them from what the channels play."""
     from .arrangement import Arrangement, SectionSpec, TrackSpec, _crash, _drums, _perc_layers, _placements
     from .audio.pitch import pitch_class
     from .patterns.notation import ORIGINAL_PROGRESSION
@@ -690,17 +720,25 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
     roles = {m[p.id]["role"] for p in enabled}
     has_drums = bool(roles & set(DRUM_ROLES))
     structure: list[MidiSection] = []
-    for sec in song_structure(song):             # long parts split at section_bars (on 4-bar lines)
-        size = max(4, section_bars // 4 * 4)
-        if sec.kind in ("chorus", "epicness") and sec.bars > max(section_bars, 4):
-            for a in range(sec.start, sec.end, size):
-                structure.append(MidiSection(sec.kind, a, min(size, sec.end - a)))
-        else:
-            structure.append(sec)
+    if plan:
+        at = 0
+        for kind, bars in plan:
+            structure.append(MidiSection(str(kind), at, int(bars)))
+            at += int(bars)
+    else:
+        for sec in song_structure(song):         # long parts split at section_bars (on 4-bar lines)
+            size = max(4, section_bars // 4 * 4)
+            if sec.kind in ("chorus", "epicness") and sec.bars > max(section_bars, 4):
+                for a in range(sec.start, sec.end, size):
+                    structure.append(MidiSection(sec.kind, a, min(size, sec.end - a)))
+            else:
+                structure.append(sec)
     by_part: dict[str, list[MidiNote]] = {}
     for n in song.notes:
         by_part.setdefault(f"t{n.track}c{n.channel}", []).append(n)
-    opts = {"minor": song.minor, "base": True}
+    # Each part's notes are counted from one key root for the whole song (the same shift in every part).
+    refs = {p.id: _part_ref(key_pc, [n.pitch for n in by_part.get(p.id, [])]) for p in enabled}
+    opts = {"minor": song.minor if minor is None else bool(minor), "base": True}
     totals = {k: sum(1 for x in structure if x.kind == k) for k in SECTION_LOOK}
     sections = []
     counts: dict[str, int] = {}
@@ -714,7 +752,7 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
         for p in enabled:
             ns = [n for n in by_part.get(p.id, []) if s0 <= n.start * steps_per_beat < s1]
             if ns:
-                tr = _part_track(p, m[p.id]["role"], ns, s0, key_pc, m[p.id], steps_per_beat)
+                tr = _part_track(p, m[p.id]["role"], ns, s0, key_pc, m[p.id], steps_per_beat, refs.get(p.id))
                 if kind == "madness" and tr.stem != "quotes" and tr.kind != "words":
                     tr.visual = "none"          # the Madness shows its words; the base plays under them
                 tracks.append(tr)
@@ -771,7 +809,8 @@ def _phrase_tracks(kind: str, bars: int, roles: set, opts: dict) -> list:
     return []
 
 
-def _part_track(p: MidiPart, role: str, ns: list, s0: float, key_pc: int, mp: dict, spb: float):
+def _part_track(p: MidiPart, role: str, ns: list, s0: float, key_pc: int, mp: dict, spb: float,
+                ref: Optional[int] = None):
     from .arrangement import TrackSpec
     tid = f"midi_{p.id}"
     gain = float(mp.get("gain_db", 0.0))
@@ -809,14 +848,22 @@ def _part_track(p: MidiPart, role: str, ns: list, s0: float, key_pc: int, mp: di
                              visual="center", flip="none", stem="quotes")
         return TrackSpec(tid, "words", "notes", mode="index", slots={"1": "word_a", "2": "word_b"}, notes=_sorted(rows),
                          pitched=False, gain_db=gain, visual="madness", flip="none")
-    ref = _ref_pitch(key_pc, p.median) - 12 * octave
+    if role == "bass":
+        # The bass keeps its register — around the bass sample's own note, its octave bounces below it — or it
+        # is heard as one more pitch.
+        base, lo, hi = _ref_pitch(key_pc, p.median), -24, 12
+    else:
+        base, lo, hi = (ref if ref is not None else _ref_pitch(key_pc, p.median)), -MAX_SHIFT, MAX_SHIFT
+
+    def shift(n) -> int:                       # folded near the sample's note, then the part's own octave
+        return _fold(n.pitch - base, lo, hi) + 12 * octave
     if role == "chords":
         by_start: dict[float, list] = {}
         for n in ns:
             by_start.setdefault(st(n), []).append(n)
         for t0, group in by_start.items():
             for v, n in enumerate(sorted(group, key=lambda n: n.pitch)[:3]):
-                rows.append([t0, du(n), n.pitch - ref, v])
+                rows.append([t0, du(n), shift(n), v])
         return TrackSpec(tid, "pitch", "notes", mode="semitone", sample="pitch2",
                          voice_samples=["pitch2", "pitch3", "pitch4"], notes=_sorted(rows), sustain=True,
                          gain_db=gain - 8.0, visual="voices", flip="alternate", stem="pitch_layers")
@@ -827,7 +874,7 @@ def _part_track(p: MidiPart, role: str, ns: list, s0: float, key_pc: int, mp: di
         cur = by_start.get(k)
         if cur is None or (n.pitch < cur.pitch if role == "bass" else n.pitch > cur.pitch):
             by_start[k] = n
-    rows = [[k, du(n), n.pitch - ref, 0] for k, n in by_start.items()]
+    rows = [[k, du(n), shift(n), 0] for k, n in by_start.items()]
     if role == "bass":
         return TrackSpec(tid, "bass", "notes", mode="semitone", sample="bass", notes=_sorted(rows), sustain=True,
                          gain_db=gain - 2.0, visual="bass", stem="bass")

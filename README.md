@@ -23,8 +23,9 @@ SpartaGen turns any video into a **Sparta Remix** the way remixers build them by
 3. **Sequences the patterns from the Sparta Remix Wiki** (standard Chorus `11_11_111_1_1_11222_2_222_222_2_…`,
    DunDunDenDen, Madness call & response, the Epicness and its 13 edits, Awesomeness 1/2 and 30 custom ones,
    Execution, chords, percussion and hi-hat patterns, 43 freestyles…) over the classic D → E♭ → C → E♭ progression.
-4. **Builds on your base** — one of **26 base templates** (the standard, fast and wiki bases with their keys and
-   patterns, plus your own), **your base's audio file** (tempo, bar 1, key, chord progression and its sections —
+4. **Builds on your base** — one of the **base templates** (the Sparta Remix's own Extended base, and four MIDI
+   bases — Stroll, Nana-iro, Blend S and Decline CTE — whose notes the samples play, plus your own), **your base's
+   audio file** (tempo, bar 1, key, chord progression and its sections —
    Intro, Chorus, DunDunDenDen, Awesomeness 1, Madness, Epicness, Awesomeness 2, Ending — read from it, and the
    remix built on it bar for bar), or **its MIDI** for bases that are not public (you say what each channel is,
    switch channels off, and Sparta percussion is added when there is none).
@@ -96,6 +97,9 @@ there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termu
 
 ## Using the app
 
+On a computer the buttons show their icon (rest the pointer on one for its words); on a phone they show their
+words too. The app has its own font, Inter, the same on every system.
+
 Six pages, in the order you go — on a computer in a side bar, on a phone in the bottom bar. The menu bar
 (*File*, *Remix*, *Help*; the app menu on macOS) has the rest, with shortcuts: **Ctrl/⌘+N** new project,
 **Ctrl/⌘+O** open, **Ctrl/⌘+S** save, **Ctrl/⌘+Shift+S** save as, **Ctrl/⌘+Enter** make the remix,
@@ -106,12 +110,16 @@ the project you worked on last.
    (downloaded with yt-dlp). The video plays right there. **⚡ Make my Sparta Remix** does everything in one go;
    *Only cut the samples* stops after the samples.
 2. **Base** — what the remix is built on:
-   - **Template**: 26 bases in groups — *Standard* (Unextended, Extended 2:08, Semi-Extended, Extended in minor,
-     2010 style), *Fast* (Hyper/Vertex 160, 150 and 170 BPM), *Wiki* (18 bases from the Sparta Remix Wiki with their
-     keys and patterns: Nemesis, Kaosz, Pulse, Latin, DrLaSp, Interpolation, Filthy, Madhouse, FAP, TOSE V7,
-     Tungsten, Elasticity, Lost, TGOHS, Upsilon, Celeste, Valise, Radical JE) and *My templates* — search, see each
-     one's parts, change its tempo; **save the current structure as your own template**, import or delete them
-     (`.spartabase.json`, shareable).
+   - **Template**: the *Bases* — the **Sparta Remix (Extended base)** (2:07 at 140 BPM in D: the base most remixes
+     are made on, with the wiki's patterns on its parts) and four **MIDI bases** that come with the app: **Sparta
+     Stroll Base** (0:49, 127 BPM, C# minor), **Sparta Nana-iro Base** (2:44, 130 BPM, F# minor), **Sparta Blend S
+     Base** (by enforch sr — 2:05, 140 BPM, E) and **Sparta Decline CTE Base** (by Citrus — 2:09, 140 BPM, C minor).
+     A MIDI base's template plays its notes on your samples: which instrument the main pitch, the other pitches,
+     the chords and the bass play (its lead, arps, chords and bass line — doubled and padding parts left out), its
+     parts bar for bar (Intro, Chorus, DunDunDenDen, Epicness, Madness, Ending) and its key are set for each base;
+     change any channel under *MIDI*. And *My templates* — search, see each one's parts; **save the current structure
+     as your own template**, import or delete them (`.spartabase.json`, shareable). (The wiki's pitch patterns are
+     all still there to pick for any track.)
    - **Base audio file**: open your base; its tempo, bar 1, key, chords and parts are read and the remix follows
      them (or tell it which template the base is, and follow the template's layout instead). Base volume, and
      whether our drums and bass play over it.
@@ -128,7 +136,9 @@ the project you worked on last.
 3. **Samples** — every sample with its picture, where it was cut and its note (e.g. `D#5 → D5 (-1.01 st)`):
    ▶ plays it processed, *Original* plays that stretch of the video. Pick another cut from the list the analysis
    found, or **cut it yourself**: the video's sound as a waveform and its frames as a film strip, the cut between
-   two handles you drag — it opens on where the sample is cut now; play the cut, zoom, or type the times. The bass
+   two handles you drag — it opens on where the sample is cut now; play the cut, zoom (the mouse wheel zooms around
+   the pointer, two fingers pinch), drag outside the cut to look around (the waveform and the frames follow at
+   once), or type the times. The bass
    is picked and cut the same way (a note of its own, played low). Pitch octave, bass octave and how straight the
    notes are tuned; *Cut again* to redo it all.
 4. **Remix** — title, pitching (classic sampler / normal / hard layers), polish, *Progression Twist* (Original
@@ -147,7 +157,7 @@ the project you worked on last.
 
 <p align="center">
   <img src="docs/app-source.jpg" width="49%" alt="Source: the video, and the one-click remix">
-  <img src="docs/app-base.jpg" width="49%" alt="Base: 26 templates, your base's audio file or its MIDI">
+  <img src="docs/app-base.jpg" width="49%" alt="Base: a template, your base's audio file or its MIDI">
   <img src="docs/app-samples.jpg" width="49%" alt="Samples: every cut, listen and pick another">
   <img src="docs/app-remix.jpg" width="49%" alt="Remix: the structure, every part and track">
   <img src="docs/app-look.jpg" width="49%" alt="Look and sound: styles and effects">
@@ -263,23 +273,25 @@ Useful options: `--bpm`, `--key D`, `--pitch-octave 4`, `--pitching classic|norm
 
 ## Bases
 
-The standard templates (the others are listed under [Using the app](#using-the-app); each template carries its tempo,
-key, progression and its own patterns):
+The bases that come with SpartaGen (each template carries its tempo and key; the MIDI bases their notes, which of
+their instruments the samples play and their parts bar for bar):
 
-| Template | BPM | Length | Structure |
-|---|---|---|---|
-| **Unextended** | 140 | 43 bars ≈ 1:14 | Intro · intro hits · Chorus · DunDunDenDen · Chorus · Madness · final Chorus · Ending |
-| **Semi-Extended** | 140 | 55 bars ≈ 1:34 | + Epicness and Awesomeness 1 — **hard pitching** (octave, chord and arp layers) and **hard FX polishing** (heavy OTT, sidechain pump) |
-| **Extended (2:08)** | 140 | 74 bars ≈ 2:07 | The 2:08 extended base's layout: 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending |
-| **Your base's audio** | the base's | the base's | Every section of the base gets its part (see [Using a real Sparta base](#using-a-real-sparta-base)) |
-| **Your base's MIDI** | the MIDI's | the MIDI's | The MIDI's notes play on your samples, a role per channel |
-| **Hyper / Vertex** | 160 | 55 bars ≈ 1:23 | Semi-extended with the Hyper/Vertex execution pattern, hard pitching and FX |
-| **Extended in minor** | 140 | 67 bars ≈ 1:55 | Extended with the wiki's minor variants (Metro/Minor intro, minor chords, `0*, 3*` arps, minor Awesomeness) |
-| **2010 style** | 140 | 43 bars ≈ 1:14 | Unextended with sampler ("chipmunk") pitching, no OTT, light polish |
+| Template | BPM | Key | Length | Structure |
+|---|---|---|---|---|
+| **Sparta Remix (Extended base)** | 140 | D | 74 bars ≈ 2:07 | 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending |
+| **Sparta Stroll Base** (MIDI) | 127 | C# minor | 26 bars ≈ 0:49 | Intro 1 · Chorus 8 · Chorus 8 · DunDunDenDen 4 · Chorus 4 · Ending |
+| **Sparta Nana-iro Base** (MIDI) | 130 | F# minor | 89 bars ≈ 2:44 | Intro 4 · Chorus 8 · DunDunDenDen 4 · Chorus 12 · Madness 4 · Chorus 8 · Epicness 8 (the gated chords) · Chorus 8 · DunDunDenDen 4 · Chorus 8 · Epicness 8 · Chorus 12 · Ending |
+| **Sparta Blend S Base** (MIDI, enforch sr) | 140 | E | 73 bars ≈ 2:05 | Intro 7 · Chorus 12 · DunDunDenDen 4 · Chorus 8 · Epicness 8 · Chorus 8 · Madness 4 · Chorus 8 · Epicness 4 · Chorus 8 · Ending 2 |
+| **Sparta Decline CTE Base** (MIDI, Citrus) | 140 | C minor | 75 bars ≈ 2:09 | Intro 8 · DunDunDenDen 4 · Chorus 8 · DunDunDenDen 4 · Chorus 8 · Epicness 8 (the Rhodes lead) · Chorus 8 · Madness 4 · Epicness 4 · Chorus 16 · Ending 3 |
+| **Your base's audio** | the base's | the base's | the base's | Every section of the base gets its part (see [Using a real Sparta base](#using-a-real-sparta-base)) |
+| **Your base's MIDI** | the MIDI's | the MIDI's | the MIDI's | The MIDI's notes play on your samples, a role per channel |
+
+On a MIDI base each part's notes are played around its sample's own note (the octave that keeps them nearest it; a
+note more than 15 semitones away is played an octave nearer), and the bass keeps its register.
 
 The pitch samples are tuned to the base's key (the template's, the one read from your base, or the MIDI's) unless you
 pick one; chorus structure and percussion are the same on every base — only tempo, key and patterns differ.
-`spartagen templates` lists them all; `spartagen make video.mp4 --template tungsten`, `--midi base.mid --midi-map …`
+`spartagen templates` lists them all; `spartagen make video.mp4 --template nanairo`, `--midi base.mid --midi-map …`
 and `--key E` do the same from the command line.
 
 Sections and what plays in them:
@@ -430,8 +442,9 @@ smaller again), each showing its own voice's clip, with no colours of their own.
 centred in a box in the middle of the frame, against the left side in a box on the left and the right side on the
 right (the top in the top row, the bottom in the bottom row).
 **Volumes**: a fader for the main phrase, the pitches, the chords, the bass, the percussion and the quotes (and your
-base file), from −24 to +12 dB; a part switched off is out of the video too. The look, the sound and the volumes
-stay as you set them for your next projects.
+base file — the same fader as on the *Base* page), from −24 to +12 dB; a part switched off is out of the video too.
+A volume (a fader here, a MIDI channel's) changes levels only: a structure you edited stays as it is. The look, the
+sound and the volumes stay as you set them for your next projects.
 
 **Visual styles** (each one a set of the effects below; pick one, then change any effect):
 **Classic** (the Vegas grid), **Clean** (no flips or flashes, thin borders, black background), **Xleth** (rotating
@@ -543,9 +556,11 @@ a `v*` tag and publishes one release.
   PSOLA/loop ideas), [ChorusCrisp](https://github.com/composition-cassidy/ChorusCrisp) (the Jario pluck),
   [Sparta Remix Visual Editor](https://github.com/composition-cassidy/Sparta-Remix-Visual-Editor) (grid/flip
   conventions) by composition-cassidy.
+- MIDI bases that come with the app: the Stroll, Nana-iro, Blend S (by enforch sr) and Decline CTE (by Citrus) bases.
 - YIN: de Cheveigné & Kawahara (2002). BS.1770-4 loudness. TD-PSOLA: Moulines & Charpentier (1990).
 - The app: [Flutter](https://flutter.dev), [media_kit](https://github.com/media-kit/media-kit) (mpv) for the players,
-  [Chaquopy](https://chaquo.com/chaquopy/) for Python on Android, [FFmpeg](https://ffmpeg.org) and x264.
+  [Chaquopy](https://chaquo.com/chaquopy/) for Python on Android, [FFmpeg](https://ffmpeg.org) and x264, the
+  [Inter](https://rsms.me/inter/) font (SIL Open Font License).
 
 ## Known limitations
 

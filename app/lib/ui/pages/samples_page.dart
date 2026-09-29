@@ -67,7 +67,7 @@ class SamplesPage extends StatelessWidget {
             icon: Icons.content_cut,
             title: 'The samples are not cut yet',
             message: 'It takes a minute: the voice is found, cut into pitches, words and hits, and tuned.',
-            action: FilledButton.icon(
+            action: AdaptiveButton.filled(
               onPressed: app.busy ? null : () => app.analyze(),
               icon: const Icon(Icons.content_cut),
               label: const Text('Cut the samples'),
@@ -147,7 +147,7 @@ class _TuningCard extends StatelessWidget {
           format: (v) => '${(v * 100).round()}%',
           onChanged: (v) => app.sampleConfig({'flatten': double.parse(v.toStringAsFixed(2))}),
         ),
-        OutlinedButton.icon(
+        AdaptiveButton.outlined(
           onPressed: app.busy ? null : () => app.analyze(force: true),
           icon: const Icon(Icons.refresh),
           label: const Text('Cut again'),
@@ -294,7 +294,7 @@ class _SampleTileState extends State<_SampleTile> {
                   const SizedBox(height: 8),
                   Row(children: [
                     Expanded(
-                      child: FilledButton.tonalIcon(
+                      child: AdaptiveButton.tonal(
                         style: _compact,
                         onPressed: () => Players.playSound(app.engine.url('${s['audio_url']}'), tag: id),
                         icon: const Icon(Icons.play_arrow, size: 18),
@@ -303,7 +303,7 @@ class _SampleTileState extends State<_SampleTile> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: AdaptiveButton.outlined(
                         style: _compact,
                         onPressed: srcPath == null
                             ? null
@@ -337,7 +337,7 @@ class _SampleTileState extends State<_SampleTile> {
                     ),
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
+                      child: AdaptiveButton.text(
                         onPressed: app.busy ? null : _cutIt,
                         icon: const Icon(Icons.content_cut, size: 18),
                         label: Text(sel is Map ? 'Change my cut' : 'Cut it myself'),

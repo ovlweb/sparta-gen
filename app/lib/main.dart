@@ -185,8 +185,8 @@ class _EngineGateState extends State<EngineGate> {
                 ),
                 const SizedBox(height: 16),
                 Wrap(spacing: 12, children: [
-                  FilledButton.icon(onPressed: _start, icon: const Icon(Icons.refresh), label: const Text('Try again')),
-                  OutlinedButton.icon(
+                  AdaptiveButton.filled(onPressed: _start, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+                  AdaptiveButton.outlined(
                     onPressed: () => Clipboard.setData(ClipboardData(text: '$_error\n\n${_launcher.log}')),
                     icon: const Icon(Icons.copy),
                     label: const Text('Copy the details'),

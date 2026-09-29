@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sparta_gen/engine/engine.dart';
@@ -106,9 +107,10 @@ void main() {
     await tester.tap(find.text('Template'));
     await tester.pumpAndSettle();
     expect(find.text('Base templates'), findsOneWidget);
-    await tester.tap(find.textContaining('Extended (2:08)').first);
+    expect(find.text('Sparta Remix (Extended base)'), findsOneWidget);
+    await tester.tap(find.text('Sparta Stroll Base'));          // a MIDI base: its notes, roles and parts
     await tester.pumpAndSettle();
-    expect(engine.posts.any((p) => p.$1 == '/api/template/use' && p.$2?['id'] == 'extended'), isTrue);
+    expect(engine.posts.any((p) => p.$1 == '/api/template/use' && p.$2?['id'] == 'stroll'), isTrue);
   });
 
   testWidgets('picking a visual style sends it, and resets the effects to it', (tester) async {
@@ -176,6 +178,33 @@ void main() {
     expect((sent['end'] as double) > (sent['start'] as double), isTrue);
   });
 
+  testWidgets('the cutter zooms with the wheel and a drag outside the cut moves the view, not the cut',
+      (tester) async {
+    final engine = await startApp(tester);
+    await open(tester, 'Samples');
+    await tester.tap(find.text('Cut it myself').first);
+    await tester.pumpAndSettle();
+    String label(String key) => (tester.widget(find.byKey(ValueKey(key))) as Text).data!;
+    final view = find.byKey(const ValueKey('cutter-view'));
+    final from = label('cutter-from'), to = label('cutter-to');
+    // The wheel zooms out around the pointer (and the dialog does not scroll instead).
+    final mouse = TestPointer(1, PointerDeviceKind.mouse);
+    mouse.hover(tester.getCenter(view));
+    await tester.sendEventToBinding(mouse.scroll(const Offset(0, 400)));
+    await tester.pumpAndSettle();
+    expect(label('cutter-from') != from || label('cutter-to') != to, isTrue);
+    // Dragging near the view's edge (outside the cut) slides the view along; the cut stays where it was.
+    final zoomedFrom = label('cutter-from');
+    await tester.dragFrom(tester.getTopLeft(view) + const Offset(6, 130), const Offset(-160, 0));
+    await tester.pumpAndSettle();
+    expect(label('cutter-from'), isNot(zoomedFrom));
+    await tester.tap(find.text('Use this cut'));
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/samples/select').$2!;
+    final sample = (engine.data['samples']['samples'] as List).first as Map;
+    expect((sent['start'] as double) - (sample['src_start'] as num), closeTo(0, 0.01));
+  });
+
   testWidgets('the bass is picked and cut like a pitch: a note of its own', (tester) async {
     final engine = await startApp(tester, size: const Size(1400, 2400));          // every card on screen
     await open(tester, 'Samples');
@@ -199,6 +228,22 @@ void main() {
     expect(app.look!['video']['style'], 'neon');
     expect(engine.posts.any((p) => p.$1 == '/api/project/new'), isTrue);
   });
+
+  testWidgets('on a computer the buttons show their icon alone, their words as a tooltip', (tester) async {
+    await startApp(tester);
+    expect(find.text('Make my Sparta Remix'), findsNothing);
+    expect(find.byTooltip('Make my Sparta Remix'), findsOneWidget);
+    await open(tester, 'Samples');
+    expect(find.byTooltip('Cut it myself'), findsWidgets);
+    await tester.tap(find.byTooltip('Cut it myself').first);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Use this cut'), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+  testWidgets('on a phone they keep their words', (tester) async {
+    await startApp(tester, size: const Size(400, 820));
+    expect(find.text('Make my Sparta Remix'), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('a phone gets a bottom bar and a menu', (tester) async {
     await startApp(tester, size: const Size(400, 820));

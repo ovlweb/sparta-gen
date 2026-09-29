@@ -261,7 +261,7 @@ def test_session_follows_a_midi_base(tmp_path, base_mid):
     s.set_midi_mapping({drums: {"role": "off"}}, auto_percussion=False)
     assert not any(e.stem == "drums" for e in compile_events(s.arrangement()))
     s.clear_midi()
-    assert s.project.variant == "unextended" and s.project.midi is None
+    assert s.project.variant == "extended" and s.project.midi is None          # back on the usual base
 
 
 def test_a_midi_remix_renders(tmp_path, synthetic_source):

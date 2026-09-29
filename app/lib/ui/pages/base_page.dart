@@ -23,7 +23,7 @@ class _BasePageState extends State<BasePage> {
 
   String get mode {
     if (_mode != null) return _mode!;
-    if (app.variant == 'midi') return 'midi';
+    if (app.variant == 'midi') return app.templateId.isNotEmpty ? 'template' : 'midi';
     if (app.variant == 'base' || app.baseMap != null) return 'audio';
     return 'template';
   }
@@ -37,10 +37,14 @@ class _BasePageState extends State<BasePage> {
       children: [
         Center(
           child: SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'template', icon: Icon(Icons.dashboard_customize_outlined), label: Text('Template')),
-              ButtonSegment(value: 'audio', icon: Icon(Icons.audio_file_outlined), label: Text('Base audio file')),
-              ButtonSegment(value: 'midi', icon: Icon(Icons.piano), label: Text('MIDI')),
+            segments: [
+              for (final (value, icon, words) in const [
+                ('template', Icons.dashboard_customize_outlined, 'Template'),
+                ('audio', Icons.audio_file_outlined, 'Base audio file'),
+                ('midi', Icons.piano, 'MIDI'),
+              ])
+                ButtonSegment(
+                    value: value, icon: Icon(icon), tooltip: words, label: iconButtons(context) ? null : Text(words)),
             ],
             selected: {mode},
             onSelectionChanged: (s) => setState(() => _mode = s.first),
@@ -63,10 +67,10 @@ class _BasePageState extends State<BasePage> {
 
   List<Widget> _templateMode(BuildContext context) {
     final current = app.template;
-    final selectedId = app.variant;
+    final selectedId = app.templateId;
     final list = SectionCard(
       title: 'Base templates',
-      subtitle: '26 bases: keatonkeaton999’s, fast ones, the wiki’s (their key and own patterns) and yours.',
+      subtitle: 'The Sparta Remix’s own base, four MIDI bases whose notes the samples play, and yours.',
       child: Column(children: [
         TextField(
           decoration: const InputDecoration(labelText: 'Search', prefixIcon: Icon(Icons.search)),
@@ -147,9 +151,12 @@ class _BasePageState extends State<BasePage> {
           selected: t['id'] == selectedId,
           selectedTileColor: cs.primary.withValues(alpha: 0.12),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          leading: Icon(t['user'] == true ? Icons.person_outline : Icons.queue_music, size: 20),
+          leading: Icon(
+              t['user'] == true ? Icons.person_outline : ('${t['midi'] ?? ''}' != '' ? Icons.piano : Icons.queue_music),
+              size: 20),
           title: Text('${t['name']}'),
-          subtitle: Text('${_bpm(t)} · ${t['key']} · ${t['bars']} bars · ${fmtDuration(t['duration'] as num?)}'),
+          subtitle: Text('${_bpm(t)} · ${t['key']}${t['minor'] == true ? 'm' : ''} · ${t['bars']} bars · '
+              '${fmtDuration(t['duration'] as num?)}'),
           onTap: app.busy ? null : () => app.useTemplate('${t['id']}'),
         ),
     ];
@@ -165,11 +172,13 @@ class _BasePageState extends State<BasePage> {
     final opts = (app.project['options'] as Map?) ?? {};
     final bpmCtrl = TextEditingController(text: '${opts['bpm'] ?? t['bpm']}');
     final plan = (t['plan'] as List).map((e) => (e as List)).toList();
+    final isMidi = '${t['midi'] ?? ''}' != '';
     return SectionCard(
       title: '${t['name']}',
       subtitle: '${t['group']}',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Wrap(spacing: 8, runSpacing: 8, children: [
+          if (isMidi) const Pill('MIDI base', icon: Icons.piano),
           Pill(_bpm(t), icon: Icons.speed),
           Pill('Key ${t['key']}${t['minor'] == true ? ' minor' : ''}', icon: Icons.music_note),
           Pill('${t['bars']} bars', icon: Icons.view_week),
@@ -179,7 +188,15 @@ class _BasePageState extends State<BasePage> {
         Text('${t['description']}'),
         if ((t['credit'] ?? '') != '') ...[
           const SizedBox(height: 6),
-          Text('Patterns: ${t['credit']}', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+          Text('Base by ${t['credit']}', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+        ],
+        if (isMidi && app.templateId == t['id']) ...[
+          const SizedBox(height: 10),
+          AdaptiveButton.text(
+            onPressed: () => setState(() => _mode = 'midi'),
+            icon: const Icon(Icons.tune),
+            label: const Text('What the samples play of each instrument…'),
+          ),
         ],
         const SizedBox(height: 14),
         Text('Parts', style: Theme.of(context).textTheme.titleSmall),
@@ -192,33 +209,36 @@ class _BasePageState extends State<BasePage> {
               label: Text('${partNames[part[0]] ?? part[0]} · ${part[1]}'),
             ),
         ]),
-        const SizedBox(height: 16),
-        Row(children: [
-          SizedBox(
-            width: 150,
-            child: TextField(
-              controller: bpmCtrl,
-              decoration: const InputDecoration(labelText: 'Tempo (BPM)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onSubmitted: (v) {
-                final b = double.tryParse(v.replaceAll(',', '.'));
-                if (b != null && b >= 40 && b <= 300) app.useTemplate('${t['id']}', options: {'bpm': b});
-              },
+        if (!isMidi) ...[
+          const SizedBox(height: 16),
+          Row(children: [
+            SizedBox(
+              width: 150,
+              child: TextField(
+                controller: bpmCtrl,
+                decoration: const InputDecoration(labelText: 'Tempo (BPM)'),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onSubmitted: (v) {
+                  final b = double.tryParse(v.replaceAll(',', '.'));
+                  if (b != null && b >= 40 && b <= 300) app.useTemplate('${t['id']}', options: {'bpm': b});
+                },
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Text('Press Enter to use another tempo.', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
-          ),
-        ]),
+            const SizedBox(width: 10),
+            Flexible(
+              child:
+                  Text('Press Enter to use another tempo.', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+            ),
+          ]),
+        ],
         const SizedBox(height: 16),
         Wrap(spacing: 10, runSpacing: 10, children: [
-          OutlinedButton.icon(
+          AdaptiveButton.outlined(
             onPressed: () => _saveTemplateDialog(context),
             icon: const Icon(Icons.save_outlined),
             label: const Text('Save current structure as my template…'),
           ),
-          OutlinedButton.icon(
+          AdaptiveButton.outlined(
             onPressed: () async {
               final path = await app.pickFile(Kinds.json);
               if (path != null) await app.importTemplate(path);
@@ -227,10 +247,10 @@ class _BasePageState extends State<BasePage> {
             label: const Text('Import template…'),
           ),
           if (t['user'] == true)
-            TextButton.icon(
+            AdaptiveButton.text(
               onPressed: () async {
                 await app.deleteTemplate('${t['id']}');
-                await app.useTemplate('unextended');
+                await app.useTemplate('extended');
               },
               icon: const Icon(Icons.delete_outline),
               label: const Text('Delete'),
@@ -293,7 +313,7 @@ class _BasePageState extends State<BasePage> {
               title: 'Open your Sparta base (mp3, wav …)',
               message: 'Its tempo, bar 1, key, chords and parts (Chorus, DunDunDenDen, Epicness, Madness …) are read '
                   'from it and the remix is built bar for bar on them.',
-              action: FilledButton.icon(
+              action: AdaptiveButton.filled(
                 onPressed: app.busy ? null : () => _openBase(),
                 icon: const Icon(Icons.folder_open),
                 label: const Text('Open base audio…'),
@@ -316,7 +336,7 @@ class _BasePageState extends State<BasePage> {
       SectionCard(
         title: path.split(RegExp(r'[\\/]')).last,
         subtitle: bm == null ? 'Plays under the remix (its parts could not be read)' : 'Read from the file',
-        trailing: TextButton.icon(
+        trailing: AdaptiveButton.text(
             onPressed: app.busy ? null : app.clearBase, icon: const Icon(Icons.close), label: const Text('Remove')),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (bm != null)
@@ -367,7 +387,7 @@ class _BasePageState extends State<BasePage> {
               max: 6,
               divisions: 30,
               format: (v) => '${v.toStringAsFixed(0)} dB',
-              onChanged: (v) => app.baseOptions({'base_gain_db': v}),
+              onChanged: app.setBaseVolume,
             ),
             LabeledDropdown<String>(
               label: 'Our drums and bass',
@@ -384,12 +404,12 @@ class _BasePageState extends State<BasePage> {
           const SizedBox(height: 14),
           Wrap(spacing: 10, runSpacing: 10, children: [
             if (app.variant != 'base' && bm != null)
-              FilledButton.icon(
+              AdaptiveButton.filled(
                 onPressed: () => app.baseOptions({'follow': true}),
                 icon: const Icon(Icons.check),
                 label: const Text('Build the remix on this base'),
               ),
-            OutlinedButton.icon(
+            AdaptiveButton.outlined(
                 onPressed: app.busy ? null : () => _openBase(),
                 icon: const Icon(Icons.folder_open),
                 label: const Text('Open another base…')),
@@ -430,7 +450,7 @@ class _BasePageState extends State<BasePage> {
             title: 'Open the MIDI of your base',
             message: 'Any base, even one that is not public: each MIDI channel becomes a part of the remix — the main '
                 'phrase, a pitch, the chords, the bass, the drums … — or you switch it off.',
-            action: FilledButton.icon(
+            action: AdaptiveButton.filled(
               onPressed: app.busy ? null : _openMidi,
               icon: const Icon(Icons.folder_open),
               label: const Text('Open MIDI…'),
@@ -449,7 +469,7 @@ class _BasePageState extends State<BasePage> {
       SectionCard(
         title: '${s['path']}'.split(RegExp(r'[\\/]')).last,
         subtitle: app.variant == 'midi' ? 'The remix plays these notes' : 'Loaded — not used by the remix yet',
-        trailing: TextButton.icon(
+        trailing: AdaptiveButton.text(
             onPressed: app.busy ? null : app.clearMidi, icon: const Icon(Icons.close), label: const Text('Remove')),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Wrap(spacing: 8, runSpacing: 8, children: [
@@ -497,12 +517,12 @@ class _BasePageState extends State<BasePage> {
               onChanged: (v) => app.midiMapping(sectionBars: v),
             ),
             if (app.variant != 'midi')
-              FilledButton.icon(
+              AdaptiveButton.filled(
                 onPressed: () => app.midiMapping(use: true),
                 icon: const Icon(Icons.check),
                 label: const Text('Build the remix on this MIDI'),
               ),
-            OutlinedButton.icon(
+            AdaptiveButton.outlined(
               onPressed: app.busy ? null : _openMidi,
               icon: const Icon(Icons.folder_open),
               label: const Text('Open another MIDI…'),
@@ -515,7 +535,7 @@ class _BasePageState extends State<BasePage> {
         subtitle: 'Play the base’s own audio under the MIDI remix — its bar 1 on the MIDI’s first beat.',
         child: Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
           if (app.basePath != null) Pill(app.basePath!.split(RegExp(r'[\\/]')).last, icon: Icons.audio_file_outlined),
-          OutlinedButton.icon(
+          AdaptiveButton.outlined(
             onPressed: app.busy ? null : () => _openBase(follow: false),
             icon: const Icon(Icons.audio_file_outlined),
             label: Text(app.basePath == null ? 'Add base audio…' : 'Change…'),

@@ -91,6 +91,7 @@ def build_engine() -> str:
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--name", "spartagen-engine",
         "--distpath", os.path.join(work, "dist"), "--workpath", os.path.join(work, "work"), "--specpath", work,
         "--add-data", f"{os.path.join(ROOT, 'spartagen', 'gui', 'static')}{sep}spartagen/gui/static",
+        "--add-data", f"{os.path.join(ROOT, 'spartagen', 'templates')}{sep}spartagen/templates",
         "--add-binary", f"{ff_dst}{sep}bin",
         "--collect-submodules", "spartagen",
         "--hidden-import", "scipy.signal", "--hidden-import", "scipy.fft",

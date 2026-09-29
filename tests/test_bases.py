@@ -18,33 +18,52 @@ def _patterns(arr) -> set:
     return {t.pattern for s in arr.sections for t in s.tracks}
 
 
-def test_every_template_builds_and_compiles():
+def test_every_template_builds_and_compiles(tmp_path):
+    """The bases that come with SpartaGen: the Sparta Remix's own and the four MIDI bases (no copies of it)."""
     ts = bases.all_templates()
     assert len({t.id for t in ts}) == len(ts)
-    assert {"Standard bases", "Fast bases", "Wiki bases"} <= {t.group for t in ts}
+    assert [t.id for t in bases.builtin_templates()] == ["extended", "stroll", "nanairo", "blend_s", "decline_cte"]
+    assert {t.group for t in ts} == {"Bases"}
+    s = Session(workspace=str(tmp_path / "w"))
     for t in ts:
-        arr = build_arrangement(t.id)
-        assert arr.bpm == t.bpm and arr.key == t.key, t.id
+        bases.validate(t)
+        arr = s.set_variant(t.id)
+        assert arr.key == t.key and arr.bpm == pytest.approx(t.bpm, abs=0.01), t.id
         assert arr.total_bars == t.bars, t.id
         assert compile_events(arr), t.id
 
 
-def test_wiki_bases_play_their_own_patterns_in_their_key():
-    arr = build_arrangement("nemesis")
-    assert arr.key == "D#"
-    assert {"chorus.nemesis", "dun.nemesis", "exec.nemesis", "awe.1_nemesis"} <= _patterns(arr)
-    assert [s.kind for s in arr.sections].count("execution") == 1
-    arr = build_arrangement("drlasp")
-    assert arr.key == "C" and {"chorus.drlasp", "mad.drlasp", "perc.drlasp"} <= _patterns(arr)
-    arr = build_arrangement("tungsten")
-    assert arr.progression == "0 1 3 1 | -2" and "chords.tungsten" in _patterns(arr)
-    # A standard base keeps the usual patterns.
-    assert "chorus.nemesis" not in _patterns(build_arrangement("extended"))
+def test_a_midi_base_template_plays_its_notes_with_its_roles_and_parts(tmp_path):
+    s = Session(workspace=str(tmp_path / "w"))
+    arr = s.set_variant("decline_cte")
+    m = s.project.midi
+    assert s.project.variant == "midi" and m["template"] == "decline_cte"
+    assert m["path"].startswith(str(tmp_path))                     # its MIDI, copied into the project
+    roles = {pid: r["role"] for pid, r in m["mapping"].items()}
+    assert roles["t15c14"] == "bass" and roles["t9c7"] == "pitch1" and roles["t12c11"] == "chords"
+    assert roles["t14c13"] == "off"                                # the power-chord stabs stay out
+    assert [x.kind for x in arr.sections][:3] == ["intro", "dundundenden", "chorus"]
+    assert arr.key == "C" and s.project.samples["key"] == "C"      # not the key the notes alone suggest
+    ev = compile_events(arr)
+    assert any(e.sample == "bass" for e in ev) and any(e.stem == "chorus" for e in ev)
+    from spartagen.patterns import library as lib
+    assert lib.get("chorus.nemesis").text                         # the wiki's patterns stay, to pick for a track
+
+
+def test_parts_stay_near_their_samples_note_and_the_bass_in_its_register(tmp_path):
+    """A part spread over three octaves (Decline's Layer #3) is not shifted +24 semitones at one end: every note
+    stays within 15 of its sample's own (one further is played an octave nearer).  The bass keeps its register:
+    its octave bounces go below the bass sample's note, never an octave up to a pitch's."""
+    s = Session(workspace=str(tmp_path / "w"))
+    ev = compile_events(s.set_variant("decline_cte"))
+    assert max(abs(e.semis) for e in ev if e.pitched and e.sample != "bass") <= 15
+    bass = [e.semis for e in compile_events(s.set_variant("nanairo")) if e.sample == "bass"]
+    assert min(bass) <= -12 and max(bass) <= 0
 
 
 def test_template_structure_replaces_the_detected_one_on_a_base():
     bm = B.analyze_base(make_base(), B.SR)                   # 19 bars
-    tpl = bases.get_template("fast170")
+    tpl = bases.get_template("extended")
     arr = build_from_base(bm, extra=tpl.options, plan=tpl.plan)
     kinds = [s.kind for s in arr.sections]
     assert kinds[:4] == ["intro", "chorus", "dundundenden", "chorus"]
@@ -54,14 +73,16 @@ def test_template_structure_replaces_the_detected_one_on_a_base():
 
 def test_session_key_follows_templates_until_the_user_sets_one(tmp_path):
     s = Session(workspace=str(tmp_path / "w"))
-    s.set_variant("nemesis")
-    assert s.project.samples["key"] == "D#" and s.arrangement().key == "D#"
+    s.set_variant("stroll")
+    assert s.project.samples["key"] == "C#" and s.arrangement().key == "C#"
     s.set_key("E")
-    s.set_variant("drlasp")
+    s.set_variant("decline_cte")
     assert s.project.samples["key"] == "E"                     # the user's key wins
     s.set_key("auto")
-    s.set_variant("drlasp")
+    s.set_variant("decline_cte")
     assert s.project.samples["key"] == "C"
+    s.set_variant("extended")
+    assert s.project.samples["key"] == "D" and s.arrangement().key == "D"
 
 
 def test_a_base_file_in_d_sharp_retunes_the_pitches(tmp_path):
@@ -78,10 +99,9 @@ def test_a_template_guides_a_base_file(tmp_path):
     path = str(tmp_path / "base.wav")
     dsp.write_wav(path, make_base(), B.SR)
     s = Session(workspace=str(tmp_path / "w"))
-    s.set_base(path, template="drlasp")
-    assert s.project.options["base_template"] == "drlasp"
-    arr = s.arrangement()
-    assert "mad.drlasp" in _patterns(arr) or "chorus.drlasp" in _patterns(arr)
+    s.set_base(path, template="extended")
+    assert s.project.options["base_template"] == "extended"
+    assert s.arrangement().bpm == pytest.approx(140.0, abs=1.0)
     s.project.options["base_structure"] = "template"
     s.project.arrangement = None
     arr = s.arrangement()

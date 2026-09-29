@@ -25,6 +25,8 @@ from .samples import SampleBank, SampleConfig, build_bank
 Progress = Optional[Callable[[float, str], None]]
 
 QUALITIES = ("audio", "preview", "720p", "1080p")
+#: The base a remix is built on until another is chosen: the Sparta Remix's own (Extended) base.
+DEFAULT_VARIANT = "extended"
 
 
 def default_workspace() -> str:
@@ -43,7 +45,7 @@ class Project:
     workspace: str = ""
     analysis: Optional[dict] = None
     samples: dict = field(default_factory=lambda: asdict(SampleConfig()))
-    variant: str = "unextended"
+    variant: str = "extended"
     arrangement: Optional[dict] = None       # full Arrangement.to_dict() once built/edited
     options: dict = field(default_factory=dict)  # bpm, key, progression, pitching, polish, minor …
     mix: dict = field(default_factory=dict)
@@ -270,7 +272,7 @@ class Session:
             for k in ("base_path", "base_offset"):
                 self.project.mix.pop(k, None)
             if self.project.variant == "base":
-                self.project.variant = "unextended"
+                self.project.variant = DEFAULT_VARIANT
                 self.project.arrangement = None
 
     # ── MIDI base ──
@@ -305,6 +307,35 @@ class Session:
         self.follow_key(song.key)
         return self.project.midi
 
+    @staticmethod
+    def _template(tid: Optional[str]):
+        """A base template by id (None: no such template)."""
+        if not tid:
+            return None
+        from .bases import get_template
+        try:
+            return get_template(tid)
+        except KeyError:
+            return None
+
+    def use_midi_template(self, tpl, options: Optional[dict] = None) -> dict:
+        """Build the remix on a MIDI base's template: its MIDI, what the samples play of each of its parts,
+        its parts bar for bar and its key."""
+        from .midi import clean_mapping
+        self.set_midi(tpl.midi_path())
+        song = self.midi_song()
+        with self.lock:
+            m = self.project.midi
+            m["mapping"] = clean_mapping(song, dict(m.get("mapping") or {}, **tpl.midi_mapping()))
+            m.update({"template": tpl.id, "plan": [list(p) for p in tpl.plan], "minor": bool(tpl.minor)})
+            if options is not None:
+                keep = {k: self.project.options[k] for k in ("key_mode", "base_template", "base_structure")
+                        if k in self.project.options}
+                self.project.options = dict(keep, **options)
+            self.project.arrangement = None
+        self.follow_key(tpl.key)
+        return self.project.midi
+
     def set_midi_mapping(self, mapping: Optional[dict] = None, auto_percussion: Optional[bool] = None,
                          auto_phrase: Optional[bool] = None, section_bars: Optional[int] = None) -> dict:
         """Roles for the MIDI's parts (``{part id: {"role", "octave", "gain_db"}}``; "off" disables one)."""
@@ -314,6 +345,7 @@ class Session:
             raise ValueError("load a MIDI base first")
         with self.lock:
             m = self.project.midi
+            before = {pid: dict(v) for pid, v in (m.get("mapping") or {}).items()}
             if mapping is not None:
                 merged = dict(m.get("mapping") or {})
                 merged.update(mapping)
@@ -325,7 +357,21 @@ class Session:
             if section_bars is not None:
                 m["section_bars"] = max(2, min(32, int(section_bars)))
             if self.project.variant == "midi":
-                self.project.arrangement = None
+                gains_only = (auto_percussion is None and auto_phrase is None and section_bars is None
+                              and all({k: v for k, v in r.items() if k != "gain_db"}
+                                      == {k: v for k, v in before.get(pid, {}).items() if k != "gain_db"}
+                                      for pid, r in m["mapping"].items()))
+                if gains_only and self.project.arrangement:
+                    # Only channel volumes changed: the remix keeps its parts as edited, its tracks' levels move.
+                    for sec in self.project.arrangement.get("sections", []):
+                        for tr in sec.get("tracks", []):
+                            pid = str(tr.get("id", ""))[5:] if str(tr.get("id", "")).startswith("midi_") else None
+                            if pid in m["mapping"]:
+                                delta = float(m["mapping"][pid].get("gain_db", 0.0)) - \
+                                    float(before.get(pid, {}).get("gain_db", 0.0))
+                                tr["gain_db"] = round(float(tr.get("gain_db", 0.0)) + delta, 2)
+                else:
+                    self.project.arrangement = None
         return self.project.midi
 
     def clear_midi(self) -> None:
@@ -333,7 +379,7 @@ class Session:
             self.project.midi = None
             self._midi = None
             if self.project.variant == "midi":
-                self.project.variant = "base" if self.project.base else "unextended"
+                self.project.variant = "base" if self.project.base else DEFAULT_VARIANT
                 self.project.arrangement = None
 
     # ── arrangement ──
@@ -350,7 +396,8 @@ class Session:
                                       bool(m.get("auto_phrase", True)), key=key,
                                       pitching=o.get("pitching") or "normal", polish=o.get("polish") or "normal",
                                       section_bars=int(m.get("section_bars", 8)),
-                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern") or PERC_DEFAULT)
+                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern") or PERC_DEFAULT,
+                                      plan=m.get("plan") or None, minor=m.get("minor"))
                 arr.title = o.get("title") or (f"{self.project.name} has a Sparta Remix" if self.project.source_path
                                                else "Sparta Remix")
                 return arr
@@ -370,8 +417,13 @@ class Session:
                 if not o.get("title"):
                     arr.title = f"{self.project.name} has a Sparta Remix" if self.project.source_path else arr.title
                 return arr
+            variant = self.project.variant
+            try:
+                variant_def(variant)
+            except ValueError:                        # a template that is gone (an older project's): the usual base
+                variant = DEFAULT_VARIANT
             arr = build_arrangement(
-                self.project.variant, bpm=o.get("bpm"), key=key, progression=o.get("progression"),
+                variant, bpm=o.get("bpm"), key=key, progression=o.get("progression"),
                 pitching=o.get("pitching"), polish=o.get("polish"), minor=o.get("minor"),
                 intro_pattern=o.get("intro_pattern"), chorus_pattern=o.get("chorus_pattern"),
                 title=o.get("title") or None, chorus_pitch=bool(o.get("chorus_pitch")),
@@ -431,9 +483,14 @@ class Session:
         elif variant == "midi":
             if not self.project.midi:
                 raise ValueError("load a MIDI base first")
-            key = self.midi_song().key
+            tpl = self._template(self.project.midi.get("template"))
+            key = tpl.key if tpl is not None else self.midi_song().key
         else:
-            key = variant_def(variant).get("key")         # raises for an unknown template
+            tpl = self._template(variant)
+            if tpl is not None and tpl.midi:
+                self.use_midi_template(tpl, options)
+                return self.arrangement()
+            key = variant_def(variant).get("key") or "D"  # raises for an unknown template
         with self.lock:
             self.project.variant = variant
             if options is not None:

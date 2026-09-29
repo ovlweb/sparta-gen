@@ -2,21 +2,19 @@
 
 Sparta bases share their parts — the Chorus, the DunDunDenDen, the Epicness, the Awesomeness, the
 Madness and the percussion under them work the same way on every base — and differ in tempo, key,
-the order and length of their parts, and the pitch patterns written for them.  A template holds
-exactly that:
+the order and length of their parts, and what their instruments play.  A template holds exactly that:
 
-* **Standard bases** — keatonkeaton999's bases (Unextended, Extended …) and the classic variations.
-* **Fast bases** — the same parts at 150, 160 or 170 BPM (about a quarter of all bases are faster
-  than 140 BPM, Sparta Remix Wiki).
-* **Wiki bases** — bases the Sparta Remix Wiki documents patterns for: their key and their own
-  Chorus, DunDunDenDen, Execution, Madness, Awesomeness, percussion or progression.  Their layout is
-  the extended-type one, and their tempo is 140 BPM until the base's audio (or MIDI) says otherwise.
+* **Bases** — the ones that come with SpartaGen: the Sparta Remix's own Extended base (its parts,
+  tempo and key; the Chorus, pitch and percussion patterns of the wiki on them), and MIDI bases — the
+  Stroll, Nana-iro, Blend S and Decline CTE bases, each with its MIDI, which of its instruments the
+  samples play (lead, arps, chords, bass) and its parts bar for bar.
 * **My templates** — saved by the user (any base, public or not) as ``*.spartabase.json`` files
   that can be shared.
 
 A template drives the remix without a base file, guides the base analyzer when the base's audio is
 loaded (its tempo is the analyzer's first guess, its patterns go on the detected parts) and can
-replace the detected structure altogether.
+replace the detected structure altogether.  A MIDI base's template loads its MIDI: the remix plays its
+notes.
 """
 
 from __future__ import annotations
@@ -32,8 +30,13 @@ from .patterns import library as lib
 #: Plan kinds a template may use (see ``arrangement.build_arrangement``).
 PLAN_KINDS = ("intro", "intro_hits", "intro3", "chorus", "chorus_final", "dundundenden", "epicness", "chords",
               "awesomeness1", "awesomeness2", "madness", "execution", "ending")
+#: The parts a MIDI base's plan may use (see ``midi.build_from_midi``).
+MIDI_PLAN_KINDS = ("intro", "chorus", "dundundenden", "epicness", "madness", "ending")
 
-GROUPS = ("Standard bases", "Fast bases", "Wiki bases", "My templates")
+GROUPS = ("Bases", "My templates")
+
+#: Where the bases that come with SpartaGen keep their MIDI files.
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 
 
 @dataclass
@@ -54,10 +57,25 @@ class BaseTemplate:
     bpm_known: bool = True                         # False: 140 is only the usual tempo
     user: bool = False
     path: str = ""
+    midi: str = ""                                 # a MIDI base: its file (in TEMPLATE_DIR for the built-in ones)
+    roles: dict = field(default_factory=dict)      # a MIDI base: what the samples play of each part ({part id: role})
 
     @property
     def bars(self) -> int:
         return sum(int(b) for _k, b in self.plan)
+
+    def midi_path(self) -> str:
+        """The MIDI file of a MIDI base ("" for a base without one)."""
+        if not self.midi or os.path.isabs(self.midi):
+            return self.midi
+        return os.path.join(TEMPLATE_DIR, self.midi)
+
+    def midi_mapping(self) -> dict:
+        """The roles as a MIDI mapping (``{part id: {"role", "octave", "gain_db"}}``)."""
+        out = {}
+        for pid, r in self.roles.items():
+            out[pid] = dict(r) if isinstance(r, dict) else {"role": str(r)}
+        return out
 
     @property
     def duration(self) -> float:
@@ -93,24 +111,8 @@ class BaseTemplate:
 
 # ── built-in templates ───────────────────────────────────────────────────────
 
-#: The extended-type layout (at least a minute and a half, with an Epicness, Sparta Remix Wiki):
-#: two Epicness parts, Awesomeness 1 before the Madness and Awesomeness 2 opening the final Chorus.
-EXTENDED_TYPE = [["intro", 4], ["intro_hits", 1], ["chorus", 8], ["dundundenden", 4], ["chorus", 8],
-                 ["epicness", 8], ["awesomeness1", 4], ["madness", 8], ["chorus", 8], ["epicness", 8],
-                 ["awesomeness2", 4], ["chorus_final", 8], ["ending", 2]]
 
-
-def _with_execution(plan: list, bars: int = 4) -> list:
-    """The layout with an Execution part after the DunDunDenDen (move it to where your base has it)."""
-    out = []
-    for k, b in plan:
-        out.append([k, b])
-        if k == "dundundenden":
-            out.append(["execution", bars])
-    return out
-
-
-def _std(vid: str, name: str, group: str = "Standard bases", **kw) -> BaseTemplate:
+def _std(vid: str, name: str, group: str = "Bases", **kw) -> BaseTemplate:
     from .arrangement import VARIANTS
     v = VARIANTS[vid]
     opts = {k: v[k] for k in ("intro_pattern",) if v.get(k)}
@@ -121,86 +123,87 @@ def _std(vid: str, name: str, group: str = "Standard bases", **kw) -> BaseTempla
         if base == "execution" and arg:
             opts["execution_pattern"] = arg
         plan.append([base, int(bars)])
+    kw.setdefault("description", v["description"])
     return BaseTemplate(id=vid, name=name, group=group, bpm=float(v["bpm"]), minor=bool(v.get("minor", False)),
-                        plan=plan, options=opts, pitching=v["pitching"], polish=v["polish"],
-                        description=v["description"], **kw)
+                        plan=plan, options=opts, pitching=v["pitching"], polish=v["polish"], **kw)
 
 
-def _wiki(tid: str, name: str, patterns: dict, key: str = "D", minor: bool = False, execution: bool = False,
-          progression: str = "", note: str = "") -> BaseTemplate:
-    plan = _with_execution(EXTENDED_TYPE) if execution else [list(p) for p in EXTENDED_TYPE]
-    parts = []
-    for opt, label in (("chorus_pitch_pattern", "Chorus"), ("dun_pitch_pattern", "DunDunDenDen"),
-                       ("execution_pattern", "Execution"), ("madness_pattern", "Madness"),
-                       ("awesomeness1_pattern", "Awesomeness 1"), ("awesomeness2_pattern", "Awesomeness 2"),
-                       ("perc_pattern", "percussion"), ("chords_pattern", "chords"), ("intro_pattern", "Intro")):
-        if opt in patterns:
-            parts.append(f"{label}: {lib.get(patterns[opt]).name}")
-    if progression:
-        parts.append("progression " + progression)
-    desc = (f"Patterns the Sparta Remix Wiki gives for this base ({'; '.join(parts)}), in {key}"
-            f"{' minor' if minor else ''}.  Extended-type layout{' with an Execution after the DunDunDenDen' if execution else ''}; "
-            "140 BPM unless your base file says otherwise.")
-    if note:
-        desc += " " + note
-    return BaseTemplate(id=tid, name=name, group="Wiki bases", bpm=140.0, key=key, minor=minor, plan=plan,
-                        options=dict(patterns, wiki_perc=True), progression=progression, description=desc,
-                        credit="Sparta Remix Wiki (Pitch Patterns, Awesomeness, Madness, Percussion)",
-                        bpm_known=False)
-
-
-def _prog(pid: str) -> str:
-    return lib.get(pid).text
+def _midi(tid: str, name: str, midi: str, bpm: float, key: str, minor: bool, plan: list, roles: dict,
+          description: str, credit: str = "", **kw) -> BaseTemplate:
+    """A MIDI base: its file, what the samples play of each of its parts, its parts bar for bar."""
+    return BaseTemplate(id=tid, name=name, group="Bases", bpm=bpm, key=key, minor=minor, plan=plan, roles=roles,
+                        midi=midi, description=description, credit=credit, options={"wiki_perc": True}, **kw)
 
 
 def builtin_templates() -> list[BaseTemplate]:
-    out = [
-        _std("unextended", "Unextended (the original base)"),
-        _std("extended", "Extended (2:08)"),
-        _std("semi_extended", "Semi-Extended"),
-        _std("minor", "Extended in minor"),
-        _std("classic", "2010 style (Unextended, sampler pitches)"),
-        _std("hyper", "Hyper / Vertex (160 BPM)", group="Fast bases"),
-        BaseTemplate("fast150", "Fast base (150 BPM)", "Fast bases", 150.0, plan=[list(p) for p in EXTENDED_TYPE],
-                     options={"wiki_perc": True}, pitching="hard", polish="normal",
-                     description="The extended-type layout at 150 BPM."),
-        BaseTemplate("fast170", "High-speed base (170 BPM)", "Fast bases", 170.0,
-                     plan=[["intro", 4], ["intro_hits", 1], ["chorus", 8], ["dundundenden", 4], ["chorus", 8],
-                           ["epicness", 8], ["madness", 8], ["chorus_final", 8], ["ending", 2]],
-                     options={"wiki_perc": True, "perc_pattern": "perc.vitro"}, pitching="hard", polish="hard",
-                     description="A short layout with an Epicness at 170 BPM, hard pitches and FX."),
-        _wiki("nemesis", "Nemesis / Nemesis X",
-              {"chorus_pitch_pattern": "chorus.nemesis", "dun_pitch_pattern": "dun.nemesis",
-               "execution_pattern": "exec.nemesis", "awesomeness1_pattern": "awe.1_nemesis"},
-              key="D#", execution=True),
-        _wiki("kaosz", "Kaosz", {"dun_pitch_pattern": "dun.kaosz", "execution_pattern": "exec.kaosz"},
-              key="D#", execution=True),
-        _wiki("pulse", "Pulse", {"execution_pattern": "exec.pulse", "perc_pattern": "perc.pulse_v7"},
-              execution=True, note="Its freestyle and 32nd-note pitches made them popular (2015)."),
-        _wiki("latin", "Latin", {"chorus_pitch_pattern": "chorus.latin", "execution_pattern": "exec.latin"},
-              execution=True),
-        _wiki("drlasp", "DrLaSp / DrLaSp X", {"chorus_pitch_pattern": "chorus.drlasp", "madness_pattern": "mad.drlasp",
-                                              "perc_pattern": "perc.drlasp"}, key="C"),
-        _wiki("interpolation", "Interpolation", {"intro_pattern": "intro.interpolation",
-                                                 "chorus_pitch_pattern": "chorus.interpolation"}, key="A"),
-        _wiki("filthy", "Filthy", {"execution_pattern": "exec.filthy", "perc_pattern": "perc.filthy"}, key="A",
-              execution=True),
-        _wiki("madhouse", "Madhouse", {"dun_pitch_pattern": "dun.madhouse_xye", "execution_pattern": "exec.madhouse_otm"},
-              execution=True),
-        _wiki("fap", "FAP", {"execution_pattern": "exec.fap"}, execution=True),
-        _wiki("tose_v7", "TOSE V7", {"execution_pattern": "exec.tose_v7"}, execution=True),
-        _wiki("tungsten", "Tungsten", {"chords_pattern": "chords.tungsten", "awesomeness1_pattern": "awe.tungsten_1",
-                                       "awesomeness2_pattern": "awe.tungsten_2"}, progression=_prog("prog.useful")),
-        _wiki("elasticity", "Elasticity", {}, progression=_prog("prog.elasticity")),
-        _wiki("lost", "Lost base", {"awesomeness1_pattern": "awe.lost_base_1", "awesomeness2_pattern": "awe.lost_base_2"}),
-        _wiki("tgohs", "TGOHS Edition", {"awesomeness1_pattern": "awe.tgohs_1", "awesomeness2_pattern": "awe.tgohs_2"}),
-        _wiki("upsilon", "Upsilon", {"awesomeness1_pattern": "awe.upsilon_1", "awesomeness2_pattern": "awe.upsilon_2"},
-              minor=True),
-        _wiki("celeste", "Celeste", {"awesomeness1_pattern": "awe.celeste_1", "awesomeness2_pattern": "awe.celeste_2"}),
-        _wiki("valise", "Valise", {"awesomeness1_pattern": "awe.valise_1"}),
-        _wiki("radical_je", "Radical JE", {"awesomeness1_pattern": "awe.radical_je"}, key="C#"),
+    return [
+        _std("extended", "Sparta Remix (Extended base)", credit="keatonkeaton999",
+             description="The Sparta Remix's own base, the one most remixes are made on: 2:07 at 140 BPM in D — "
+                         "Intro, Chorus, DunDunDenDen, Epicness, Awesomeness, Madness and the Final Chorus, with "
+                         "the wiki's patterns on them. Load its audio (Base audio file) to play the remix over it."),
+        _midi("stroll", "Sparta Stroll Base", "stroll.mid", 127.0, "C#", True,
+              [["intro", 1], ["chorus", 8], ["chorus", 8], ["dundundenden", 4], ["chorus", 4], ["ending", 1]],
+              {"t6c4": "pitch1",        # Greasy: the lead
+               "t8c6": "pitch2",        # Digi: the high arp
+               "t12c11": "pitch3",      # Autogun: the second line (Chorus 2)
+               "t14c13": "pitch3",      # Generic saw bass: the DunDunDenDen's pulse (up with the pitches)
+               "t9c7": "pitch4",        # Bright: held chords, their top line
+               "t7c5": "chords",        # Wood: the chords
+               "t15c14": "bass",        # Zombitronic: the bass line
+               "t11c10": "off",         # Distorto: Bright an octave up
+               "t16c15": "off"},        # Chip 3: a held tone under the last bars
+              "A short base (0:49 at 127 BPM, C# minor): a one-bar intro, two Choruses, a DunDunDenDen on its "
+              "pulsing saw and the last Chorus."),
+        _midi("nanairo", "Sparta Nana-iro Base", "nanairo.mid", 130.0, "F#", True,
+              [["intro", 4], ["chorus", 8], ["dundundenden", 4], ["chorus", 8], ["chorus", 4], ["madness", 4],
+               ["chorus", 8], ["epicness", 8], ["chorus", 8], ["dundundenden", 4], ["chorus", 8], ["epicness", 8],
+               ["chorus", 8], ["chorus", 4], ["ending", 1]],
+              {"t6c4": "pitch1",        # Acoustic Bass 2: the arp under everything
+               "t10c8": "pitch2",       # Pluck - Lulls_b: the 16th runs
+               "t7c5": "pitch3",        # Texture 2: the breaks' line
+               "t11c10": "pitch3",      # Pluck - Lulls #2: the melody near the start and the end
+               "t8c6": "pitch4",        # Tesla Pipe: the gated chords of the first Epicness
+               "t3c1": "chords",        # Pluck Pop: the chord stabs
+               "t2c0": "bass",          # Bass 6
+               "t4c2": "off",           # Pluck Tiny: the same chords held
+               "t5c3": "off",           # Morphine: a six-note pad
+               "t9c7": "off"},          # Pulse-Saw Bass: a sub under the bass
+              "2:44 at 130 BPM in F# minor on one chord loop (F#m, E, C#m, D): the parts come from which "
+              "instruments play — breaks without the chord plucks, an Epicness on the gated chords."),
+        _midi("blend_s", "Sparta Blend S Base", "blend_s.mid", 140.0, "E", True,
+              [["intro", 7], ["chorus", 8], ["chorus", 4], ["dundundenden", 4], ["chorus", 8], ["epicness", 8],
+               ["chorus", 8], ["madness", 4], ["chorus", 8], ["epicness", 4], ["chorus", 8], ["ending", 2]],
+              {"t8c6": "pitch1",        # Pluck: the melody
+               "t6c4": "pitch2",        # Chords: the off-beat stabs, their top line
+               "t9c7": "pitch3",        # Guitar: the riffs
+               "t12c11": "pitch3",      # Chip: the melody before the last Chorus
+               "t10c8": "pitch4",       # Bells
+               "t4c2": {"role": "chords", "gain_db": -3.0},   # Pad: the chords (Em7, Fmaj7, Dm7), held — under the rest
+               "t2c0": "bass",          # Bass
+               "t3c1": "off",           # the same bass again
+               "t5c3": "off",           # Pluck: the Pad's chords
+               "t7c5": "off",           # Pluck: 16th chords
+               "t11c10": "off"},        # Filter seq
+              "2:05 at 140 BPM in E (Em7, Fmaj7, Dm7): a 7-bar intro, the melody on the main pitch, guitar riffs "
+              "and bells on the others, two Epicness parts and a Madness on the melody alone.",
+              credit="enforch sr"),
+        _midi("decline_cte", "Sparta Decline CTE Base", "decline_cte.mid", 140.0, "C", True,
+              [["intro", 8], ["dundundenden", 4], ["chorus", 8], ["dundundenden", 4], ["chorus", 8], ["epicness", 8],
+               ["chorus", 8], ["madness", 4], ["epicness", 4], ["chorus", 8], ["chorus", 8], ["ending", 3]],
+              {"t9c7": "pitch1",        # Wop: the melody
+               "t13c12": "pitch2",      # Kirby Super Star #2: the arps
+               "t5c3": "pitch3",        # Diddy Kong Racing: the second melody
+               "t2c0": "pitch4",        # Lead Rhodes: the Epicness lead
+               "t4c2": "pitch4",        # CTK-230: the breaks' fill
+               "t6c4": "pitch4",        # Layer #3: the build before the first Chorus
+               "t12c11": "chords",      # ColomboGMGS2: the chords
+               "t15c14": "bass",        # Kirby Super Star: the bass line (C, G, F, C#)
+               "t14c13": "off",         # TX81z Synthbass: power-chord stabs
+               "t16c15": "off"},        # TX Alpha: a low pad
+              "2:09 at 140 BPM in C minor: an 8-bar intro, a build into the first Chorus, the melody on the main "
+              "pitch and arps on the second, a Rhodes lead in the Epicness.",
+              credit="Citrus"),
     ]
-    return out
 
 
 # ── my templates ─────────────────────────────────────────────────────────────
@@ -252,9 +255,12 @@ def get_template(tid: str, folder: Optional[str] = None) -> BaseTemplate:
 def validate(t: BaseTemplate) -> None:
     if not t.plan:
         raise ValueError("a template needs at least one part")
+    kinds = MIDI_PLAN_KINDS if t.midi else PLAN_KINDS
+    if t.midi and not os.path.isfile(t.midi_path()):
+        raise ValueError(f"the MIDI file of {t.name!r} is missing: {t.midi_path()}")
     for k, b in t.plan:
-        if k not in PLAN_KINDS:
-            raise ValueError(f"unknown part {k!r} (parts: {', '.join(PLAN_KINDS)})")
+        if k not in kinds:
+            raise ValueError(f"unknown part {k!r} (parts: {', '.join(kinds)})")
         if int(b) <= 0 or int(b) > 64:
             raise ValueError(f"{k}: bars must be between 1 and 64")
     if not 40.0 <= float(t.bpm) <= 300.0:

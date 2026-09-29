@@ -171,7 +171,7 @@ class _RemixPageState extends State<RemixPage> {
             child: const Text('Discard'),
           ),
           const SizedBox(width: 8),
-          FilledButton.icon(
+          AdaptiveButton.filled(
             onPressed: app.busy ? null : _save,
             icon: const Icon(Icons.save),
             label: const Text('Save structure'),
@@ -258,7 +258,7 @@ class _RemixPageState extends State<RemixPage> {
         _switch('Pitched chorus', opts['chorus_pitch'] == true, enabled, (v) => _option({'chorus_pitch': v}),
             tip: 'The Chorus normally plays the main phrase as it is. On: tuned to the chords, with octave layers.'),
         if (summary?['custom'] == true)
-          TextButton.icon(
+          AdaptiveButton.text(
             onPressed: enabled ? () => _option({}) : null,
             icon: const Icon(Icons.restart_alt),
             label: const Text('Back to the built structure'),
@@ -631,7 +631,7 @@ class _RemixPageState extends State<RemixPage> {
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
-          child: TextButton.icon(
+          child: AdaptiveButton.text(
             onPressed: () => setState(() => open ? _open.remove(i) : _open.add(i)),
             icon: Icon(open ? Icons.expand_less : Icons.expand_more),
             label: Text('Tracks (${tracks.length})'),
@@ -677,7 +677,7 @@ class _RemixPageState extends State<RemixPage> {
               ]),
             ),
             if (pattern.isNotEmpty || kind != 'drum')
-              OutlinedButton.icon(
+              AdaptiveButton.outlined(
                 onPressed: () async {
                   final v = await _pickPattern(context, t);
                   if (v == null) return;

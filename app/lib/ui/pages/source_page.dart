@@ -77,7 +77,7 @@ class _SourcePageState extends State<SourcePage> {
           ),
           onSubmitted: (_) => _download(),
         );
-        final button = FilledButton.tonalIcon(
+        final button = AdaptiveButton.tonal(
           onPressed: app.busy ? null : _download,
           icon: const Icon(Icons.download),
           label: const Text('Download'),
@@ -106,7 +106,7 @@ class _SourcePageState extends State<SourcePage> {
         const SizedBox(height: 4),
         Text('Any video or audio file (mp4, mkv, mov, webm, mp3, wav …)', style: TextStyle(color: cs.onSurfaceVariant)),
         const SizedBox(height: 16),
-        _openButton((onPressed) => FilledButton.icon(
+        _openButton((onPressed) => AdaptiveButton.filled(
               onPressed: onPressed,
               icon: const Icon(Icons.folder_open),
               label: const Text('Open video…'),
@@ -149,7 +149,7 @@ class _SourcePageState extends State<SourcePage> {
       info,
       const SizedBox(height: 16),
       Wrap(spacing: 10, runSpacing: 10, children: [
-        _openButton((onPressed) => OutlinedButton.icon(
+        _openButton((onPressed) => AdaptiveButton.outlined(
             onPressed: onPressed, icon: const Icon(Icons.swap_horiz), label: const Text('Change video…'))),
       ]),
       const SizedBox(height: 16),
@@ -190,7 +190,7 @@ class _SourcePageState extends State<SourcePage> {
           'everything stays editable afterwards.',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          FilledButton.icon(
+          AdaptiveButton.filled(
             style: FilledButton.styleFrom(
               backgroundColor: cs.secondary,
               foregroundColor: cs.onSecondary,
@@ -201,7 +201,7 @@ class _SourcePageState extends State<SourcePage> {
             icon: const Icon(Icons.bolt, size: 26),
             label: const Text('Make my Sparta Remix'),
           ),
-          OutlinedButton.icon(
+          AdaptiveButton.outlined(
             onPressed: app.busy || !app.hasSource
                 ? null
                 : () async {

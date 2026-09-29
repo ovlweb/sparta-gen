@@ -15,6 +15,7 @@ on:
       - "app/windows/**"
       - "app/macos/**"
       - "app/pubspec.*"
+      - "spartagen/templates/**"
       - "packaging/**"
       - "scripts/build_desktop.py"
       - "spartagen/selftest.py"

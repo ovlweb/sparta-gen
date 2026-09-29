@@ -4,7 +4,9 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../state/app_state.dart';
 import 'common.dart';
@@ -55,29 +57,47 @@ class SampleCutter extends StatefulWidget {
 
 enum _Grab { start, end, both, view }
 
+/// Peaks of the source's sound between two times (0-1, one scale for the whole video).
+class _Peaks {
+  const _Peaks(this.start, this.end, this.values);
+
+  final double start;
+  final double end;
+  final List<double> values;
+
+  double get perSecond => values.length / max(end - start, 1e-6);
+}
+
 class _SampleCutterState extends State<SampleCutter> {
   static const _minCut = 0.03;
+  static const _minSpan = 0.25;
   late double _a = widget.start; // the cut
   late double _z = widget.end;
-  late double _v0; // the stretch of the source shown
-  late double _v1;
+  double _v0 = 0; // the stretch of the source shown
+  double _v1 = 1;
   late double _shownA = _a; // the frames shown at the cut's ends (updated when a handle is let go)
   late double _shownZ = _z;
-  List<double>? _peaks;
+  _Peaks? _overview; // the whole video, loaded once: drawn at once wherever the view goes
+  _Peaks? _detail; // the stretch in view, sharper, loaded when the view stops moving
   int _request = 0;
   Timer? _debounce;
   _Grab? _grab;
+  // Where a pinch started: the view then, and the time under the fingers.
+  double _gestureSpan = 1;
+  double _gestureFocus = 0;
   bool _typing = false;
   final _startC = TextEditingController();
   final _endC = TextEditingController();
 
   double get _total => max(widget.sourceDuration, _z + 0.1);
+  double get _span => _v1 - _v0;
 
   @override
   void initState() {
     super.initState();
     _fit();
     _fillFields();
+    _loadOverview();
   }
 
   @override
@@ -99,37 +119,62 @@ class _SampleCutterState extends State<SampleCutter> {
     _setView((_a + _z) / 2 - span / 2, span);
   }
 
+  /// Shows [span] seconds from [v0] (kept inside the video) — the waveform follows at once, from what is loaded.
   void _setView(double v0, double span) {
-    span = span.clamp(min(0.25, _total), _total).toDouble();
+    span = span.clamp(min(_minSpan, _total), _total).toDouble();
     v0 = v0.clamp(0.0, max(0.0, _total - span)).toDouble();
     _v0 = v0;
     _v1 = v0 + span;
-    _load();
+    _loadDetail();
   }
 
-  void _load() {
+  Future<void> _loadOverview() async {
+    final total = _total;
+    final peaks = await widget.app.waveform(0, total, n: 4000);
+    if (!mounted || peaks == null || peaks.isEmpty) return;
+    setState(() => _overview = _Peaks(0, total, peaks));
+    _loadDetail();
+  }
+
+  /// Once the view has stopped moving: its stretch (and as much again around it) in detail, if the whole video's
+  /// peaks are too coarse for it.
+  void _loadDetail() {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 120), () async {
+    _debounce = Timer(const Duration(milliseconds: 200), () async {
+      final overview = _overview;
+      final have = _detail;
+      if (overview != null && overview.perSecond * _span >= 500) return;
+      if (have != null && have.start <= _v0 && have.end >= _v1 && have.perSecond * _span >= 500) return;
       final ask = ++_request;
-      final (a, z) = (_v0, _v1);
-      final peaks = await widget.app.waveform(a, z, n: 700);
-      if (!mounted || ask != _request) return;
-      setState(() => _peaks = peaks);
+      final a = max(0.0, _v0 - _span / 2);
+      final z = min(_total, _v1 + _span / 2);
+      final peaks = await widget.app.waveform(a, z, n: 1600);
+      if (!mounted || ask != _request || peaks == null || peaks.isEmpty) return;
+      setState(() => _detail = _Peaks(a, z, peaks));
     });
   }
 
-  void _zoom(double factor) => setState(() {
-        final mid = (_a + _z) / 2;
-        final span = (_v1 - _v0) * factor;
-        _setView(mid - span / 2, span);
+  /// Zooms by [factor] (above 1: out) keeping the time at [at] (default: the middle of the view) where it is.
+  void _zoom(double factor, {double? at, double? atFraction}) => setState(() {
+        final t = at ?? (_v0 + _v1) / 2;
+        final f = atFraction ?? 0.5;
+        final span = _span * factor;
+        _setView(t - f * span.clamp(min(_minSpan, _total), _total), span);
       });
 
-  double _timeAt(double x, double width) => _v0 + (x / width).clamp(0.0, 1.0) * (_v1 - _v0);
+  double _timeAt(double x, double width) => _v0 + (x / width).clamp(0.0, 1.0) * _span;
 
-  void _panStart(Offset p, double width) {
-    final t = _timeAt(p.dx, width);
-    final perPx = (_v1 - _v0) / width;
-    final near = 14 * perPx;
+  void _gestureStart(ScaleStartDetails d, double width) {
+    _gestureSpan = _span;
+    _gestureFocus = _timeAt(d.localFocalPoint.dx, width);
+    // Two fingers, or a trackpad's two-finger scroll or pinch, move the view; one finger or the mouse picks up
+    // what is under it.
+    if (d.pointerCount > 1 || d.kind == PointerDeviceKind.trackpad) {
+      _grab = _Grab.view;
+      return;
+    }
+    final t = _gestureFocus;
+    final near = 14 * _span / width;
     if ((t - _a).abs() <= near && (t - _a).abs() <= (t - _z).abs()) {
       _grab = _Grab.start;
     } else if ((t - _z).abs() <= near) {
@@ -141,9 +186,15 @@ class _SampleCutterState extends State<SampleCutter> {
     }
   }
 
-  void _panUpdate(DragUpdateDetails d, double width) {
-    final dt = d.delta.dx / width * (_v1 - _v0);
+  void _gestureUpdate(ScaleUpdateDetails d, double width) {
     setState(() {
+      if (d.scale != 1.0) {
+        // A pinch: the view grows or shrinks around the fingers.
+        final span = (_gestureSpan / d.scale).clamp(min(_minSpan, _total), _total).toDouble();
+        _setView(_gestureFocus - (d.localFocalPoint.dx / width) * span, span);
+        return;
+      }
+      final dt = d.focalPointDelta.dx / width * _span;
       switch (_grab) {
         case _Grab.start:
           _a = (_a + dt).clamp(0.0, _z - _minCut).toDouble();
@@ -155,22 +206,35 @@ class _SampleCutterState extends State<SampleCutter> {
           _a = a;
           _z = a + len;
         case _Grab.view:
-          final span = _v1 - _v0;
-          _v0 = (_v0 - dt).clamp(0.0, max(0.0, _total - span)).toDouble();
-          _v1 = _v0 + span;
+          _setView(_v0 - dt, _span);
         case null:
           break;
       }
     });
   }
 
-  void _panEnd() {
-    if (_grab == _Grab.view) _load();
+  void _gestureEnd() {
     _grab = null;
     setState(() {
       _shownA = _a;
       _shownZ = _z;
       _fillFields();
+    });
+  }
+
+  /// The mouse wheel zooms around the pointer; a sideways scroll (or Shift + wheel) moves the view. The dialog
+  /// under it does not scroll meanwhile.
+  void _wheel(PointerSignalEvent e, double width) {
+    if (e is! PointerScrollEvent) return;
+    GestureBinding.instance.pointerSignalResolver.register(e, (event) {
+      final s = event as PointerScrollEvent;
+      final dx = s.scrollDelta.dx != 0 ? s.scrollDelta.dx : (HardwareKeyboard.instance.isShiftPressed ? s.scrollDelta.dy : 0.0);
+      if (dx != 0) {
+        setState(() => _setView(_v0 + dx / width * _span, _span));
+      } else if (s.scrollDelta.dy != 0) {
+        final f = (s.localPosition.dx / width).clamp(0.0, 1.0).toDouble();
+        _zoom(exp(s.scrollDelta.dy * 0.004), at: _v0 + f * _span, atFraction: f);
+      }
     });
   }
 
@@ -227,95 +291,84 @@ class _SampleCutterState extends State<SampleCutter> {
             // Film strip over the waveform, the cut over both.
             LayoutBuilder(builder: (context, box) {
               final w = box.maxWidth;
-              const strip = 8;
-              return GestureDetector(
-                onPanStart: (d) => _panStart(d.localPosition, w),
-                onPanUpdate: (d) => _panUpdate(d, w),
-                onPanEnd: (_) => _panEnd(),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.resizeColumn,
-                  child: SizedBox(
-                    height: 64 + 110,
-                    child: Stack(children: [
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        height: 60,
-                        child: Row(children: [
-                          for (var i = 0; i < strip; i++)
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 2),
-                                child: Image.network(
-                                  app.thumbUrl(_v0 + (i + 0.5) * (_v1 - _v0) / strip),
-                                  fit: BoxFit.cover,
-                                  gaplessPlayback: true,
-                                  errorBuilder: (_, _, _) => Container(color: Colors.black),
+              return Listener(
+                onPointerSignal: (e) => _wheel(e, w),
+                child: GestureDetector(
+                  onScaleStart: (d) => _gestureStart(d, w),
+                  onScaleUpdate: (d) => _gestureUpdate(d, w),
+                  onScaleEnd: (_) => _gestureEnd(),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.resizeColumn,
+                    child: SizedBox(
+                      key: const ValueKey('cutter-view'),
+                      height: 64 + 110,
+                      child: ClipRect(
+                        child: Stack(children: [
+                          Positioned(left: 0, right: 0, top: 0, height: 60, child: _filmStrip(w)),
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            top: 64,
+                            height: 110,
+                            child: CustomPaint(
+                              painter: _WavePainter(
+                                v0: _v0,
+                                v1: _v1,
+                                overview: _overview,
+                                detail: _detail,
+                                color: cs.onSurfaceVariant,
+                                background: cs.surfaceContainerHighest,
+                              ),
+                            ),
+                          ),
+                          // The cut: shaded, with a handle at each end.
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _CutPainter(
+                                  a: (_a - _v0) / _span,
+                                  z: (_z - _v0) / _span,
+                                  color: cs.primary,
                                 ),
                               ),
                             ),
+                          ),
                         ]),
                       ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 64,
-                        height: 110,
-                        child: CustomPaint(
-                          painter: _WavePainter(
-                            peaks: _peaks,
-                            color: cs.onSurfaceVariant,
-                            background: cs.surfaceContainerHighest,
-                          ),
-                        ),
-                      ),
-                      // The cut: shaded, with a handle at each end.
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: CustomPaint(
-                            painter: _CutPainter(
-                              a: (_a - _v0) / (_v1 - _v0),
-                              z: (_z - _v0) / (_v1 - _v0),
-                              color: cs.primary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ]),
+                    ),
                   ),
                 ),
               );
             }),
             const SizedBox(height: 4),
             Row(children: [
-              Text(fmtTime(_v0), style: t.bodySmall),
+              Text(fmtTime(_v0), key: const ValueKey('cutter-from'), style: t.bodySmall),
               const Spacer(),
               Text('${fmtTime(_a)} – ${fmtTime(_z)}  ·  ${len.toStringAsFixed(2)} s',
                   style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
               const Spacer(),
-              Text(fmtTime(_v1), style: t.bodySmall),
+              Text(fmtTime(_v1), key: const ValueKey('cutter-to'), style: t.bodySmall),
             ]),
             const SizedBox(height: 10),
             Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              FilledButton.tonalIcon(
+              AdaptiveButton.tonal(
                 onPressed: widget.sourcePath == null ? null : () => _play(_a, _z, 'cutter'),
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Play the cut'),
               ),
-              OutlinedButton.icon(
+              AdaptiveButton.outlined(
                 onPressed: widget.sourcePath == null ? null : () => _play(_v0, _v1, 'cutter:view'),
                 icon: const Icon(Icons.hearing),
                 label: const Text('Play around it'),
               ),
               IconButton(tooltip: 'Zoom in', icon: const Icon(Icons.zoom_in), onPressed: () => _zoom(1 / 1.6)),
               IconButton(tooltip: 'Zoom out', icon: const Icon(Icons.zoom_out), onPressed: () => _zoom(1.6)),
-              TextButton.icon(
+              AdaptiveButton.text(
                 onPressed: () => setState(_fit),
                 icon: const Icon(Icons.center_focus_strong),
                 label: const Text('Around the cut'),
               ),
-              TextButton.icon(
+              AdaptiveButton.text(
                 onPressed: () => setState(() => _typing = !_typing),
                 icon: Icon(_typing ? Icons.expand_less : Icons.keyboard),
                 label: const Text('Type the times'),
@@ -336,7 +389,7 @@ class _SampleCutterState extends State<SampleCutter> {
             Row(mainAxisAlignment: MainAxisAlignment.end, children: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
               const SizedBox(width: 8),
-              FilledButton.icon(
+              AdaptiveButton.filled(
                 onPressed: () => Navigator.pop(context, (_a, _z)),
                 icon: const Icon(Icons.content_cut),
                 label: const Text('Use this cut'),
@@ -346,6 +399,31 @@ class _SampleCutterState extends State<SampleCutter> {
         ),
       ),
     );
+  }
+
+  /// Frames of the video along the view, at times on a fixed grid (a round step for the zoom): moving the view
+  /// slides them along and asks only for the ones coming in; zooming asks again only when the step changes.
+  Widget _filmStrip(double width) {
+    const steps = [0.05, 0.1, 0.2, 0.25, 0.5, 1.0, 2.0, 2.5, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0];
+    final step = steps.firstWhere((s) => s >= _span / 8, orElse: () => steps.last);
+    final first = (_v0 / step).floor();
+    final last = (_v1 / step).ceil();
+    final tile = step / _span * width;
+    return Stack(children: [
+      for (var k = first; k < last; k++)
+        Positioned(
+          left: (k * step - _v0) / _span * width,
+          top: 0,
+          bottom: 0,
+          width: max(1.0, tile - 2),
+          child: Image.network(
+            widget.app.thumbUrl(min(_total, (k + 0.5) * step)),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => Container(color: Colors.black),
+          ),
+        ),
+    ]);
   }
 
   Widget _frame(String url, String caption) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -372,32 +450,72 @@ class _SampleCutterState extends State<SampleCutter> {
       );
 }
 
-/// The sound: a peak per pixel column, mirrored around the middle.
+/// The sound between v0 and v1: a peak per column of two pixels, mirrored around the middle — from the detailed peaks
+/// where they cover it, else from the whole video's.
 class _WavePainter extends CustomPainter {
-  _WavePainter({required this.peaks, required this.color, required this.background});
+  _WavePainter({
+    required this.v0,
+    required this.v1,
+    required this.overview,
+    required this.detail,
+    required this.color,
+    required this.background,
+  });
 
-  final List<double>? peaks;
+  final double v0;
+  final double v1;
+  final _Peaks? overview;
+  final _Peaks? detail;
   final Color color;
   final Color background;
+
+  static double _peak(_Peaks p, double t0, double t1) {
+    final n = p.values.length;
+    final span = p.end - p.start;
+    if (span <= 0 || n == 0) return 0;
+    var i0 = ((t0 - p.start) / span * n).floor();
+    var i1 = ((t1 - p.start) / span * n).ceil();
+    i0 = i0.clamp(0, n - 1);
+    i1 = i1.clamp(i0 + 1, n);
+    var m = 0.0;
+    for (var i = i0; i < i1; i++) {
+      if (p.values[i] > m) m = p.values[i];
+    }
+    return m;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRRect(RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(6)), Paint()..color = background);
-    final p = peaks;
-    if (p == null || p.isEmpty) return;
+    final span = v1 - v0;
+    if (span <= 0 || (overview == null && detail == null)) return;
     final mid = size.height / 2;
+    const col = 2.0;
     final paint = Paint()
       ..color = color
-      ..strokeWidth = max(1.0, size.width / p.length);
-    for (var i = 0; i < p.length; i++) {
-      final x = (i + 0.5) * size.width / p.length;
-      final h = max(0.5, p[i] * (mid - 4));
-      canvas.drawLine(Offset(x, mid - h), Offset(x, mid + h), paint);
+      ..strokeWidth = col - 0.5;
+    final d = detail;
+    final useDetail = d != null && (overview == null || d.perSecond > overview!.perSecond);
+    for (var x = 0.0; x < size.width; x += col) {
+      final t0 = v0 + x / size.width * span;
+      final t1 = v0 + (x + col) / size.width * span;
+      _Peaks? src;
+      if (useDetail && t0 >= d.start && t1 <= d.end) {
+        src = d;
+      } else if (overview != null) {
+        src = overview;
+      } else if (d != null && t1 > d.start && t0 < d.end) {
+        src = d;
+      }
+      if (src == null || t1 <= src.start || t0 >= src.end) continue;
+      final h = max(0.5, _peak(src, t0, t1) * (mid - 4));
+      canvas.drawLine(Offset(x + col / 2, mid - h), Offset(x + col / 2, mid + h), paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _WavePainter old) => old.peaks != peaks || old.color != color;
+  bool shouldRepaint(covariant _WavePainter old) =>
+      old.v0 != v0 || old.v1 != v1 || old.overview != overview || old.detail != detail || old.color != color;
 }
 
 /// The cut over the strip and the waveform: shaded between its ends, a handle at each.

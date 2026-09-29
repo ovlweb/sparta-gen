@@ -152,6 +152,58 @@ class LabeledDropdown<T> extends StatelessWidget {
   }
 }
 
+/// Whether buttons show their icon alone: on a computer (the words show when the pointer rests on one), not on a
+/// phone or tablet, where there is nothing to rest a pointer on.
+bool iconButtons(BuildContext context) => const {TargetPlatform.windows, TargetPlatform.macOS, TargetPlatform.linux}
+    .contains(Theme.of(context).platform);
+
+enum _Look { filled, tonal, outlined, text }
+
+/// A button with an icon and words: on a computer its icon alone, with the words as its tooltip; on a phone both,
+/// like Material's FilledButton.icon, FilledButton.tonalIcon, OutlinedButton.icon and TextButton.icon.
+class AdaptiveButton extends StatelessWidget {
+  const AdaptiveButton.filled({super.key, required this.onPressed, required this.icon, required this.label, this.style})
+      : _look = _Look.filled;
+  const AdaptiveButton.tonal({super.key, required this.onPressed, required this.icon, required this.label, this.style})
+      : _look = _Look.tonal;
+  const AdaptiveButton.outlined({super.key, required this.onPressed, required this.icon, required this.label, this.style})
+      : _look = _Look.outlined;
+  const AdaptiveButton.text({super.key, required this.onPressed, required this.icon, required this.label, this.style})
+      : _look = _Look.text;
+
+  final VoidCallback? onPressed;
+  final Widget icon;
+  final Widget label;
+  final ButtonStyle? style;
+  final _Look _look;
+
+  /// The words of the label (a Text's), for the tooltip.
+  String get words {
+    final l = label;
+    if (l is Text) return l.data ?? l.textSpan?.toPlainText() ?? '';
+    return '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (iconButtons(context)) {
+      final tip = words;
+      return switch (_look) {
+        _Look.filled => IconButton.filled(onPressed: onPressed, icon: icon, tooltip: tip, style: style),
+        _Look.tonal => IconButton.filledTonal(onPressed: onPressed, icon: icon, tooltip: tip, style: style),
+        _Look.outlined => IconButton.outlined(onPressed: onPressed, icon: icon, tooltip: tip, style: style),
+        _Look.text => IconButton(onPressed: onPressed, icon: icon, tooltip: tip, style: style),
+      };
+    }
+    return switch (_look) {
+      _Look.filled => FilledButton.icon(onPressed: onPressed, icon: icon, label: label, style: style),
+      _Look.tonal => FilledButton.tonalIcon(onPressed: onPressed, icon: icon, label: label, style: style),
+      _Look.outlined => OutlinedButton.icon(onPressed: onPressed, icon: icon, label: label, style: style),
+      _Look.text => TextButton.icon(onPressed: onPressed, icon: icon, label: label, style: style),
+    };
+  }
+}
+
 /// A slider with its label and value, reporting when the user lets go.
 class SliderRow extends StatefulWidget {
   const SliderRow({

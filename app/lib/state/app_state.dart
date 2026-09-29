@@ -49,7 +49,9 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get source => _map(project['source']);
   bool get hasSource => source != null;
   bool get analyzed => project['analyzed'] == true;
-  String get variant => '${project['variant'] ?? 'unextended'}';
+  String get variant => '${project['variant'] ?? 'extended'}';
+  /// The template the remix is built on (a MIDI base's too, when a template loaded it); '' for none.
+  String get templateId => '${project['template_id'] ?? ''}';
   Map<String, dynamic>? get midi => _map(project['midi']);
   Map<String, dynamic>? get baseMap => _map(project['base']);
   String? get basePath => project['base_path'] as String?;
@@ -67,7 +69,8 @@ class AppState extends ChangeNotifier {
   String get builtOn {
     if (variant == 'midi' && midi != null) {
       final s = _map(midi!['summary']) ?? {};
-      return 'MIDI base · ${_fmtBpm(s['bpm'])} · ${s['key'] ?? ''}';
+      final t = template;
+      return '${t != null ? t['name'] : 'MIDI base'} · ${_fmtBpm(s['bpm'])} · $key';
     }
     if (variant == 'base' && baseMap != null) {
       final b = baseMap!;
@@ -473,6 +476,14 @@ class AppState extends ChangeNotifier {
   /// A fader's level in dB (0 = as the mix has it).
   Future<void> setVolume(String group, double db) =>
       setLook(mix: {'volumes': {...volumes, group: double.parse(db.toStringAsFixed(1))}});
+
+  /// Your base file's level under the remix (dB). The Look page and the Base page show the same value.
+  Future<void> setBaseVolume(double db) async {
+    final v = double.parse(db.toStringAsFixed(1));
+    await setLook(mix: {'base_gain_db': v});
+    project = {...project, 'mix': {...?_map(project['mix']), 'base_gain_db': v}};
+    notifyListeners();
+  }
 
   /// A part out of the mix — and out of the picture — or back in.
   Future<void> muteGroup(String group, bool muted) => setLook(mix: {

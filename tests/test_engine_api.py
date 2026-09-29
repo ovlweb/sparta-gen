@@ -76,21 +76,50 @@ def test_the_engine_needs_its_token_and_has_no_web_page(engine):
 
 def test_templates_are_listed_used_saved_and_deleted(engine):
     cat = call(engine, "/api/templates")
-    assert {g["name"] for g in cat["groups"]} >= {"Standard bases", "Wiki bases", "My templates"}
-    v = call(engine, "/api/template/use", {"id": "nemesis"})
-    assert v["variant"] == "nemesis" and v["key"] == "D#" and v["template"]["name"].startswith("Nemesis")
-    assert v["arrangement"]["key"] == "D#" and v["arrangement"]["bars"] == 79
-    r = call(engine, "/api/template/save", {"name": "My Nemesis edit"})
-    assert r["saved"]["id"] == "my.my_nemesis_edit"
+    assert [g["name"] for g in cat["groups"]] == ["Bases", "My templates"]
+    assert [t["id"] for t in cat["groups"][0]["templates"]] == ["extended", "stroll", "nanairo", "blend_s", "decline_cte"]
+    v = call(engine, "/api/template/use", {"id": "nanairo"})             # a MIDI base: its MIDI, roles and parts
+    assert v["variant"] == "midi" and v["template_id"] == "nanairo" and v["midi"]["template"] == "nanairo"
+    assert v["template"]["name"] == "Sparta Nana-iro Base" and v["key"] == "F#"
+    assert v["arrangement"]["key"] == "F#" and v["arrangement"]["bars"] == 89
+    r = call(engine, "/api/template/save", {"name": "My Nana-iro edit"})
+    assert r["saved"]["id"] == "my.my_nana_iro_edit"
     mine = next(g for g in r["catalog"]["groups"] if g["name"] == "My templates")["templates"]
-    assert [t["id"] for t in mine] == ["my.my_nemesis_edit"] and mine[0]["key"] == "D#"
-    call(engine, "/api/template/delete", {"id": "my.my_nemesis_edit"})
+    assert [t["id"] for t in mine] == ["my.my_nana_iro_edit"] and mine[0]["key"] == "F#"
+    call(engine, "/api/template/delete", {"id": "my.my_nana_iro_edit"})
     call(engine, "/api/template/delete", {"id": "extended"}, expect=400)
     call(engine, "/api/template/use", {"id": "no_such_base"}, expect=400)
     assert call(engine, "/api/key", {"key": "F"})["key_mode"] == "manual"
-    assert call(engine, "/api/template/use", {"id": "drlasp"})["key"] == "F"
+    assert call(engine, "/api/template/use", {"id": "decline_cte"})["key"] == "F"
     assert call(engine, "/api/key", {"key": "auto"})["key_mode"] == "auto"
-    call(engine, "/api/template/use", {"id": "unextended"})
+    v = call(engine, "/api/template/use", {"id": "extended"})
+    assert v["variant"] == "extended" and v["template_id"] == "extended" and v["key"] == "D"
+
+
+def test_volumes_leave_an_edited_structure_alone(engine):
+    """Turning the base or a MIDI channel up or down changes levels, not the parts the user arranged."""
+    call(engine, "/api/template/use", {"id": "extended"})
+    arr = call(engine, "/api/arrangement")
+    arr["sections"] = arr["sections"][:2]                        # an edit: two parts only
+    call(engine, "/api/arrangement", arr)
+    v = call(engine, "/api/base/options", {"base_gain_db": -6.0})
+    assert v["arrangement"]["custom"] and len(v["arrangement"]["sections"]) == 2
+    assert v["mix"]["base_gain_db"] == -6.0
+    lk = call(engine, "/api/look", {"mix": {"base_gain_db": -9.0}})     # the Look page's slider: the same level
+    assert lk["mix"]["base_gain_db"] == -9.0 and call(engine, "/api/project")["mix"]["base_gain_db"] == -9.0
+    v = call(engine, "/api/template/use", {"id": "stroll"})
+    arr = call(engine, "/api/arrangement")
+    lead = [t["gain_db"] for sec in arr["sections"] for t in sec["tracks"] if t["id"] == "midi_t6c4"]
+    arr["sections"] = arr["sections"][:3]
+    call(engine, "/api/arrangement", arr)
+    mapping = {"t6c4": dict(v["midi"]["mapping"]["t6c4"], gain_db=-6.0)}
+    v = call(engine, "/api/midi/mapping", {"mapping": mapping})
+    assert v["arrangement"]["custom"] and len(v["arrangement"]["sections"]) == 3
+    got = [t["gain_db"] for sec in call(engine, "/api/arrangement")["sections"] for t in sec["tracks"]
+           if t["id"] == "midi_t6c4"]
+    assert got == [g - 6.0 for g in lead[:len(got)]] and got
+    mapping = {"t6c4": dict(mapping["t6c4"], role="pitch2")}       # another role: rebuilt from the MIDI
+    assert len(call(engine, "/api/midi/mapping", {"mapping": mapping})["arrangement"]["sections"]) == 6
 
 
 def test_midi_base_open_and_map(engine, tmp_path):
@@ -142,7 +171,7 @@ def test_exports_go_where_the_user_chose(engine, tmp_path, synthetic_source):
     r = call(engine, "/api/export/file", {"file": synthetic_source, "dest": str(tmp_path / "out" / "remix.mp4")})
     assert os.path.getsize(r["saved"]) == os.path.getsize(synthetic_source)
     call(engine, "/api/source/path", {"path": synthetic_source})
-    call(engine, "/api/template/use", {"id": "unextended"})
+    call(engine, "/api/template/use", {"id": "extended"})
     r = call(engine, "/api/export/midi", {"dest": str(tmp_path / "remix.mid")})
     assert M.read_midi(r["saved"]).bpm == pytest.approx(140.0, abs=0.01)
     job = wait(engine, call(engine, "/api/export/pack", {"dest": str(tmp_path / "packs")}))
@@ -250,6 +279,10 @@ def test_a_still_of_the_remix_and_the_sound_of_the_source_are_served(engine, syn
     assert struct.unpack(">II", png[16:24]) == (320, 180)
     wf = call(engine, "/api/waveform?start=0.5&end=2.5&n=100")
     assert (wf["start"], wf["end"]) == (0.5, 2.5) and len(wf["peaks"]) == 100
-    assert max(wf["peaks"]) == 1.0 and min(wf["peaks"]) >= 0.0 and wf["duration"] > 5
+    assert 0.0 < max(wf["peaks"]) < 1.0 and min(wf["peaks"]) >= 0.0 and wf["duration"] > 5
+    # One scale for the whole video: its loudest moment (the thumps) is full height, zoomed in or not.
+    whole = call(engine, f"/api/waveform?start=0&end={wf['duration']}&n=400")
+    assert max(whole["peaks"]) == 1.0
+    assert max(call(engine, "/api/waveform?start=0.5&end=2.5&n=20")["peaks"]) == max(wf["peaks"])
     arr = call(engine, "/api/project")["arrangement"]
     assert arr["sections"][0]["start"] == 0.0 and arr["sections"][1]["start"] > 0

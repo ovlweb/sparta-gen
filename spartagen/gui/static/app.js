@@ -8,7 +8,7 @@ const fmtT = (t) => { t = Math.max(0, +t || 0); const m = Math.floor(t / 60); re
 
 const S = {
   status: null, project: null, bank: null, arr: null, catalog: null, variants: null,
-  dirty: false, busy: false, variant: "unextended",
+  dirty: false, busy: false, variant: "extended",
 };
 
 // ── API helpers ──────────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ function renderProject() {
     $("#btn-analyze").disabled = true;
     $("#btn-auto").disabled = true;
   }
-  S.variant = p.variant || "unextended";
+  S.variant = p.variant || "extended";
   const o = p.options || {};
   $("#opt-title").value = o.title || "";
   // On a base, "minor" follows the base's own key chord unless the user set it.

@@ -148,7 +148,7 @@ class LookPage extends StatelessWidget {
       title: 'Volumes',
       subtitle: 'How loud each part is. A part you switch off is out of the video too.',
       trailing: changed
-          ? TextButton.icon(
+          ? AdaptiveButton.text(
               onPressed: enabled ? app.resetVolumes : null,
               icon: const Icon(Icons.restart_alt),
               label: const Text('All back to 0 dB'),
@@ -166,7 +166,7 @@ class LookPage extends StatelessWidget {
               divisions: 60,
               width: 300,
               format: _db,
-              onChanged: (v) => app.baseOptions({'base_gain_db': double.parse(v.toStringAsFixed(1))}),
+              onChanged: app.setBaseVolume,
             ),
           ]),
         for (final e in groups.entries)
@@ -230,7 +230,7 @@ class LookPage extends StatelessWidget {
       subtitle: changed == 0 ? 'As the style has them.' : '$changed changed by you.',
       trailing: changed == 0
           ? null
-          : TextButton.icon(
+          : AdaptiveButton.text(
               onPressed: enabled
                   ? () => app.setLook(video: {'style': video['style'], for (final k in _effectKeys) k: null})
                   : null,
@@ -300,7 +300,7 @@ class LookPage extends StatelessWidget {
       subtitle: 'The FX over the whole mix. ${changed == 0 ? 'As the preset has them.' : '$changed changed by you.'}',
       trailing: changed == 0
           ? null
-          : TextButton.icon(
+          : AdaptiveButton.text(
               onPressed: enabled ? () => app.setLook(mix: {'fx_preset': current}, replaceFx: true) : null,
               icon: const Icon(Icons.restart_alt),
               label: const Text('Back to the preset'),
@@ -393,7 +393,7 @@ class _PreviewCard extends StatelessWidget {
         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
       const SizedBox(height: 14),
-      FilledButton.icon(
+      AdaptiveButton.filled(
         onPressed: can ? () => app.render('preview') : null,
         icon: const Icon(Icons.play_circle_outline),
         label: const Text('Render a preview'),

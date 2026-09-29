@@ -72,7 +72,7 @@ def cmd_make(a: argparse.Namespace) -> int:
         s.set_key(a.key)                 # otherwise the pitches follow the base's (or template's) key
     if a.pitch_octave:
         s.project.samples["pitch_octave"] = a.pitch_octave
-    variant = a.variant or ("base" if a.base else "unextended")
+    variant = a.variant or ("base" if a.base else "extended")
     if a.base_structure:
         opts["base_structure"] = a.base_structure
     if a.base:
@@ -256,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("source", help="video/audio file or URL")
     m.add_argument("-o", "--output")
     m.add_argument("--template", "--variant", dest="variant", default=None,
-                   help="base template (see `spartagen templates`: unextended, extended, nemesis, …); with --base "
+                   help="base template (see `spartagen templates`: extended, stroll, nanairo, blend_s, decline_cte, or "
+                        "yours); with --base "
                         "the default is 'base' (follow the base file's own sections)")
     m.add_argument("--quality", default="720p", choices=["preview", "720p", "1080p"])
     m.add_argument("--audio-only", action="store_true")

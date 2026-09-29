@@ -354,7 +354,7 @@ class _ShellState extends State<Shell> {
                     ]),
                   ),
                   const SizedBox(width: 12),
-                  TextButton.icon(
+                  AdaptiveButton.text(
                     onPressed: j.id.isEmpty ? null : app.cancelJob,
                     icon: const Icon(Icons.stop_circle_outlined),
                     label: const Text('Cancel'),

@@ -18,7 +18,7 @@ ThemeData buildTheme(Brightness brightness) {
     surfaceContainerHigh: dark ? const Color(0xFF281A1A) : const Color(0xFFF1DEDC),
     surfaceContainerHighest: dark ? const Color(0xFF322121) : const Color(0xFFEBD5D3),
   );
-  final base = ThemeData(colorScheme: scheme, useMaterial3: true, brightness: brightness);
+  final base = ThemeData(colorScheme: scheme, useMaterial3: true, brightness: brightness, fontFamily: 'Inter');
   return base.copyWith(
     scaffoldBackgroundColor: scheme.surface,
     cardTheme: CardThemeData(

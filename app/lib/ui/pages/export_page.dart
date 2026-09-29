@@ -146,7 +146,7 @@ class _ExportPageState extends State<ExportPage> {
         ]),
       ),
       const SizedBox(height: 8),
-      FilledButton.icon(
+      AdaptiveButton.filled(
         style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
         onPressed: can ? () => app.render(_quality) : null,
         icon: const Icon(Icons.movie_creation_outlined),
@@ -199,25 +199,25 @@ class _ExportPageState extends State<ExportPage> {
                 ]),
               ),
               if (out['quality'] != 'audio')
-                OutlinedButton.icon(
+                AdaptiveButton.outlined(
                   onPressed: () => setState(() => app.lastRender = '${out['file']}'),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Watch'),
                 ),
               if (out['quality'] != 'audio')
-                FilledButton.icon(
+                AdaptiveButton.filled(
                   onPressed: () => _saveVideo(out),
                   icon: const Icon(Icons.save_alt),
                   label: const Text('Save video…'),
                 ),
               if (out['quality'] == 'audio')
-                OutlinedButton.icon(
+                AdaptiveButton.outlined(
                   onPressed: () => Players.playSound('${out['audio'] ?? out['file']}', tag: 'mix'),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Listen'),
                 ),
               MenuAnchor(
-                builder: (context, c, _) => FilledButton.tonalIcon(
+                builder: (context, c, _) => AdaptiveButton.tonal(
                   onPressed: () => c.isOpen ? c.close() : c.open(),
                   icon: const Icon(Icons.audio_file_outlined),
                   label: const Text('Save audio…'),

@@ -69,6 +69,21 @@ flutter:
   assets:
     - assets/icon.png
 
+  # Inter (SIL Open Font License, assets/fonts/Inter-LICENSE.txt): one clean font for the app on every system,
+  # instead of whatever the system's default is.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Inter-ExtraBold.ttf
+          weight: 800
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
