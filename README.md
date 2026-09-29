@@ -116,7 +116,8 @@ the project you worked on last.
      Base** (by enforch sr — 2:05, 140 BPM, E) and **Sparta Decline CTE Base** (by Citrus — 2:09, 140 BPM, C minor).
      A MIDI base's template plays its notes on your samples: which instrument the main pitch, the other pitches,
      the chords and the bass play (its lead, arps, chords and bass line — doubled and padding parts left out), its
-     parts bar for bar (Intro, Chorus, DunDunDenDen, Epicness, Madness, Ending) and its key are set for each base;
+     parts bar for bar (Intro, Chorus, DunDunDenDen, Epicness, Awesomeness, Madness, Ending — Blend S and Decline
+     CTE are laid out like the Extended base) and its key are set for each base;
      change any channel under *MIDI*. And *My templates* — search, see each one's parts; **save the current structure
      as your own template**, import or delete them (`.spartabase.json`, shareable). (The wiki's pitch patterns are
      all still there to pick for any track.)
@@ -281,8 +282,8 @@ their instruments the samples play and their parts bar for bar):
 | **Sparta Remix (Extended base)** | 140 | D | 74 bars ≈ 2:07 | 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending |
 | **Sparta Stroll Base** (MIDI) | 127 | C# minor | 26 bars ≈ 0:49 | Intro 1 · Chorus 8 · Chorus 8 · DunDunDenDen 4 · Chorus 4 · Ending |
 | **Sparta Nana-iro Base** (MIDI) | 130 | F# minor | 89 bars ≈ 2:44 | Intro 4 · Chorus 8 · DunDunDenDen 4 · Chorus 12 · Madness 4 · Chorus 8 · Epicness 8 (the gated chords) · Chorus 8 · DunDunDenDen 4 · Chorus 8 · Epicness 8 · Chorus 12 · Ending |
-| **Sparta Blend S Base** (MIDI, enforch sr) | 140 | E | 73 bars ≈ 2:05 | Intro 7 · Chorus 12 · DunDunDenDen 4 · Chorus 8 · Epicness 8 · Chorus 8 · Madness 4 · Chorus 8 · Epicness 4 · Chorus 8 · Ending 2 |
-| **Sparta Decline CTE Base** (MIDI, Citrus) | 140 | C minor | 75 bars ≈ 2:09 | Intro 8 · DunDunDenDen 4 · Chorus 8 · DunDunDenDen 4 · Chorus 8 · Epicness 8 (the Rhodes lead) · Chorus 8 · Madness 4 · Epicness 4 · Chorus 16 · Ending 3 |
+| **Sparta Blend S Base** (MIDI, enforch sr) | 140 | E | 73 bars ≈ 2:05 | The Extended base's layout after a one-bar pickup: Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending 2 |
+| **Sparta Decline CTE Base** (MIDI, Citrus) | 140 | C minor | 75 bars ≈ 2:09 | The Extended base's layout: 3 intro hits · Chorus 4 · DunDunDenDen 6 · Chorus 4 · Epicness 4 · Awesomeness 1 · Chorus 8 · Madness 8 (the Rhodes lead) · Chorus 8 · Epicness 12 · Awesomeness 2 · final Chorus 8 · Ending 3 |
 | **Your base's audio** | the base's | the base's | the base's | Every section of the base gets its part (see [Using a real Sparta base](#using-a-real-sparta-base)) |
 | **Your base's MIDI** | the MIDI's | the MIDI's | the MIDI's | The MIDI's notes play on your samples, a role per channel |
 

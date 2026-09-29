@@ -696,7 +696,8 @@ def _join_choruses(secs: list[MidiSection], blocks: list[dict]) -> list[MidiSect
 
 #: The name and frame of each kind of section on a MIDI base: a box per line (the Madness: its words).
 SECTION_LOOK = {"intro": ("Intro", "main"), "chorus": ("Chorus", "main"), "dundundenden": ("DunDunDenDen", "main"),
-                "epicness": ("Epicness", "main"), "madness": ("Madness", "split2"), "ending": ("Ending", "main")}
+                "epicness": ("Epicness", "main"), "awesomeness": ("Awesomeness", "main"),
+                "madness": ("Madness", "split2"), "ending": ("Ending", "main")}
 
 
 def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percussion: bool = True,
@@ -705,9 +706,9 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
                     perc_pattern: str = "perc.sparta", plan: Optional[list] = None, minor: Optional[bool] = None):
     """The remix on a MIDI base: its notes played by the samples (a track per enabled part), in the base's own
     parts (see :func:`song_structure`) — the main phrase comes in where the base's Chorus does, with the
-    part's own pattern (Chorus, DunDunDenDen chops, Epicness, Madness words, quotes in the Intro and at the
-    Ending), and the percussion where the MIDI has none.  ``plan``: the base's parts as a template knows them,
-    ``[[kind, bars], …]`` from its first bar, instead of reading them from what the channels play."""
+    part's own pattern (Chorus, DunDunDenDen chops, Epicness, Awesomeness, Madness words, quotes in the Intro
+    and at the Ending), and the percussion where the MIDI has none.  ``plan``: the base's parts as a template
+    knows them, ``[[kind, bars], …]`` from its first bar, instead of reading them from what the channels play."""
     from .arrangement import Arrangement, SectionSpec, TrackSpec, _crash, _drums, _perc_layers, _placements
     from .audio.pitch import pitch_class
     from .patterns.notation import ORIGINAL_PROGRESSION
@@ -757,9 +758,9 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
                     tr.visual = "none"          # the Madness shows its words; the base plays under them
                 tracks.append(tr)
         if auto_phrase:
-            tracks = _phrase_tracks(kind, bars, roles, opts) + tracks
+            tracks = _phrase_tracks(kind, bars, roles, opts, counts[label]) + tracks
         if auto_percussion and not has_drums:
-            if kind in ("chorus", "epicness", "madness"):
+            if kind in ("chorus", "epicness", "awesomeness", "madness"):
                 tracks += _perc_layers(perc_pattern, gain=-3.0 if kind == "madness" else 0.0, suffix="_auto")
                 tracks.append(_crash(0.0, tid="crash_auto", visual="hit" if layout == "main" else "crash"))
             elif kind == "dundundenden":
@@ -783,11 +784,11 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
                        progression=ORIGINAL_PROGRESSION, pitching=pitching, polish=polish, sections=sections)
 
 
-def _phrase_tracks(kind: str, bars: int, roles: set, opts: dict) -> list:
+def _phrase_tracks(kind: str, bars: int, roles: set, opts: dict, nth: int = 1) -> list:
     """The source's main phrase, quotes and words for one part of a MIDI base (none a channel plays already):
-    the part's own pattern from the usual section builders."""
-    from .arrangement import (SLOTS_CHORUS, TrackSpec, _placements, sec_dundundenden, sec_ending, sec_epicness,
-                              sec_madness)
+    the part's own pattern from the usual section builders (``nth``: which of its kind the part is)."""
+    from .arrangement import (SLOTS_CHORUS, TrackSpec, _placements, sec_awesomeness, sec_dundundenden, sec_ending,
+                              sec_epicness, sec_madness)
     phrase = "chorus" in roles
     total = bars * STEPS_PER_BAR
     if kind == "chorus" and not phrase:
@@ -797,13 +798,18 @@ def _phrase_tracks(kind: str, bars: int, roles: set, opts: dict) -> list:
         return [t for t in sec_epicness(bars, opts).tracks if t.stem == "chorus"]
     if kind == "dundundenden" and not phrase:
         return [t for t in sec_dundundenden(bars, opts).tracks if t.stem == "chorus"]
+    if kind == "awesomeness" and not phrase:
+        # The main phrase on Awesomeness 1's (then 2's) rhythm; the base's own melody plays on the pitches.
+        return [t for t in sec_awesomeness(2 - nth % 2, opts, bars).tracks if t.stem == "chorus"]
     if kind == "madness" and "words" not in roles:
         return [t for t in sec_madness(bars, opts).tracks if t.kind == "words"]
     if kind == "intro" and bars >= 2 and "quotes" not in roles:
-        hits = [(0, "1")] + ([(total // 2, "2")] if bars >= 4 else [])
+        # A short intro is the base's intro hits: the wiki's three, a quote on each (as on the Extended base).
+        hits = [(st, str(i + 1)) for i, st in enumerate((0, 8, 16)) if st < total] if bars < 4 else \
+            [(0, "1"), (total // 2, "2")]
         return [TrackSpec("quotes_auto", "oneshot", "text:" + _placements(total, hits), mode="index",
-                          slots={"1": "quote1", "2": "quote2"}, oneshot=True, pitched=False, gain_db=-2.0,
-                          visual="center", flip="none", choke=True, stem="quotes")]
+                          slots={"1": "quote1", "2": "quote2", "3": "quote3"}, oneshot=True, pitched=False,
+                          gain_db=-2.0, visual="center", flip="none", choke=True, stem="quotes")]
     if kind == "ending" and "quotes" not in roles:
         return [t for t in sec_ending(bars, opts).tracks if t.id == "quote"]
     return []

@@ -42,12 +42,27 @@ def test_a_midi_base_template_plays_its_notes_with_its_roles_and_parts(tmp_path)
     roles = {pid: r["role"] for pid, r in m["mapping"].items()}
     assert roles["t15c14"] == "bass" and roles["t9c7"] == "pitch1" and roles["t12c11"] == "chords"
     assert roles["t14c13"] == "off"                                # the power-chord stabs stay out
-    assert [x.kind for x in arr.sections][:3] == ["intro", "dundundenden", "chorus"]
+    assert [x.kind for x in arr.sections][:3] == ["intro", "chorus", "dundundenden"]
     assert arr.key == "C" and s.project.samples["key"] == "C"      # not the key the notes alone suggest
     ev = compile_events(arr)
     assert any(e.sample == "bass" for e in ev) and any(e.stem == "chorus" for e in ev)
+    assert sum(1 for e in ev if e.stem == "quotes" and e.t < 2 * 240.0 / arr.bpm) == 3   # a quote on each intro hit
     from spartagen.patterns import library as lib
     assert lib.get("chorus.nemesis").text                         # the wiki's patterns stay, to pick for a track
+
+
+@pytest.mark.parametrize("tid", ["blend_s", "decline_cte"])
+def test_blend_s_and_decline_cte_are_laid_out_like_the_extended_base(tmp_path, tid):
+    """Both bases follow the Sparta Extended base bar for bar — Blend S after a one-bar pickup, Decline CTE with a
+    bar more of ending — so the main phrase, the Madness words and the drums come in where their parts do."""
+    ext = [({"intro3": "intro", "chorus_final": "chorus"}.get(k, k.rstrip("12")), b)
+           for k, b in bases.get_template("extended").plan]
+    arr = Session(workspace=str(tmp_path / "w")).set_variant(tid)
+    assert [(x.kind, x.bars) for x in arr.sections][1:-1] == ext[1:-1]
+    awe = [x for x in arr.sections if x.kind == "awesomeness"]
+    assert [x.name for x in awe] == ["Awesomeness 1", "Awesomeness 2"]
+    assert all(any(t.stem == "chorus" for t in x.tracks) and any(t.id == "crash_auto" for t in x.tracks)
+               for x in awe)
 
 
 def test_parts_stay_near_their_samples_note_and_the_bass_in_its_register(tmp_path):

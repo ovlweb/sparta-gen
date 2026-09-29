@@ -31,7 +31,7 @@ from .patterns import library as lib
 PLAN_KINDS = ("intro", "intro_hits", "intro3", "chorus", "chorus_final", "dundundenden", "epicness", "chords",
               "awesomeness1", "awesomeness2", "madness", "execution", "ending")
 #: The parts a MIDI base's plan may use (see ``midi.build_from_midi``).
-MIDI_PLAN_KINDS = ("intro", "chorus", "dundundenden", "epicness", "madness", "ending")
+MIDI_PLAN_KINDS = ("intro", "chorus", "dundundenden", "epicness", "awesomeness", "madness", "ending")
 
 GROUPS = ("Bases", "My templates")
 
@@ -170,38 +170,44 @@ def builtin_templates() -> list[BaseTemplate]:
                "t9c7": "off"},          # Pulse-Saw Bass: a sub under the bass
               "2:44 at 130 BPM in F# minor on one chord loop (F#m, E, C#m, D): the parts come from which "
               "instruments play — breaks without the chord plucks, an Epicness on the gated chords."),
+        # The Sparta Extended base's layout bar for bar, its intro one bar short (a pickup): Chorus on the octave
+        # bass, DunDunDenDen from the "E E F F" stops, the Madness on the 3-3-2 arps, the long Epicness on the bells.
         _midi("blend_s", "Sparta Blend S Base", "blend_s.mid", 140.0, "E", True,
-              [["intro", 7], ["chorus", 8], ["chorus", 4], ["dundundenden", 4], ["chorus", 8], ["epicness", 8],
-               ["chorus", 8], ["madness", 4], ["chorus", 8], ["epicness", 4], ["chorus", 8], ["ending", 2]],
+              [["intro", 1], ["chorus", 4], ["dundundenden", 6], ["chorus", 4], ["epicness", 4], ["awesomeness", 4],
+               ["chorus", 8], ["madness", 8], ["chorus", 8], ["epicness", 12], ["awesomeness", 4], ["chorus", 8],
+               ["ending", 2]],
               {"t8c6": "pitch1",        # Pluck: the melody
                "t6c4": "pitch2",        # Chords: the off-beat stabs, their top line
-               "t9c7": "pitch3",        # Guitar: the riffs
-               "t12c11": "pitch3",      # Chip: the melody before the last Chorus
-               "t10c8": "pitch4",       # Bells
-               "t4c2": {"role": "chords", "gain_db": -3.0},   # Pad: the chords (Em7, Fmaj7, Dm7), held — under the rest
+               "t9c7": "pitch3",        # Guitar: the riffs (the first Epicness)
+               "t12c11": "pitch3",      # Chip: the second Awesomeness
+               "t10c8": "pitch4",       # Bells: the long Epicness
+               "t4c2": {"role": "chords", "gain_db": -3.0},   # Pad: the held chords, under the rest
                "t2c0": "bass",          # Bass
                "t3c1": "off",           # the same bass again
                "t5c3": "off",           # Pluck: the Pad's chords
                "t7c5": "off",           # Pluck: 16th chords
                "t11c10": "off"},        # Filter seq
-              "2:05 at 140 BPM in E (Em7, Fmaj7, Dm7): a 7-bar intro, the melody on the main pitch, guitar riffs "
-              "and bells on the others, two Epicness parts and a Madness on the melody alone.",
+              "2:05 at 140 BPM in E (Em7, Fmaj7, Dm7), laid out like the Sparta Extended base after a one-bar "
+              "pickup: the melody on the main pitch, guitar riffs, bells and a chip line on the others.",
               credit="enforch sr"),
+        # The Sparta Extended base's layout bar for bar: the three intro hits, Chorus on the running bass, the
+        # DunDunDenDen from its stops, a Madness on the Rhodes, the ending the intro again.
         _midi("decline_cte", "Sparta Decline CTE Base", "decline_cte.mid", 140.0, "C", True,
-              [["intro", 8], ["dundundenden", 4], ["chorus", 8], ["dundundenden", 4], ["chorus", 8], ["epicness", 8],
-               ["chorus", 8], ["madness", 4], ["epicness", 4], ["chorus", 8], ["chorus", 8], ["ending", 3]],
+              [["intro", 2], ["chorus", 4], ["dundundenden", 6], ["chorus", 4], ["epicness", 4], ["awesomeness", 4],
+               ["chorus", 8], ["madness", 8], ["chorus", 8], ["epicness", 12], ["awesomeness", 4], ["chorus", 8],
+               ["ending", 3]],
               {"t9c7": "pitch1",        # Wop: the melody
                "t13c12": "pitch2",      # Kirby Super Star #2: the arps
-               "t5c3": "pitch3",        # Diddy Kong Racing: the second melody
-               "t2c0": "pitch4",        # Lead Rhodes: the Epicness lead
-               "t4c2": "pitch4",        # CTK-230: the breaks' fill
-               "t6c4": "pitch4",        # Layer #3: the build before the first Chorus
+               "t5c3": "pitch3",        # Diddy Kong Racing: the intro's line and the second melody
+               "t2c0": "pitch4",        # Lead Rhodes: the Madness lead
+               "t4c2": "pitch4",        # CTK-230: the first Awesomeness
+               "t6c4": "pitch4",        # Layer #3: the DunDunDenDen's riff
                "t12c11": "chords",      # ColomboGMGS2: the chords
                "t15c14": "bass",        # Kirby Super Star: the bass line (C, G, F, C#)
                "t14c13": "off",         # TX81z Synthbass: power-chord stabs
                "t16c15": "off"},        # TX Alpha: a low pad
-              "2:09 at 140 BPM in C minor: an 8-bar intro, a build into the first Chorus, the melody on the main "
-              "pitch and arps on the second, a Rhodes lead in the Epicness.",
+              "2:09 at 140 BPM in C minor, laid out like the Sparta Extended base: the melody on the main pitch, "
+              "arps on the second, a Rhodes lead under the Madness.",
               credit="Citrus"),
     ]
 
