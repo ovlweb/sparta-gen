@@ -8,9 +8,10 @@ const krasenGithub = 'https://github.com/composition-cassidy';
 const xlethUrl = 'https://github.com/composition-cassidy/Xleth';
 const wikiUrl = 'https://spartaremix.fandom.com/wiki/Sparta_Remix_Wiki';
 
-/// SpartaGen's own terms: it belongs to everyone, not to the people who wrote it.
-const publicDomain = 'No copyright: SpartaGen is public domain (The Unlicense). It belongs to everyone — use, change, '
-    'share or sell it, no permission needed. The parts made by others keep their own licences (see Licenses).';
+/// SpartaGen's own terms: free for everyone to use, change and share — a community project, not a product.
+const licenceNote = 'Free for everyone, not for sale: use SpartaGen, change it and share it, free of charge — nobody '
+    'may sell it or charge for it (MIT License with the Commons Clause). The parts made by others keep their own '
+    'licences (see Licenses).';
 
 Future<void> openLink(String url) async {
   try {
@@ -106,7 +107,7 @@ Future<void> showAbout(BuildContext context, {required String version}) {
               const SizedBox(height: 16),
               Text('Free for everyone', style: t.titleSmall),
               const SizedBox(height: 4),
-              const Text(publicDomain),
+              const Text(licenceNote),
               const SizedBox(height: 16),
               Text('This is a release candidate: please try everything and report what breaks.',
                   style: TextStyle(color: cs.onSurfaceVariant)),
@@ -119,7 +120,7 @@ Future<void> showAbout(BuildContext context, {required String version}) {
               context: context,
               applicationName: 'SpartaGen',
               applicationVersion: version,
-              applicationLegalese: publicDomain,
+              applicationLegalese: licenceNote,
               applicationIcon: const Padding(padding: EdgeInsets.all(8), child: AppLogo(size: 48)),
             ),
             child: const Text('Licenses'),

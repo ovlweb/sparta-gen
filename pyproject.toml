@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Sparta Remix generator — the engine of the SpartaGen app: cuts a source video into pitch, percussion and quote samples, tunes the pitches to the base, sequences the Sparta Remix Wiki patterns and renders the remix video with ffmpeg."
 readme = "README.md"
 requires-python = ">=3.9"
-classifiers = ["License :: OSI Approved :: The Unlicense (Unlicense)"]
+classifiers = ["License :: Free To Use But Restricted"]      # MIT with the Commons Clause: not for sale
 dependencies = [
     "numpy>=1.22",
 ]

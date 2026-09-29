@@ -11,4 +11,4 @@ PRODUCT_NAME = SpartaGen
 PRODUCT_BUNDLE_IDENTIFIER = gen.sparta.remix
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = No copyright: public domain, free for everyone (The Unlicense)
+PRODUCT_COPYRIGHT = Free for everyone, not for sale (MIT License with the Commons Clause)

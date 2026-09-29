@@ -1,17 +1,37 @@
 name: Release
 
 # A tag (v1.0.0, v1.0.0-rc1 …) builds and tests every app, then puts them all in one GitHub release —
-# a pre-release for -rc, -beta and -alpha tags.
+# a pre-release for -rc, -beta and -alpha tags. Or, without a tag: Actions → Release → Run workflow on a branch,
+# with the version to release; the tag is made on the commit it runs on.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release — its tag, e.g. v1.0.0-rc1"
+        required: true
+        default: "v1.0.0-rc1"
 
 permissions:
   contents: read
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: A release from Run workflow is named like a tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || {
+            echo "::error::The version must look like v1.0.0 or v1.0.0-rc1 (got: $VERSION)"; exit 1; }
+
   tests:
     name: Tests
+    needs: version
     uses: ./.github/workflows/tests.yml
 
   desktop:
@@ -45,7 +65,10 @@ jobs:
       - run: ls -la apps
       - uses: softprops/action-gh-release@v2
         with:
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          # The pushed tag, or the version asked for in Run workflow (tagged on this commit).
+          tag_name: ${{ inputs.version || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ contains(inputs.version || github.ref_name, '-rc') || contains(inputs.version || github.ref_name, '-beta') || contains(inputs.version || github.ref_name, '-alpha') }}
           files: |
             apps/*.zip
             apps/*.apk

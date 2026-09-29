@@ -1,6 +1,8 @@
-<img src="packaging/icon.svg" width="96" alt="" align="right">
+<p align="center">
+  <img src="packaging/icon.svg" width="112" alt="SpartaGen">
+</p>
 
-# SpartaGen — a real Sparta Remix generator
+<h1 align="center">SpartaGen — a real Sparta Remix generator</h1>
 
 SpartaGen turns any video into a **Sparta Remix** the way remixers build them by hand — no AI music, no synthesizers:
 
@@ -572,8 +574,10 @@ a `v*` tag and publishes one release.
 
 ## License
 
-**No copyright: SpartaGen is public domain** ([The Unlicense](LICENSE)). It belongs to everyone, not to the people
-who wrote it — use it, change it, share it or sell it; no permission needed.
+**Free for everyone, not for sale.** SpartaGen is a community project, not a product: everyone may use it, study it,
+change it and share it, free of charge — nobody may sell it, sell a copy or a changed version of it, or charge for a
+product or service built mainly on it ([MIT License with the Commons Clause](LICENSE)). Making remixes with it and
+sharing them is what it is for.
 
 The parts made by others that it includes keep their own terms:
 

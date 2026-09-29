@@ -293,7 +293,7 @@ void main() {
     expect(find.text('Inspired by Krasen (CassidyBOTRR)'), findsOneWidget);
     expect(find.text('youtube.com/c/CassidyBOTRR'), findsOneWidget);
     expect(find.text('github.com/composition-cassidy'), findsOneWidget);           // Xleth's maker, and a link to it
-    expect(find.textContaining('No copyright'), findsOneWidget);                   // public domain: everyone's
+    expect(find.textContaining('not for sale'), findsOneWidget);                   // free for everyone, never sold
   });
 
   test('an engine command keeps a quoted path with spaces in one piece', () {
