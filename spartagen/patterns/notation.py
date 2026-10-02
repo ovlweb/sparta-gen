@@ -245,6 +245,76 @@ def parse(text: str, mode: str = "auto") -> ParsedPattern:
     return ParsedPattern(notes, length, mode, max(1, len(lines)), warnings)
 
 
+# ── Writing ──────────────────────────────────────────────────────────────────
+
+#: How long notes are marked (16th steps → asterisks); other lengths add ties ("=": one 16th more each).
+_MARKS = {1.0: "", 2.0: "*", 3.0: "**", 4.0: "***", 5.0: "****", 6.0: "*****", 8.0: "******", 10.0: "*******",
+          12.0: "********", 16.0: "*********"}
+
+
+def _length_mark(dur: float) -> tuple[str, str]:
+    """A note's length as written after it: (its mark, its ties) — the longest mark it holds and a tie ("=")
+    for each 16th more; a 32nd ("'") or a 64th ('"') then ties for the lengths that end between 16ths."""
+    q = max(0.25, round(dur * 4) / 4)
+    frac = q - int(q)
+    if frac == 0.75:                       # (no mark ends there: the nearest 16th)
+        q, frac = float(int(q) + 1), 0.0
+    if frac == 0:
+        base = max(k for k in _MARKS if k <= q)
+        return _MARKS[base], "=" * int(q - base)
+    return ("'" if frac == 0.5 else '"'), "=" * int(q)
+
+
+def _rests(gap: float) -> str:
+    g = round(gap * 4) / 4
+    whole = int(g)
+    rest = g - whole
+    return "_" * whole + ("/" if rest >= 0.5 else "") + ("\\" if rest in (0.25, 0.75) else "")
+
+
+def write(notes: list, mode: str = "semitone", length: float = 0.0) -> str:
+    """Notes back as the wiki's notation — what :func:`parse` reads back as the same notes.  Each voice is a
+    line (a chord's notes, or notes that sound together); ``length``: the steps every line runs to (rests at
+    the end), so the pattern keeps its bars.  ``mode``: "semitone" (signed numbers, spaced) or "index" (a digit
+    per slot)."""
+    if mode not in ("semitone", "index"):
+        raise ValueError("write semitone or index patterns")
+    items = []
+    for n in notes:
+        d = n.to_dict() if isinstance(n, PNote) else dict(n)
+        items.append(PNote(float(d["start"]), float(d["dur"]), int(d["value"]), int(d.get("voice", 0)),
+                           int(d.get("sharp", 0))))
+    lines: list[list[PNote]] = []
+    for n in sorted(items, key=lambda n: (n.voice, n.start, n.value)):
+        v = n.voice
+        while v < len(lines) and lines[v] and lines[v][-1].start >= n.start - 1e-9:
+            v += 1                        # two notes at once on a line: the next line takes one
+        while len(lines) <= v:
+            lines.append([])
+        line = lines[v]
+        if line and line[-1].start + line[-1].dur > n.start:
+            line[-1].dur = n.start - line[-1].start           # a line plays one note at a time
+        line.append(PNote(n.start, n.dur, n.value, v, n.sharp))
+    out = []
+    for line in lines or [[]]:
+        t, tokens = 0.0, []
+        for n in line:
+            if n.start - t >= 0.25 - 1e-9:
+                tokens.append(_rests(n.start - t))
+            mark, ties = _length_mark(n.dur)
+            if mode == "index":
+                if not -9 <= n.value <= 9:
+                    raise ValueError(f"slot {n.value} cannot be written (one digit each)")
+                tokens.append(f"{n.value}{mark}{'#' * n.sharp}{ties}")       # (sharps before the ties)
+            else:
+                tokens.append(f"{n.value}{mark}{ties}")
+            t = n.start + round(max(0.25, n.dur) * 4) / 4
+        if length - t >= 0.25 - 1e-9:
+            tokens.append(_rests(length - t))
+        out.append(("" if mode == "index" else " ").join(tokens) or "_")
+    return "\n".join(out)
+
+
 # ── Progressions ─────────────────────────────────────────────────────────────
 
 

@@ -1,6 +1,6 @@
 """Build the SpartaGen desktop app: the native (Flutter) app with its engine inside.
 
-    pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
+    pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg certifi
     python scripts/build_desktop.py            # build
     python scripts/build_desktop.py --test     # build and test it (see below)
 

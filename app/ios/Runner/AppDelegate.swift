@@ -66,7 +66,7 @@ final class AppHost: NSObject, PHPickerViewControllerDelegate {
     let args = call.arguments as? [String: Any] ?? [:]
     switch call.method {
     case "open":
-      pickVideo(from: presenter, result)
+      pickVideo(from: presenter, images: args["images"] as? Bool ?? false, result)
     case "saveAs":
       guard let path = args["path"] as? String else {
         result(FlutterError(code: "files", message: "Nothing to save.", details: nil))
@@ -78,12 +78,15 @@ final class AppHost: NSObject, PHPickerViewControllerDelegate {
     }
   }
 
-  /// A video from Photos, copied into the app (its path), or nil when the user cancels.
-  private func pickVideo(from presenter: UIViewController, _ result: @escaping FlutterResult) {
+  /// A video (with [images]: or a picture or GIF) from Photos, copied into the app (its path), or nil when the
+  /// user cancels.
+  private func pickVideo(from presenter: UIViewController, images: Bool = false,
+                         _ result: @escaping FlutterResult) {
     var config = PHPickerConfiguration()
-    config.filter = .videos
+    config.filter = images ? .any(of: [.videos, .images]) : .videos
     config.selectionLimit = 1
-    config.preferredAssetRepresentationMode = .current    // the video as it is (no conversion first)
+    // A video as it is (no conversion first); a picture as one ffmpeg reads (JPEG rather than HEIC).
+    config.preferredAssetRepresentationMode = images ? .compatible : .current
     let picker = PHPickerViewController(configuration: config)
     picker.delegate = self
     picked?(nil)
@@ -99,8 +102,10 @@ final class AppHost: NSObject, PHPickerViewControllerDelegate {
       result(nil)
       return
     }
-    let type = provider.registeredTypeIdentifiers.first { UTType($0)?.conforms(to: .movie) == true }
-      ?? UTType.movie.identifier
+    let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
+    let type = (types.first { $0.conforms(to: .movie) } ?? types.first { $0.conforms(to: .gif) }
+      ?? types.first { $0.conforms(to: .jpeg) } ?? types.first { $0.conforms(to: .png) }
+      ?? types.first { $0.conforms(to: .image) })?.identifier ?? UTType.movie.identifier
     provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
       var copy: URL?
       if let url = url {    // (Photos deletes this file when the block returns)
@@ -116,7 +121,7 @@ final class AppHost: NSObject, PHPickerViewControllerDelegate {
         if let copy = copy {
           result(copy.path)
         } else {
-          result(FlutterError(code: "files", message: error?.localizedDescription ?? "Could not read that video.",
+          result(FlutterError(code: "files", message: error?.localizedDescription ?? "Could not read that file.",
                               details: nil))
         }
       }

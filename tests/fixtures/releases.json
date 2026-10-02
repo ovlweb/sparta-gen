@@ -1,0 +1,38 @@
+[
+ {
+  "tag_name": "v1.0.0-rc1",
+  "name": "1.0 (RC)",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-09-29T18:23:41Z",
+  "html_url": "https://github.com/ovlweb/sparta-gen/releases/tag/v1.0.0-rc1",
+  "body": "First release candidate of SpartaGen",
+  "assets": [
+   {
+    "name": "SpartaGen-Android.apk",
+    "size": 62421805,
+    "browser_download_url": "https://github.com/ovlweb/sparta-gen/releases/download/v1.0.0-rc1/SpartaGen-Android.apk"
+   },
+   {
+    "name": "SpartaGen-iOS.ipa",
+    "size": 66723307,
+    "browser_download_url": "https://github.com/ovlweb/sparta-gen/releases/download/v1.0.0-rc1/SpartaGen-iOS.ipa"
+   },
+   {
+    "name": "SpartaGen-Linux-x64.zip",
+    "size": 127788832,
+    "browser_download_url": "https://github.com/ovlweb/sparta-gen/releases/download/v1.0.0-rc1/SpartaGen-Linux-x64.zip"
+   },
+   {
+    "name": "SpartaGen-macOS-arm64.zip",
+    "size": 101994444,
+    "browser_download_url": "https://github.com/ovlweb/sparta-gen/releases/download/v1.0.0-rc1/SpartaGen-macOS-arm64.zip"
+   },
+   {
+    "name": "SpartaGen-Windows-x64.zip",
+    "size": 134420226,
+    "browser_download_url": "https://github.com/ovlweb/sparta-gen/releases/download/v1.0.0-rc1/SpartaGen-Windows-x64.zip"
+   }
+  ]
+ }
+]

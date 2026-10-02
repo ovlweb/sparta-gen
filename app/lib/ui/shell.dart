@@ -9,6 +9,7 @@ import '../platform/files.dart';
 import '../state/app_state.dart';
 import '../state/settings.dart';
 import 'about.dart';
+import 'update_dialog.dart';
 import 'pages/base_page.dart';
 import 'pages/export_page.dart';
 import 'pages/look_page.dart';
@@ -49,7 +50,32 @@ class _ShellState extends State<Shell> {
   void initState() {
     super.initState();
     _sub = app.messages.listen(_show);
+    if (widget.settings.checkUpdates) WidgetsBinding.instance.addPostFrameCallback((_) => _lookForUpdate());
   }
+
+  /// A new SpartaGen out? Said once, at the top, until it is taken or put off.
+  Future<void> _lookForUpdate() async {
+    final info = await app.checkUpdate(quiet: true);
+    if (info == null || info['newer'] != true || !mounted) return;
+    final m = _messenger.currentState;
+    void close() => m?.hideCurrentMaterialBanner();
+    m?.showMaterialBanner(MaterialBanner(
+      leading: const Icon(Icons.system_update_alt),
+      content: Text('SpartaGen ${info['latest']} is out (you have ${info['current']}).'),
+      actions: [
+        TextButton(onPressed: close, child: const Text('Later')),
+        FilledButton(
+          onPressed: () {
+            close();
+            showUpdates(context, app, widget.settings, info: info, onQuit: widget.onQuit);
+          },
+          child: const Text('See the update'),
+        ),
+      ],
+    ));
+  }
+
+  void _updates() => showUpdates(context, app, widget.settings, onQuit: widget.onQuit);
 
   @override
   void dispose() {
@@ -210,6 +236,7 @@ class _ShellState extends State<Shell> {
           _Item('Krasen (CassidyBOTRR) on YouTube', () => openLink(krasenChannel), null),
           _Item('Krasen (composition-cassidy) on GitHub', () => openLink(krasenGithub), null),
           null,
+          _Item('Check for updates…', _updates, null),
           _Item('About SpartaGen', _about, null),
         ]),
       ];

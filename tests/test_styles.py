@@ -129,10 +129,84 @@ def test_a_chord_is_three_layers_in_one_box_from_normal_to_small():
 
 
 def test_a_drums_box_never_shows_a_pitch():
-    """Each box is one sound's: the 4x4 grid's pitch cycle goes past the drums' and the bass's boxes."""
-    fixed = {RV.cell_for(_event(visual=v, sample=v), "grid4") for v in ("kick", "snare", "hat", "crash", "bass")}
+    """Each box is one sound's: the 4x4 grid's pitch cycle goes past the boxes the part's drums and bass have
+    (and through those of the drums it has not)."""
+    from spartagen.arrangement import Arrangement, SectionSpec
+    drums = ("kick", "snare", "hat", "crash", "bass")
+    fixed = {RV.cell_for(_event(visual=v, sample=v), "grid4") for v in drums + ("hat2", "perc")}
     cycled = {RV.cell_for(_event(index=i), "grid4") for i in range(24)}
-    assert None not in fixed and len(cycled) >= 6 and not cycled & fixed
+    assert None not in fixed and len(cycled) >= 5 and not cycled & fixed
+    arr = Arrangement("t", "custom", sections=[SectionSpec("epicness", 4, [], layout="grid4")])
+    some = [_event(visual=v, sample=v) for v in drums]
+    cycle = RV.grid4_cycles(arr, some + [_event(index=i) for i in range(12)])[0]
+    used = {RV.cell_for(e, "grid4") for e in some}
+    assert len(cycle) == 7 and not set(cycle) & used
+    assert {RV.cell_for(_event(index=i), "grid4", cycle) for i in range(24)} == set(cycle)
+
+
+def test_the_4x4_grid_has_a_box_for_every_drum():
+    """The second hi-hat, the other percussion and a part's opening crash have boxes in the 4x4 grid too."""
+    boxes = [RV.cell_for(_event(visual=v, sample=v), "grid4") for v in ("kick", "snare", "hat", "hat2", "perc",
+                                                                         "crash", "bass")]
+    assert None not in boxes and len(set(boxes)) == len(boxes)
+    assert RV.cell_for(_event(visual="hit", sample="crash"), "grid4") == RV.GRID4_FIXED["crash"]
+
+
+def test_the_madness_words_keep_their_sides():
+    """The call is on the left and the response on the right, even when the source has one word for both."""
+    call, response = _event(visual="madness", sample="word_a"), _event(visual="madness", sample="word_b")
+    stand_in = _event(visual="madness", sample="word_a", asked="word_b")
+    assert [RV.cell_for(e, "split2") for e in (call, response, stand_in)] == ["left", "right", "right"]
+    assert [RV.cell_for(e, "grid3") for e in (call, response, stand_in)] == ["ml", "mr", "mr"]
+
+
+def test_the_madness_shows_its_words_split_and_every_part_in_a_grid(tmp_path, synthetic_source):
+    """Split in two, the Madness is its call and response; in a grid its pitches, bass and drums have their
+    boxes too.  One word found: the response shows it on the right; none: the main phrase's halves."""
+    import copy
+    from spartagen.arrangement import compile_events
+    from spartagen.project import Session
+    s = Session(workspace=str(tmp_path / "w"))
+    s.set_source(synthetic_source)
+    bank = s.bank()
+    arr = s.arrangement()
+    mi = next(i for i, sec in enumerate(arr.sections) if sec.kind == "madness")
+    assert arr.sections[mi].layout == "split2"
+    cfg = RV.VideoConfig.from_dict({"preset_name": "preview", "width": 320, "height": 180})
+
+    def shown(layout: str, drop: tuple = ()) -> dict:
+        a = copy.deepcopy(arr)
+        a.sections[mi].layout = layout
+        have = set(bank.samples) - set(drop)
+        comp = RV.Compositor(s.project.source_path, a, compile_events(a, have), bank, cfg)
+        out: dict = {}
+        for v in comp.vis:
+            if v[3].section == mi:
+                out.setdefault(v[2], set()).add(v[3].visual)
+        return out
+
+    split = shown("split2")
+    assert set(split) == {"left", "right"} and set().union(*split.values()) == {"madness"}
+    for layout in ("grid3", "grid4", "main"):
+        seen = set().union(*shown(layout).values())
+        assert {"madness", "pitch_cycle", "bass", "kick", "snare", "hat"} <= seen, layout
+    one = shown("split2", ("word_b",))
+    assert set(one) == {"left", "right"}
+    if "chorus_a" in bank.samples and "chorus_b" in bank.samples:
+        assert set(shown("split2", ("word_a", "word_b"))) == {"left", "right"}
+
+
+def test_a_madness_saved_with_hidden_parts_shows_them_again():
+    from spartagen.arrangement import SectionSpec, sec_madness
+    sec = sec_madness(8, {"base": True})
+    assert {t.id: t.visual for t in sec.tracks if t.id in ("pitch", "pitch_gate", "bass")} == \
+        {"pitch": "pitch_cycle", "pitch_gate": "pitch_cycle", "bass": "bass"}
+    old = sec.to_dict()
+    for t in old["tracks"]:
+        if t["id"] in ("pitch", "pitch_gate", "bass"):
+            t["visual"] = "none"
+    back = SectionSpec.from_dict(old)
+    assert {t.id: t.visual for t in back.tracks} == {t.id: t.visual for t in sec.tracks}
 
 
 def test_a_clip_runs_as_fast_as_its_note():
@@ -183,3 +257,104 @@ def test_a_still_is_the_frame_the_video_shows_with_the_chord_layers(tmp_path, sy
     changed = (stills[0] != stills[1]).any(axis=2)
     assert changed[y0:y0 + h, x0:x0 + w].any()                             # the box has its border …
     assert not changed[y0 + 2:y0 + h - 2, x0 + 2:x0 + w - 2].any()          # … and nothing inside it
+
+
+def _clip(path: str, *lavfi: str, extra: tuple = ()) -> str:
+    from spartagen import ffmpeg as ff
+    cmd = [ff.ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y"]
+    for src in lavfi:
+        cmd += ["-f", "lavfi", "-i", src]
+    ff.run(cmd + list(extra) + [path])
+    return path
+
+
+def test_the_background_loops_with_no_gap(tmp_path):
+    """Issue 2: the background went black where the file has sound but no more picture, then came back from
+    the start.  Now the picture's own end is the loop: after its last frame comes its first."""
+    from spartagen import ffmpeg as ff
+    src = _clip(str(tmp_path / "short.mp4"), "testsrc2=s=160x90:r=25:d=2", "sine=d=3.5",
+                extra=("-pix_fmt", "yuv420p"))
+    info = ff.probe(src)
+    assert info.duration > 3.0
+    bd = RV.Backdrop(src, 160, 90, 25.0, info.duration)
+    frames = [bd.frame(k / 25.0) for k in range(int(5 * 25))]
+    assert all(f is not None for f in frames)
+    assert 1.9 <= bd.duration <= 2.1
+    first = bd.frame(0.4)
+    assert np.array_equal(bd.frame(0.4 + bd.duration), first) and np.array_equal(bd.frame(0.4 + 3 * bd.duration), first)
+    assert not np.array_equal(bd.frame(0.8), first)
+
+
+def test_the_background_is_soft_without_blocks(tmp_path):
+    """Issue 2: the blurred background looked pixelated — the picture shrunk to a few pixels and blown up, whose
+    blocks stay put while the picture moves under them.  Now it is blurred smoothly: moved, it only moves."""
+    from spartagen import ffmpeg as ff
+    big = _clip(str(tmp_path / "big.mp4"), "testsrc2=s=1344x720:r=25:d=0.2", extra=("-pix_fmt", "yuv420p", "-crf", "8"))
+    a, b = (_clip(str(tmp_path / f"{dx}.mp4"), extra=("-i", big, "-vf", f"crop=1280:720:{dx}:0", "-pix_fmt", "yuv420p",
+                                                      "-crf", "8")) for dx in (0, 16))
+    soft = [ff.read_blurred(p, 0.0, 0.04, 25.0, 1280, 720)[0].astype(np.float32) for p in (a, b)]
+    assert float(np.abs(soft[1][40:-40, 40:-56] - soft[0][40:-40, 56:-40]).mean()) < 1.0
+
+
+@pytest.mark.parametrize("kind", ["picture", "gif"])
+def test_a_picture_or_gif_of_your_own_behind_the_boxes(tmp_path, kind):
+    from spartagen import ffmpeg as ff
+    if kind == "picture":
+        path = _clip(str(tmp_path / "bg.png"), "testsrc2=s=320x180:r=1:d=1", extra=("-frames:v", "1"))
+    else:
+        path = _clip(str(tmp_path / "bg.gif"), "testsrc2=s=160x90:r=10:d=1")
+    cfg = RV.VideoConfig.from_dict({"preset_name": "preview", "width": 160, "height": 90, "background": "file",
+                                    "background_file": path})
+    bd = RV.backdrop_for(cfg, "", False, 0.0)
+    assert bd is not None and bd.blur is False
+    a, b = bd.frame(0.3), bd.frame(7.3)
+    assert a is not None and b is not None and a.shape == (90, 160, 3)
+    if kind == "picture":
+        assert np.array_equal(a, bd.frame(12.0))       # a picture stays
+    else:
+        assert np.array_equal(a, b)                    # a GIF loops (1 s long)
+    sharp = ff.read_blurred(path, 0.0, 0.1, 10.0, 160, 90, blur=False)[0].astype(np.float32)
+    soft = ff.read_blurred(path, 0.0, 0.1, 10.0, 160, 90)[0].astype(np.float32)
+    edges = lambda f: float((np.diff(f, axis=1) ** 2).mean())    # noqa: E731
+    assert edges(soft) < 0.5 * edges(sharp)
+    missing = RV.VideoConfig.from_dict({"background": "file", "background_file": str(tmp_path / "gone.gif")})
+    assert RV.backdrop_for(missing, "", True, 1.0) is None
+
+
+def test_a_grid_of_the_pitches_and_percussion_only(tmp_path, synthetic_source):
+    """Issue 2's feature: a grid without the chorus — a box for each pitch line, the bass and each drum, the
+    grid as big as the part needs; the chorus is heard, not seen."""
+    import copy
+    from spartagen.arrangement import compile_events
+    from spartagen.project import Session
+    s = Session(workspace=str(tmp_path / "w"))
+    s.set_source(synthetic_source)
+    bank = s.bank()
+    arr = copy.deepcopy(s.arrangement())
+    ci = next(i for i, sec in enumerate(arr.sections) if sec.kind == "chorus")
+    arr.sections[ci].layout = "pitchperc"
+    ev = compile_events(arr, set(bank.samples))
+    cfg = RV.VideoConfig.from_dict({"preset_name": "preview", "width": 320, "height": 180})
+    comp = RV.Compositor(s.project.source_path, arr, ev, bank, cfg)
+    cells, where = comp.pp[ci]
+    shown = [v for v in comp.vis if v[3].section == ci]
+    assert shown and not any(v[3].visual in ("main", "center", "madness") for v in shown)
+    assert {v[2] for v in shown} <= set(cells)
+    parts = {RV.pp_part(v[3]) for v in shown}
+    assert len(where) == len(cells) == len(parts) and {"kick", "snare"} <= parts
+    assert any(p.startswith("line:") for p in parts)
+    boxes = list(cells.values())                 # in the frame, none over another
+    assert all(x >= 0 and y >= 0 and x + w <= 1 + 1e-9 and y + h <= 1 + 1e-9 for x, y, w, h in boxes)
+    assert len({(x, y) for x, y, _w, _h in boxes}) == len(boxes)
+    t = arr.section_starts()[ci] + 2.5 * arr.bar_s
+    assert comp.still(t).shape == (180, 320, 3)
+
+
+def test_a_background_of_unknown_length_plays_and_loops(tmp_path):
+    from spartagen import ffmpeg as ff
+    src = _clip(str(tmp_path / "short.mp4"), "testsrc2=s=160x90:r=25:d=2", extra=("-pix_fmt", "yuv420p"))
+    bd = RV.Backdrop(src, 160, 90, 25.0, 0.0)                      # (a file that does not say how long it is)
+    a, b = bd.frame(0.4), bd.frame(1.4)
+    assert a is not None and b is not None and not np.array_equal(a, b)          # it plays …
+    assert np.array_equal(bd.frame(2.0 + 1.4 + 0.01), bd.frame(1.4))              # … and loops at its end
+    assert 1.9 <= bd.duration <= 2.1

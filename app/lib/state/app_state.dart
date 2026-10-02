@@ -55,6 +55,8 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get midi => _map(project['midi']);
   Map<String, dynamic>? get baseMap => _map(project['base']);
   String? get basePath => project['base_path'] as String?;
+  /// Whether the loaded base file plays under the remix (not under a template's own music).
+  bool get baseHeard => project['base_heard'] == true;
   Map<String, dynamic>? get template => _map(project['template']);
   Map<String, dynamic>? get arrangementSummary => _map(project['arrangement']);
   Map<String, dynamic> get outputs => _map(project['outputs']) ?? {};
@@ -465,6 +467,80 @@ class AppState extends ChangeNotifier {
         'replace_video': replaceVideo,
         'replace_fx': replaceFx,
       }));
+    });
+  }
+
+  // ── updates ──
+
+  /// This app's platform, as the releases name their files.
+  static String get platformName => Platform.isWindows
+      ? 'windows'
+      : Platform.isMacOS
+          ? 'macos'
+          : Platform.isAndroid
+              ? 'android'
+              : Platform.isIOS
+                  ? 'ios'
+                  : 'linux';
+
+  /// The newest release, and whether it is newer than this app (null when GitHub could not be asked).
+  Future<Map<String, dynamic>?> checkUpdate({bool quiet = false}) async {
+    try {
+      return _map(await engine.get('/api/update?platform=$platformName'));
+    } catch (e) {
+      if (!quiet) fail(e);
+      return null;
+    }
+  }
+
+  /// The update downloaded (the progress bar shows it): its file, and on a computer the new app unpacked.
+  Future<Map<String, dynamic>?> downloadUpdate() async =>
+      _map(await runJob('Downloading the update', '/api/update/download', {'platform': platformName}));
+
+  /// Put the downloaded app [newApp] in place of this one: the engine starts a script that waits for the app
+  /// to quit, then swaps it and starts the new one.  False when it cannot (the message says why).
+  Future<bool> installUpdate(String newApp) async {
+    final r = await _call(() => engine.post(
+        '/api/update/install', {'app': newApp, 'executable': Platform.resolvedExecutable, 'pid': pid}));
+    return r != null;
+  }
+
+  // ── patterns as blocks ──
+
+  /// A track's pattern as notes on a grid of 16ths (see the block editor); null when it could not be read.
+  Future<Map<String, dynamic>?> patternBlocks(Map<String, dynamic> track) async {
+    try {
+      return _map(await engine.post('/api/pattern/blocks', {'track': track}));
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /// The block editor's notes as the wiki's notation (null when they cannot be written).
+  Future<String?> writePattern(List<Map<String, dynamic>> notes, String mode, double length) async {
+    try {
+      final r = _map(await engine.post('/api/pattern/write', {'notes': notes, 'mode': mode, 'length': length}));
+      return r == null ? null : '${r['text']}';
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /// A track's pattern on its own in part [section], rendered by the engine: the sound file to play.
+  Future<String?> listenPattern(Map<String, dynamic> track, int section) => _call<String?>(() async {
+        final r = _map(await engine.post('/api/pattern/listen', {'track': track, 'section': section}));
+        final audio = '${r?['audio'] ?? ''}';
+        return audio.isEmpty ? null : audio;
+      });
+
+  /// A video, GIF or picture of your own behind the boxes (the engine keeps a copy); [photos]: from Photos (iOS).
+  Future<void> pickBackground({bool photos = false}) async {
+    final path = await pickFile(Kinds.background, photos: photos);
+    if (path == null) return;
+    await _call(() async {
+      look = _map(await engine.post('/api/look/background', {'path': path}));
     });
   }
 

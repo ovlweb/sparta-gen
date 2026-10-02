@@ -21,6 +21,9 @@ class Kinds {
   static const midi = XTypeGroup(
       label: 'MIDI', extensions: ['mid', 'midi', 'rmi', 'kar'], mimeTypes: ['audio/midi', 'audio/x-midi'],
       uniformTypeIdentifiers: ['public.midi-audio']);
+  static const background = XTypeGroup(label: 'Video, GIF or picture', extensions: [
+    'mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v', 'gif', 'png', 'jpg', 'jpeg', 'webp', 'bmp', //
+  ], mimeTypes: ['video/*', 'image/*'], uniformTypeIdentifiers: ['public.movie', 'public.image']);
   static const json = XTypeGroup(
       label: 'SpartaGen file', extensions: ['json'], mimeTypes: ['application/json'],
       uniformTypeIdentifiers: ['public.json']);
@@ -58,10 +61,16 @@ class Files {
     return Directory(dir).existsSync() ? dir : home;
   }
 
+  /// Android: hand a downloaded APK to the system's installer.  "installing" when it opened, "permission" when
+  /// the user has first to allow SpartaGen to install apps (the system's settings for that open).
+  static Future<String?> installApk(String path) => _host.invokeMethod<String>('installApk', {'path': path});
+
   /// Pick a file to open; its local path (on a phone a copy the app can read).  [photos]: from the Photos
   /// library (iOS).
   static Future<String?> open(XTypeGroup kind, {bool photos = false}) async {
-    if (Platform.isIOS && photos) return _host.invokeMethod<String>('open', {'photos': true});
+    if (Platform.isIOS && photos) {
+      return _host.invokeMethod<String>('open', {'photos': true, 'images': kind.mimeTypes?.contains('image/*') ?? false});
+    }
     if (Platform.isAndroid) {
       final mimes = kind.mimeTypes ?? const ['*/*'];
       return _host.invokeMethod<String>('open', {'mime': mimes});

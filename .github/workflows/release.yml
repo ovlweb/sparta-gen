@@ -62,7 +62,13 @@ jobs:
           pattern: SpartaGen-*
           merge-multiple: true
           path: apps
-      - run: ls -la apps
+      - name: The files named as releases have them (SpartaGen-Windows-x64.zip …; the version is the release's)
+        run: |
+          for f in apps/SpartaGen-*; do
+            n=$(basename "$f" | sed -E 's/^SpartaGen-[0-9][0-9A-Za-z.+]*-/SpartaGen-/')
+            [ "$n" = "$(basename "$f")" ] || mv "$f" "apps/$n"
+          done
+          ls -la apps
       - uses: softprops/action-gh-release@v2
         with:
           # The pushed tag, or the version asked for in Run workflow (tagged on this commit).

@@ -15,6 +15,12 @@ from .. import bases
 from ..arrangement import compile_events
 
 
+def _platform() -> str:
+    """The platform the engine runs on, as releases name it (the phone apps say theirs)."""
+    import sys
+    return {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
+
+
 def _safe(name: str) -> str:
     import re
     return re.sub(r"[^\w\- ()]", "_", name)[:60] or "remix"
@@ -64,6 +70,7 @@ def extra_view(session) -> dict:
             "base_template": p.options.get("base_template") or "",
             "base_template_info": base_tpl.to_dict() if base_tpl else None,
             "base_structure": p.options.get("base_structure") or "detected",
+            "base_heard": bool(p.mix.get("base_path")) and session.base_heard(),
             "key": p.samples.get("key") or "D", "key_mode": p.options.get("key_mode") or "auto",
             "arrangement": arrangement_view(session)}
 
@@ -77,7 +84,7 @@ def look_view(session) -> dict:
     m = MixConfig.from_dict(p.mix)
     video_keys = ["style", "flip_mode", "hit_anim", "punch", "shake", "rgb_split", "border", "border_color",
                   "color_fx", "tint", "scanlines", "grain", "vignette", "letterbox", "transition", "background",
-                  "flash", "hold_last"]
+                  "flash", "hold_last", "background_dim", "background_file", "background_blur"]
     return {"styles": STYLE_NAMES, "style_settings": STYLES, "style_options": STYLE_OPTIONS,
             "video": {k: getattr(v, k) for k in video_keys}, "video_set": p.video,
             "fx_presets": FX_PRESET_NAMES, "fx_settings": FX_PRESETS,
@@ -85,7 +92,7 @@ def look_view(session) -> dict:
             "fx_switches": FX_SWITCHES,
             "volume_groups": {g: name for g, (name, _stems) in VOLUME_GROUPS.items()},
             "volume_range": list(VOLUME_RANGE),
-            "has_base": bool(p.mix.get("base_path")),
+            "has_base": bool(session.mix_settings().get("base_path")),
             "mix": {k: getattr(m, k) for k in ["fx_preset", *FX_AMOUNTS, *FX_SWITCHES, "base_gain_db", "base_mode",
                                                "volumes", "mute_groups"]},
             "mix_set": {k: v for k, v in p.mix.items() if k not in ("base_path", "base_offset")}}
@@ -267,6 +274,82 @@ def route(h, method: str, path: str, q: dict) -> bool:
         MixConfig.from_dict(new_mix)
         s.project.video = new_video
         s.project.mix = new_mix
+        save_look_defaults(app.root, s.project)
+        return ok(look_view(s))
+
+    # ── updates (see spartagen.update) ──
+    if path == "/api/update" and method == "GET":
+        # The newest release for the app's platform, and whether it is newer than this one.
+        from .. import update
+        return ok(update.check(q.get("platform") or _platform(), arch=q.get("arch") or ""))
+    if path == "/api/update/download" and method == "POST":
+        from .. import update
+        plat = h._body_json().get("platform") or _platform()
+
+        def fetch(progress):
+            info = update.check(plat)
+            if not info.get("newer"):
+                raise ValueError(f"SpartaGen {info['current']} is the newest — nothing to update")
+            folder = os.path.join(app.root, "updates")
+            file = update.download(info["asset"], folder, progress)
+            out = {"version": info["latest"], "file": file, "page": info["page"]}
+            if file.endswith(".zip"):
+                progress(0.995, "unpacking")
+                out["app"] = update.unpack(file, os.path.join(folder, str(info.get("tag") or "new")))
+            return out
+        h._json(app.start_job("update", fetch, heavy=False).to_dict())
+        return True
+    if path == "/api/update/install" and method == "POST":
+        # The new app in place of this one, by a script that waits for the app and this engine to quit.
+        from .. import update
+        b = h._body_json()
+        cmd = update.install_script(str(b["app"]), str(b["executable"]), [int(b.get("pid") or 0), os.getpid()],
+                                    os.path.join(app.root, "updates"))
+        update.launch(cmd)
+        return ok({"started": True})
+
+    # ── patterns as blocks ──
+    if path == "/api/pattern/blocks" and method == "POST":
+        # A track's pattern as notes on a grid of 16ths, for the block editor — from the library, the wiki's
+        # notation, a drum groove or a MIDI base's notes.
+        from ..arrangement import TrackSpec, pattern_blocks
+        t = dict(h._body_json().get("track") or {})
+        t.update(id=t.get("id") or "track", kind=t.get("kind") or "pitch")
+        return ok(pattern_blocks(TrackSpec.from_dict(t)))
+    if path == "/api/pattern/write" and method == "POST":
+        # The block editor's notes back as the wiki's notation (read back as the very same notes).
+        from ..patterns.notation import parse, write
+        b = h._body_json()
+        mode = "index" if b.get("mode") == "index" else "semitone"
+        text = write(list(b.get("notes") or []), mode, float(b.get("length") or 0.0))
+        return ok({"text": text, "mode": mode, "steps": parse(text, mode).length})
+
+    if path == "/api/pattern/listen" and method == "POST":
+        # The pattern being edited, heard on its own (its track's samples, in its part).
+        b = h._body_json()
+        return ok({"audio": s.listen(dict(b.get("track") or {}), int(b.get("section") or 0))})
+
+    if path == "/api/look/background" and method == "POST":
+        # A video, GIF or picture of your own behind the boxes.  A copy is kept with the app's settings: like the
+        # rest of the look it stays for the next projects, and the file picked (on a phone, a copy) may go.
+        from .. import ffmpeg as ff
+        src = str(h._body_json().get("path") or "")
+        if not os.path.isfile(src):
+            h._error(f"file not found: {src}")
+            return True
+        try:
+            has_picture = ff.probe(src).has_video
+        except ff.FFmpegError:
+            has_picture = False
+        if not has_picture:
+            h._error("that file has no picture — pick a video, a GIF or a picture")
+            return True
+        folder = os.path.join(app.root, "backgrounds")
+        os.makedirs(folder, exist_ok=True)
+        dst = os.path.join(folder, os.path.basename(src))
+        if os.path.abspath(dst) != os.path.abspath(src):
+            shutil.copy2(src, dst)
+        s.project.video = dict(s.project.video, background="file", background_file=dst)
         save_look_defaults(app.root, s.project)
         return ok(look_view(s))
 

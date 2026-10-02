@@ -94,12 +94,18 @@ android {
     }
 }
 
+dependencies {
+    // FileProvider: the system's installer reads a downloaded update through it.
+    implementation("androidx.core:core:1.13.1")
+}
+
 chaquopy {
     defaultConfig {
         version = "3.12"
         pip {
             install("numpy")
             install("yt-dlp")
+            install("certifi")      // (the certificates GitHub is checked against, for updates)
         }
         // The engine reads a few files next to its code: keep the package on the filesystem.
         extractPackages("spartagen")

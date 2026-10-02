@@ -156,6 +156,24 @@ def test_look_and_sound(engine):
     call(engine, "/api/look", {"mix": {"fx_preset": "dubstep"}}, expect=400)
 
 
+def test_a_video_gif_or_picture_of_your_own_as_the_background(engine, tmp_path):
+    from spartagen import ffmpeg as ff
+    gif = str(tmp_path / "loop.gif")
+    ff.run([ff.ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            "testsrc2=s=160x90:r=10:d=1", gif])
+    lk = call(engine, "/api/look/background", {"path": gif})
+    v = lk["video"]
+    assert v["background"] == "file" and v["background_blur"] is False and os.path.isfile(v["background_file"])
+    assert v["background_file"] != gif                      # a copy kept with the app's settings
+    lk = call(engine, "/api/look", {"video": {"background_blur": True, "background_dim": 0.8}})
+    assert lk["video"]["background_blur"] is True and lk["video"]["background_dim"] == 0.8
+    wav = str(tmp_path / "sound.wav")
+    ff.run([ff.ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=d=0.5", wav])
+    call(engine, "/api/look/background", {"path": wav}, expect=400)        # no picture in it
+    call(engine, "/api/look/background", {"path": str(tmp_path / "gone.png")}, expect=400)
+    call(engine, "/api/look", {"video": {"background": "blur"}})
+
+
 def test_base_file_by_path_with_a_template(engine, tmp_path):
     from test_base import make_base
     from spartagen.audio import base as B
@@ -296,3 +314,47 @@ def test_a_still_of_the_remix_and_the_sound_of_the_source_are_served(engine, syn
     assert max(call(engine, "/api/waveform?start=0.5&end=2.5&n=20")["peaks"]) == max(wf["peaks"])
     arr = call(engine, "/api/project")["arrangement"]
     assert arr["sections"][0]["start"] == 0.0 and arr["sections"][1]["start"] > 0
+
+
+def test_a_pattern_as_blocks_and_back(engine, synthetic_source):
+    """The block editor's round trip: a track's pattern as notes, the notes back as notation, and heard."""
+    call(engine, "/api/project/new", {})
+    call(engine, "/api/source/path", {"path": synthetic_source})
+    arr = call(engine, "/api/arrangement")
+    si = next(i for i, sec in enumerate(arr["sections"]) if sec["kind"] == "chorus")
+    tr = next(t for t in arr["sections"][si]["tracks"] if t["kind"] == "drum")
+    b = call(engine, "/api/pattern/blocks", {"track": tr})
+    assert b["mode"] == "index" and b["notes"] and b["loop"] >= 16 and b["slots"]
+    w = call(engine, "/api/pattern/write", {"notes": b["notes"], "mode": b["mode"], "length": b["pickup"] + b["loop"]})
+    assert w["steps"] == b["pickup"] + b["loop"] and w["text"]
+    melody = call(engine, "/api/pattern/write", {"notes": [{"start": 0, "dur": 2, "value": 0},
+                                                           {"start": 4, "dur": 4, "value": 7}], "length": 16})
+    assert melody == {"text": "0* __ 7*** ________", "mode": "semitone", "steps": 16.0}
+    call(engine, "/api/pattern/write", {"notes": [{"start": 0, "dur": 1, "value": 10}], "mode": "index"}, expect=400)
+    call(engine, "/api/pattern/listen", {"track": tr, "section": si}, expect=400)     # (no samples cut yet)
+    wait(engine, call(engine, "/api/analyze", {}))
+    heard = call(engine, "/api/pattern/listen", {"track": dict(tr, pattern="text:" + w["text"], mode="index"),
+                                                 "section": si})
+    assert os.path.isfile(heard["audio"]) and os.path.getsize(heard["audio"]) > 10000
+
+
+def test_updates_are_found_downloaded_and_refused_where_they_cannot_go(engine, tmp_path, monkeypatch):
+    from spartagen import update
+    apk = tmp_path / "SpartaGen-9.0.0-Android.apk"
+    apk.write_bytes(b"PK" + b"\0" * 3000)
+    release = {"tag_name": "v9.0.0", "name": "9.0", "prerelease": False, "draft": False, "body": "Big news",
+               "html_url": "https://github.com/ovlweb/sparta-gen/releases/tag/v9.0.0",
+               "assets": [{"name": apk.name, "size": apk.stat().st_size, "browser_download_url": apk.as_uri()}]}
+    monkeypatch.setattr(update, "fetch_releases", lambda: [release])
+    info = call(engine, "/api/update?platform=android")
+    assert info["newer"] is True and info["latest"] == "9.0.0" and info["notes"] == "Big news"
+    assert call(engine, "/api/update?platform=windows")["latest"] is None            # no Windows file in it
+    job = wait(engine, call(engine, "/api/update/download", {"platform": "android"}))
+    assert job["status"] == "done" and os.path.getsize(job["result"]["file"]) == apk.stat().st_size
+    call(engine, "/api/update/install", {"app": str(tmp_path), "executable": str(tmp_path / "x"), "pid": 1},
+         expect=400)                                                              # not an installed app
+
+    def offline():
+        raise ValueError("could not reach GitHub to look for updates (offline)")
+    monkeypatch.setattr(update, "fetch_releases", offline)
+    call(engine, "/api/update?platform=android", expect=400)

@@ -694,7 +694,7 @@ def _join_choruses(secs: list[MidiSection], blocks: list[dict]) -> list[MidiSect
     return out
 
 
-#: The name and frame of each kind of section on a MIDI base: a box per line (the Madness: its words).
+#: The name and frame of each kind of section on a MIDI base: a box per line (the Madness: its words, split in two).
 SECTION_LOOK = {"intro": ("Intro", "main"), "chorus": ("Chorus", "main"), "dundundenden": ("DunDunDenDen", "main"),
                 "epicness": ("Epicness", "main"), "awesomeness": ("Awesomeness", "main"),
                 "madness": ("Madness", "split2"), "ending": ("Ending", "main")}
@@ -753,10 +753,8 @@ def build_from_midi(song: MidiSong, mapping: Optional[dict] = None, auto_percuss
         for p in enabled:
             ns = [n for n in by_part.get(p.id, []) if s0 <= n.start * steps_per_beat < s1]
             if ns:
-                tr = _part_track(p, m[p.id]["role"], ns, s0, key_pc, m[p.id], steps_per_beat, refs.get(p.id))
-                if kind == "madness" and tr.stem != "quotes" and tr.kind != "words":
-                    tr.visual = "none"          # the Madness shows its words; the base plays under them
-                tracks.append(tr)
+                tracks.append(_part_track(p, m[p.id]["role"], ns, s0, key_pc, m[p.id], steps_per_beat,
+                                          refs.get(p.id)))
         if auto_phrase:
             tracks = _phrase_tracks(kind, bars, roles, opts, counts[label]) + tracks
         if auto_percussion and not has_drums:

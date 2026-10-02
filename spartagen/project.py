@@ -506,7 +506,7 @@ class Session:
     def still(self, t: float, width: int = 640, height: int = 360) -> np.ndarray:
         """The remix's picture at t seconds, with the current look — what the video shows then, drawn on its own
         in a moment (the clips it needs stay decoded, so changing an effect redraws at once)."""
-        from .render_video import BlurredSource, Compositor
+        from .render_video import Compositor, backdrop_for
         if not self.project.source_path:
             raise ValueError("open a video first")
         if self.project.analysis is None:
@@ -526,23 +526,32 @@ class Session:
                 media = (self.project.source_path, self._bank_key, width, height)
                 same = st.get("media") == media
                 info = self.project.source_info or {}
-                backdrop = st.get("backdrop") if same else BlurredSource(
-                    self.project.source_path, width, height, cfg.fps, float(info.get("duration") or 1.0))
+                behind = (media, cfg.background, cfg.background_file, cfg.background_blur)
+                backdrop = st.get("backdrop") if st.get("behind") == behind else backdrop_for(
+                    cfg, self.project.source_path, bool(info.get("has_video", True)),
+                    float(info.get("duration") or 0.0))
                 comp = Compositor(self.project.source_path, arr, events, bank, cfg,
                                   cache=st.get("cache") if same else None, backdrop=backdrop)
-                self._still = {"key": key, "comp": comp, "media": media, "cache": comp.cache, "backdrop": backdrop}
+                self._still = {"key": key, "comp": comp, "media": media, "cache": comp.cache, "backdrop": backdrop,
+                               "behind": behind}
             return comp.still(t)
 
+    def base_heard(self) -> bool:
+        """Whether a loaded base file plays under the remix: when the remix is built on it, or on your own MIDI
+        of a base — not on a template (a MIDI template's own music is another base, in another tempo)."""
+        p = self.project
+        return p.variant == "base" or (p.variant == "midi" and not (p.midi or {}).get("template"))
+
     def mix_settings(self) -> dict:
-        """The mix as rendered: a loaded base file plays under the remix only when the remix is built on it
-        (or it backs a MIDI base) — on a template it waits, silent, instead of clashing with another tempo."""
+        """The mix as rendered: a loaded base file plays under the remix only when :meth:`base_heard` — on a
+        template it waits, silent, instead of clashing with another tempo."""
         mix = dict(self.project.mix)
         tid = self.project.options.get("base_from_template")
         if tid and not os.path.isfile(mix.get("base_path") or ""):
             tpl = self._template(tid)                 # the app moved since the project was saved: its base came along
             if tpl is not None and tpl.audio:
                 mix["base_path"] = tpl.audio_path()
-        if self.project.variant not in ("base", "midi"):
+        if not self.base_heard():
             mix.pop("base_path", None)
         return mix
 
@@ -620,6 +629,37 @@ class Session:
         with self.lock:
             self.project.outputs[quality] = result
         return result
+
+    def listen(self, track: dict, section: int = 0) -> str:
+        """One track's pattern on its own, as the remix plays it in that part — a loop of it, or two of a short
+        one, with the remix's sound but not the base: a WAV of what the block editor holds."""
+        import math
+        from .arrangement import SectionSpec, TrackSpec, pattern_blocks
+        if self.project.analysis is None:
+            raise ValueError("cut the samples first")
+        arr = self.arrangement()
+        sec = arr.sections[min(max(int(section), 0), len(arr.sections) - 1)]
+        tr = TrackSpec.from_dict(dict(track, id=track.get("id") or "listen", kind=track.get("kind") or "pitch"))
+        tr.muted, tr.start_bar, tr.end_bar = False, 0.0, None
+        if tr.follow.startswith("@"):
+            raise ValueError("this track plays when another one does — listen to that one")
+        b = pattern_blocks(tr)
+        bars = math.ceil((b["pickup"] + b["loop"]) / 16 - 1e-9)
+        bars = min(8, bars * 2 if bars == 1 else bars)
+        part = SectionSpec(sec.kind, max(1, bars), [tr], sec.name, sec.layout, [], sec.progression)
+        one = Arrangement(title="listen", variant=arr.variant, bpm=arr.bpm, key=arr.key, progression=arr.progression,
+                          pitching=arr.pitching, polish=arr.polish, sections=[part])
+        bank = self.bank()
+        events = self.events(one, bank)
+        if not events:
+            raise ValueError("this pattern plays no notes")
+        mix = {k: v for k, v in self.mix_settings().items() if k not in ("base_path", "base_offset", "mute_groups")}
+        cfg = MixConfig.from_dict(dict(mix, pitching=arr.pitching, polish=arr.polish, tail_s=1.0, tape_stop_end=False,
+                                       risers=False, stutter_fills=False))
+        audio, _info = render_mix(one, events, bank, cfg)
+        wav = self.path("renders", "listen.wav")
+        dsp.write_wav(wav, audio, SAMPLE_RATE)
+        return wav
 
     def export_pack(self, folder: Optional[str] = None, video: bool = True, progress: Progress = None) -> dict:
         bank = self.bank(progress)

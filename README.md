@@ -72,7 +72,7 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 
 ## Contents
 
-- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Using the app](#using-the-app) · [Android app](#android-app) · [iOS app](#ios-app) · [Desktop apps](#desktop-apps) · [Release candidate — please test](#release-candidate--please-test) · [Command line](#command-line)
+- [Quick start](#quick-start--your-next-remix-on-your-own) · [Install](#install) · [Updates](#updates) · [Using the app](#using-the-app) · [Android app](#android-app) · [iOS app](#ios-app) · [Desktop apps](#desktop-apps) · [Release candidate — please test](#release-candidate--please-test) · [Command line](#command-line)
 - [Bases](#bases) · [Pattern notation](#pattern-notation) · [How samples are made](#how-samples-are-made)
 - [Look & sound](#look--sound) · [Using a real Sparta base](#using-a-real-sparta-base) · [Sample pack export](#sample-pack-export)
 - [Development](#development) · [Credits](#credits) · [Known limitations](#known-limitations)
@@ -81,13 +81,16 @@ Command line, same thing: `spartagen make my_video.mp4 --base my_base.mp3 --pack
 
 | Platform | Download | Then |
 |---|---|---|
-| **Windows** 10/11 (64-bit) | `SpartaGen-<version>-Windows-x64.zip` | Unzip, run **SpartaGen.exe** in the `SpartaGen` folder. First start of an unsigned app: *More info → Run anyway*. |
-| **macOS** 12+ with Apple silicon (M1 or newer) | `SpartaGen-<version>-macOS-arm64.zip` | Unzip, move **SpartaGen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/SpartaGen.app"`). Intel Macs are not supported (see [Known limitations](#known-limitations)). |
-| **Linux** (x64, glibc 2.39+: Ubuntu 24.04+, Debian 13+, Fedora 40+ …) | `SpartaGen-<version>-Linux-x64.zip` | Install **libmpv** once (Ubuntu/Debian: `sudo apt install libmpv2`, Fedora: `sudo dnf install mpv-libs`, Arch: `sudo pacman -S mpv`), unzip, run `SpartaGen/spartagen` — `SpartaGen/add-to-menu.sh` puts it in your applications menu. |
-| **Android** 7.0+ (64-bit ARM) | `SpartaGen-<version>-Android.apk` | Open it on the phone, allow installing from that source. It installs over earlier SpartaGen APKs. See [Android app](#android-app). |
-| **iPhone / iPad** (iOS 15+) | `SpartaGen-<version>-iOS.ipa` | Not in the App Store: install it with [AltStore](https://altstore.io) / [SideStore](https://sidestore.io), [Sideloadly](https://sideloadly.io) or your own Apple developer account. See [iOS app](#ios-app). |
+| **Windows** 10/11 (64-bit) | `SpartaGen-Windows-x64.zip` | Unzip, run **SpartaGen.exe** in the `SpartaGen` folder. First start of an unsigned app: *More info → Run anyway*. |
+| **macOS** 12+ with Apple silicon (M1 or newer) | `SpartaGen-macOS-arm64.zip` | Unzip, move **SpartaGen.app** to Applications. First start: right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway* (or `xattr -dr com.apple.quarantine "/Applications/SpartaGen.app"`). Intel Macs are not supported (see [Known limitations](#known-limitations)). |
+| **Linux** (x64, glibc 2.39+: Ubuntu 24.04+, Debian 13+, Fedora 40+ …) | `SpartaGen-Linux-x64.zip` | Install **libmpv** once (Ubuntu/Debian: `sudo apt install libmpv2`, Fedora: `sudo dnf install mpv-libs`, Arch: `sudo pacman -S mpv`), unzip, run `SpartaGen/spartagen` — `SpartaGen/add-to-menu.sh` puts it in your applications menu. |
+| **Android** 7.0+ (64-bit ARM) | `SpartaGen-Android.apk` | Open it on the phone, allow installing from that source. It installs over earlier SpartaGen APKs. See [Android app](#android-app). |
+| **iPhone / iPad** (iOS 15+) | `SpartaGen-iOS.ipa` | Not in the App Store: install it with [AltStore](https://altstore.io) / [SideStore](https://sidestore.io), [Sideloadly](https://sideloadly.io) or your own Apple developer account. See [iOS app](#ios-app). |
 | **From source** (any desktop) | this repository | Python 3.9+, then double-click `scripts/run_windows.bat` / `scripts/run_macos.command`, or run `scripts/run_unix.sh`: the first start installs the engine (ffmpeg from `imageio-ffmpeg` if you have none); with [Flutter](https://docs.flutter.dev/get-started/install) installed it runs the app itself, without it the classic web app opens in your browser. |
 | **pip** (engine and command line) | `pip install -e ".[all]"` | `spartagen make …` (see [Command line](#command-line)); `spartagen gui` serves the classic web app in a browser — e.g. on a phone in [Termux](https://termux.dev) (`scripts/install-termux.sh`). |
+
+Every [release](https://github.com/ovlweb/sparta-gen/releases) has these files (its version is in the release's
+name). Once installed, SpartaGen **updates itself** from there — see [Updates](#updates).
 
 **Where the apps are**: GitHub → *Actions* has a workflow per app — **Desktop apps** (Windows, macOS, Linux),
 **Android app** and **iOS app** — that builds and tests it; *Run workflow* there builds it any time, and the run's
@@ -98,6 +101,28 @@ screens, same one-click remix.
 
 Requirements (from source): **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
 there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termux without scipy) still work.
+
+## Updates
+
+SpartaGen looks for a new version when it starts — straight from this repository's
+[releases](https://github.com/ovlweb/sparta-gen/releases), no need to come here for it — and says so at the top of the
+window; *Help → Check for updates…* looks any time (and has the switch for looking at start). It reads the releases
+through GitHub's API, and through the releases feed when the API is busy (it answers 60 times an hour per internet
+address); a repository that moves is followed. Release candidates (`-rc`) are offered to release candidates only.
+
+- **Windows, macOS, Linux**: **Update and restart** downloads the new app, puts it where this one is and starts it;
+  your projects and settings stay. An app in a folder you cannot change (`C:\Program Files`, say) is updated by hand.
+- **Android**: **Download and install** hands the new APK to Android's installer (once: allow SpartaGen to install
+  apps). It installs over this one and keeps your projects — every release is signed with the same key.
+- **iPhone, iPad**: iOS lets no app install apps itself, so an update goes through the app that installed it —
+  SpartaGen offers the ones it finds:
+  - **TrollStore** installs the new IPA over this one from its link (`apple-magnifier://install?url=…`; turn on
+    *URL Scheme Enabled* in TrollStore's settings first). TrollStore marks the apps it installs (a `_TrollStore`
+    file beside the app), so SpartaGen knows and offers it first.
+  - **SideStore** and **AltStore** install it from its link too (`sidestore://install?url=…`,
+    `altstore://install?url=…`), signing it again with your Apple ID.
+  - **Installed with a certificate of your own** (Sideloadly, ESign, your developer account …): updates are by hand
+    — *The IPA* downloads it; install it the way you installed this one.
 
 ## Using the app
 
@@ -140,6 +165,9 @@ the project you worked on last.
      the Intro what comes before it, the dips the DunDunDenDen and the Madness — so the main phrase comes in where
      the base's Chorus does (not from 0:00), with each part's own pattern. The base's audio can play under it.
    - **Key**: *Auto* follows the base (template, audio or MIDI); or pick one of the 12 keys.
+
+   A base file you opened plays under the remix built on it, or under your own MIDI of it — never under a MIDI
+   template's notes (another song, another tempo): there it waits, silent, until the remix is built on it again.
 3. **Samples** — every sample with its picture, where it was cut and its note (e.g. `D#5 → D5 (-1.01 st)`):
    ▶ plays it processed, *Original* plays that stretch of the video. Pick another cut from the list the analysis
    found, or **cut it yourself**: the video's sound as a waveform and its frames as a film strip, the cut between
@@ -155,7 +183,15 @@ the project you worked on last.
    tap one to rename it, pick its picture (the layouts drawn as they look), duplicate or remove it; **add** parts
    (Intro, Chorus, DunDunDenDen, Epicness, Chords, Awesomeness, Madness, Execution, Final Chorus, Ending) with a
    tap. Open a part's tracks to change each one: its pattern (a searchable list of every wiki pattern, or your own
-   in wiki notation), sample, volume, octave, crisp, mute. *Save structure* keeps your edits.
+   in wiki notation), sample, volume, octave, crisp, mute. **Edit as blocks** shows a track's pattern as blocks on
+   a grid of 16ths instead of notation — a row per note (pitches: the notes of the key, the root lit; drums, the
+   chorus and words: what each slot plays), tap a square to put a block there, tap a block to take it away, drag
+   with the mouse for a longer one; blocks that sound together make a chord; bars, the length of a new block, 32nds,
+   zoom and undo; ▶ plays the pattern on its samples. *Done* writes it back as the wiki's notation (shown under the
+   grid), so it plays exactly as drawn — an Epicness lead-in, a pattern's own loop and a free melody stay as they
+   were. The pictures: *Main + boxes*, *Full screen*, *Split in two*, *3×3*, *4×4*, and **Pitches & percussion** — a
+   grid of the part's pitches, bass and drums only, a box each, no chorus (it is heard, not seen).
+   *Save structure* keeps your edits.
 5. **Look & sound** — see [Look & sound](#look--sound): pick a visual style and a sound, change any effect, set each
    part's **volume** — and see it at once: the **live preview** draws the remix at any moment with every change
    (scrub it, jump to a part, step a beat), no render needed. What you choose there stays for your next projects.
@@ -179,7 +215,7 @@ the project you worked on last.
 The APK is the whole thing on the phone — no Termux, no computer: the same app as on the desktop (Flutter), the same
 engine (Python, run by [Chaquopy](https://chaquo.com/chaquopy/)) and ffmpeg built for Android inside.
 
-- **Install**: download `SpartaGen-<version>-Android.apk` (see [Install](#install)), open it, allow installing apps
+- **Install**: download `SpartaGen-Android.apk` (see [Install](#install)), open it, allow installing apps
   from your browser/file manager when Android asks. Needs Android 7.0+ on a 64-bit ARM phone (nearly every phone
   since 2017). It installs over the earlier SpartaGen APKs (same app id, same signing key).
 - **Use**: *Choose a video* opens the phone's picker (gallery, files, Drive…); or **Share → SpartaGen** from the
@@ -204,7 +240,7 @@ runs in the app itself — Python for iOS (CPython's own iOS build, from
 library ([FFmpegKit](https://github.com/sk3llo/ffmpeg_kit_flutter), the full-gpl build) that the engine calls instead of
 starting ffmpeg.
 
-- **Install**: `SpartaGen-<version>-iOS.ipa` is not signed — Apple only lets an iPhone run apps signed for it. Install it
+- **Install**: `SpartaGen-iOS.ipa` is not signed — Apple only lets an iPhone run apps signed for it. Install it
   with [AltStore](https://altstore.io) or [SideStore](https://sidestore.io) (with a free Apple ID the app has to be
   refreshed every 7 days — they can do that for you), [Sideloadly](https://sideloadly.io) from a computer, or sign it
   with your own Apple developer account (a year, or TestFlight). iOS 15 or later.
@@ -230,7 +266,8 @@ The desktop app is the Flutter app (`app/`) with the engine inside: `scripts/bui
 with PyInstaller — Python, numpy/scipy, yt-dlp and a static ffmpeg — as `spartagen-engine`, builds the app
 (`flutter build windows|macos|linux`) and puts the engine in it (`SpartaGen/engine/`, or
 `SpartaGen.app/Contents/Resources/engine/`). The app starts it in the background on a free local port with a
-secret token, and it quits with the app. Zipped as `SpartaGen-<version>-<os>-<arch>.zip`.
+secret token, and it quits with the app. Zipped as `SpartaGen-<version>-<os>-<arch>.zip` (a release names them
+`SpartaGen-<os>-<arch>.zip`).
 
 CI builds it on Windows, macOS (Apple silicon) and Linux and tests every one before keeping it: the
 engine's **self-test** (`spartagen-engine --selftest report.json`: a test video through the one-click remix, then
@@ -329,7 +366,9 @@ Sections and what plays in them:
 - **Madness** — the call & response (the Madness article's *Original Pattern*: `1` = first person's word, `2` = the
   second person answering, both together in the last bar) over the softer, low-passed Madness pitch patterns: the
   *First Pattern* from the first half to the end, the *Trance Gate* pattern joining from the second half.
-  Split screen.
+  Split screen: the call on the left, the response on the right (one word found in the source: it answers itself
+  on the right; none: the main phrase's two halves call and answer). Given a grid instead, the Madness shows its
+  pitches, bass and drums too, each in its box.
 - **Epicness** — after the Chorus that follows the DunDunDenDen and after the Chorus that follows the Madness.
   The Epicness pattern played by the Chorus's samples — `1` and `2` the main phrase's two parts, `3` a third word
   of the same voice — so the chorus never drops out; the pitches double the pattern on the chords and the second
@@ -372,7 +411,8 @@ note on C moves to E). Multi-line patterns (Chords) play their lines together �
 its own pitch sample (root on the main pitch, third on the second, fifth on the third, seventh on the fourth), so
 several pitches are heard at once; the chord is seen once, in its line's box.
 
-Index patterns may use `B` (slots 1 and 2 together, from the Madness freestyles).
+Index patterns may use `B` (slots 1 and 2 together, from the Madness freestyles); `=` holds the note before it a
+16th longer (the block editor writes lengths no mark has that way: `-5*****=` is 7 sixteenths).
 Percussion patterns are index patterns too: `1` kick, `2` clap/snare (with the kick paralleled, as the Percussion
 article describes), `3` hi-hat.
 
@@ -459,7 +499,10 @@ sound and the volumes stay as you set them for your next projects.
 flips, pop on hits, glow borders, shake, RGB split, invert on crashes, flash between parts), **Retro VHS** (scanlines,
 grain, warm tint, vignette), **Neon** (glow borders, a new hue on every hit, dark background), **Cinematic**
 (letterbox, vignette, fades) and **Mirror** (mirrored background and flips, zoom between parts).
-The effects: background (blurred video, black, dark, mirrored, gradient), flips (each track its own, none, alternate,
+The **background**: your video blurred (softly — it moves with the picture, no blocks, and loops without a gap at the
+video's end), black, dark, mirrored, a gradient, or **your own video, GIF or picture** (blurred or as it is; a video
+or a GIF loops), with its brightness.
+The effects: flips (each track its own, none, alternate,
 rotate, mirror), hit animation (pop, slide in), between parts (cut, flash, fade, zoom), borders (line, glow — in each
 part's colour or one of yours), colour effect (hue on every hit, invert on crashes, mono), tint (warm, cold, sepia,
 vivid), zoom punch, shake, RGB split, scanlines, grain, vignette, letterbox, flashes, keeping the last clip dimmed.

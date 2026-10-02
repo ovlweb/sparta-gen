@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Where the engine keeps a downloaded update: the app's files (on its external storage, or not). -->
+<paths>
+    <external-files-path name="external" path="." />
+    <files-path name="files" path="." />
+</paths>

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../state/app_state.dart';
@@ -11,7 +13,14 @@ const _choiceNames = <String, Map<String, String>>{
   'color_fx': {'none': 'None', 'hue_cycle': 'New hue every hit', 'invert_crash': 'Invert on crashes', 'mono': 'Mono (all but the phrase)'},
   'tint': {'none': 'None', 'warm': 'Warm', 'cold': 'Cold', 'sepia': 'Sepia', 'vivid': 'Vivid'},
   'transition': {'cut': 'Cut', 'flash': 'Flash', 'fade': 'Fade', 'zoom': 'Zoom'},
-  'background': {'blur': 'Blurred video', 'black': 'Black', 'dark': 'Dark', 'mirror': 'Mirrored video', 'gradient': 'Gradient'},
+  'background': {
+    'blur': 'Blurred video',
+    'black': 'Black',
+    'dark': 'Dark',
+    'mirror': 'Mirrored video',
+    'gradient': 'Gradient',
+    'file': 'Your video, GIF or picture',
+  },
 };
 
 const _choiceLabels = {
@@ -247,9 +256,15 @@ class LookPage extends StatelessWidget {
                 enabled: enabled,
                 value: '${video[k]}',
                 items: {for (final c in (options[k] as List)) '$c': _choiceNames[k]?['$c'] ?? '$c'},
-                onChanged: (v) => app.setLook(video: {k: v}),
+                onChanged: (v) => k == 'background' && v == 'file' && '${video['background_file'] ?? ''}'.isEmpty
+                    ? app.pickBackground()
+                    : app.setLook(video: {k: v}),
               ),
         ]),
+        if (const {'blur', 'mirror', 'file'}.contains('${video['background']}')) ...[
+          const SizedBox(height: 12),
+          _backgroundRow(context, video, enabled),
+        ],
         const SizedBox(height: 16),
         Wrap(spacing: 24, runSpacing: 4, children: [
           for (final e in _amounts.entries)
@@ -335,6 +350,51 @@ class LookPage extends StatelessWidget {
         ]),
       ]),
     );
+  }
+
+  /// The background's brightness, and your own file's name, another one, blurred or as it is.
+  Widget _backgroundRow(BuildContext context, Map<String, dynamic> video, bool enabled) {
+    final own = '${video['background']}' == 'file';
+    final file = '${video['background_file'] ?? ''}';
+    Widget choose(VoidCallback? onPressed) => AdaptiveButton.outlined(
+        onPressed: onPressed, icon: const Icon(Icons.wallpaper), label: Text(file.isEmpty ? 'Choose…' : 'Another…'));
+    return Wrap(spacing: 24, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      SliderRow(
+        label: 'Background brightness',
+        value: ((video['background_dim'] as num?) ?? 0.42).toDouble().clamp(0.05, 1.0),
+        min: 0.05,
+        max: 1,
+        divisions: 19,
+        format: (v) => '${(v * 100).round()}%',
+        onChanged: (v) => app.setLook(video: {'background_dim': double.parse(v.toStringAsFixed(2))}),
+      ),
+      if (own) ...[
+        if (file.isNotEmpty)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 260),
+            child: Pill(file.split(RegExp(r'[\\/]')).last, icon: Icons.image_outlined, ellipsis: true),
+          ),
+        // (On an iPhone or iPad: from Photos or from Files.)
+        if (Platform.isIOS)
+          MenuAnchor(
+            builder: (context, c, _) => choose(enabled ? () => c.isOpen ? c.close() : c.open() : null),
+            menuChildren: [
+              MenuItemButton(
+                  leadingIcon: const Icon(Icons.photo_library_outlined),
+                  onPressed: () => app.pickBackground(photos: true),
+                  child: const Text('From Photos')),
+              MenuItemButton(
+                  leadingIcon: const Icon(Icons.folder_open),
+                  onPressed: app.pickBackground,
+                  child: const Text('From Files')),
+            ],
+          )
+        else
+          choose(enabled ? app.pickBackground : null),
+        _switch('Blur it', video['background_blur'] == true, enabled,
+            (v) => app.setLook(video: {'background_blur': v})),
+      ],
+    ]);
   }
 
   Widget _switch(String label, bool value, bool enabled, ValueChanged<bool> onChanged) => Row(
