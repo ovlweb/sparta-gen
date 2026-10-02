@@ -320,19 +320,34 @@ def read_frames(
     return frames
 
 
+#: Pictures (one frame each): read as a picture held for as long as asked.
+PICTURE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+
+
 def read_blurred(path: str, start: float, duration: float, fps: float, width: int, height: int,
-                 small: int = 40) -> np.ndarray:
-    """A time range as heavily blurred frames (shrunk to ``small`` pixels wide, then smoothly scaled
-    back up): a background layer behind the boxes.  (n, h, w, 3) uint8."""
-    sh = max(2, int(round(small * height / width / 2)) * 2)
+                 small: int = 160, sigma: float = 3.0, blur: bool = True) -> np.ndarray:
+    """A time range as softly blurred frames — shrunk to ``small`` pixels wide, blurred there (a gaussian
+    ``sigma`` of those pixels wide), then smoothly scaled back up: a background behind the boxes.  (Shrunk to
+    a few pixels and blown up, it showed them as blocks.)  ``blur=False``: the frames as they are, filling the
+    frame.  (n, h, w, 3) uint8 — none past the picture's end."""
     n_expected = max(1, int(round(duration * fps)))
-    vf = (f"fps={fps:.6f},scale={small}:{sh}:force_original_aspect_ratio=increase:flags=area,crop={small}:{sh},"
-          f"scale={width}:{height}:flags=bicubic")
-    cmd = [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(start, 0.0):.6f}",
-           "-i", path, "-t", f"{max(duration, 1.0 / fps):.6f}", "-an", "-vf", vf, "-pix_fmt", "rgb24",
-           "-f", "rawvideo", "pipe:1"]
-    out = _exec(cmd)[1]
+    if blur:
+        sh = max(2, int(round(small * height / width / 2)) * 2)
+        shrink = f"scale={small}:{sh}:force_original_aspect_ratio=increase:flags=area,crop={small}:{sh}"
+        chains = [f"{shrink},gblur=sigma={sigma:g},scale={width}:{height}:flags=bicubic",
+                  f"{shrink},scale={width}:{height}:flags=bicubic"]          # (an ffmpeg without gblur)
+    else:
+        chains = [_scale_filter(width, height, "cover")]
     fb = width * height * 3
+    out = b""
+    held = ["-loop", "1"] if os.path.splitext(path)[1].lower() in PICTURE_EXTS else []
+    for vf in chains:
+        cmd = [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(start, 0.0):.6f}",
+               *held, "-i", path, "-t", f"{max(duration, 1.0 / fps):.6f}", "-an", "-vf", f"fps={fps:.6f},{vf}",
+               "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]
+        code, out, _err = _exec(cmd)
+        if code == 0 or len(out) >= fb:
+            break
     n = len(out) // fb
     if n == 0:
         return np.zeros((0, height, width, 3), dtype=np.uint8)

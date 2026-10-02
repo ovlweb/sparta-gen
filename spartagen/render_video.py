@@ -58,7 +58,7 @@ STYLE_OPTIONS = {
     "color_fx": ["none", "hue_cycle", "invert_crash", "mono"],
     "tint": ["none", "warm", "cold", "sepia", "vivid"],
     "transition": ["cut", "flash", "fade", "zoom"],
-    "background": ["blur", "black", "dark", "mirror", "gradient"],
+    "background": ["blur", "black", "dark", "mirror", "gradient", "file"],
 }
 
 
@@ -69,8 +69,10 @@ class VideoConfig:
     fps: float = 30.0
     crf: int = 20
     preset: str = "veryfast"
-    background: str = "blur"          # blur (the source, blurred and dimmed) | black | dark
+    background: str = "blur"          # blur (the source, blurred and dimmed) | black | dark | mirror | gradient | file
     background_dim: float = 0.42
+    background_file: str = ""         # background "file": a video, GIF or picture of your own (it loops)
+    background_blur: bool = False     # … blurred like the source, or as it is
     intro_title: bool = False         # the remix title over the first seconds
     flash: bool = True
     zoom_punch: bool = True
@@ -125,6 +127,8 @@ class VideoConfig:
         for k, choices in STYLE_OPTIONS.items():
             if getattr(c, k) not in choices:
                 raise ValueError(f"{k} must be one of {', '.join(choices)}")
+        c.background_dim = min(1.0, max(0.05, float(c.background_dim)))
+        c.background_file = str(c.background_file or "")
         return c
 
 
@@ -166,11 +170,12 @@ MAIN_LINE_CELLS = ["t0", "t1", "t2", "t3", "r", "l"]
 MAIN_FIXED = {"bass": "t4", "kick": "b0", "snare": "b1", "hat": "b2", "crash": "b3", "corner": "b3", "perc": "b3",
               "hat2": "b4", "quote": "b4", "side": "l"}
 
-GRID4_FIXED = {"kick": "c30", "snare": "c33", "hat": "c00", "crash": "c03", "bass": "c31", "corner": "c03"}
-# Snake order around the 4x4 border, for cycling pitch clips — past the drums' and the bass's own boxes:
-# a box shows one sound's clip, never a pitch in the kick's box.
-GRID4_CYCLE = [c for c in ("c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10")
-               if c not in GRID4_FIXED.values()]
+GRID4_FIXED = {"kick": "c30", "snare": "c33", "hat": "c00", "crash": "c03", "bass": "c31", "corner": "c03",
+               "hat2": "c01", "perc": "c32"}
+# Snake order around the 4x4 border, for cycling pitch clips — past the boxes the part's drums and bass show
+# in (see grid4_cycles): a box shows one sound's clip, never a pitch in the kick's box.
+GRID4_BORDER = ("c00", "c01", "c02", "c03", "c13", "c23", "c33", "c32", "c31", "c30", "c20", "c10")
+GRID4_CYCLE = [c for c in GRID4_BORDER if c not in GRID4_FIXED.values()]
 GRID3_PITCH = {"pitch1": "mc", "pitch2": "ml", "pitch3": "mr", "pitch4": "tc"}
 # Chord voices (one pitch sample per line) in the 4x4 grid's middle, one box each.
 GRID4_VOICES = {"pitch2": "c11", "pitch3": "c12", "pitch4": "c21", "pitch1": "c22"}
@@ -178,6 +183,12 @@ GRID3_FIXED = {"kick": "bl", "snare": "br", "hat": "tl", "crash": "tr", "bass": 
                "quote": "tc", "center": "mc", "hat2": "tl", "perc": "br"}
 GRID3_LINE_CELLS = ["mc", "ml", "mr", "tc", "bc", "tl", "tr", "bl", "br"]
 LINE_VISUALS = ("pitch_cycle", "voices")
+# The pitches-and-percussion grid (no chorus): a box for each pitch line, the bass and each drum the part plays —
+# the lines first — in as few rows and columns as they fit in (see pp_cells).  The chorus, the quotes and the
+# words are heard, not seen.
+PP_FIXED = ("bass", "kick", "snare", "hat", "hat2", "perc", "crash")
+PP_SHAPES = ((1, 1), (1, 2), (2, 2), (2, 3), (3, 3), (3, 4), (4, 4), (4, 5), (5, 5))    # rows, columns
+LAYOUT_CELLS["pitchperc"] = {}              # (each part's own: pp_cells)
 
 
 def line_of(e: NoteEvent) -> tuple[int, str]:
@@ -222,7 +233,60 @@ def line_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[tuple[int, str
     return out
 
 
-def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
+def is_call(e: NoteEvent) -> bool:
+    """A Madness word is the call (the first word) or the response — as the pattern asked, even when one
+    word stands in for both."""
+    name = e.asked or e.sample
+    return name.endswith("_a") or name in ("pitch1", "word_a")
+
+
+def pp_part(e: NoteEvent) -> Optional[str]:
+    """What an event is seen as in the pitches-and-percussion grid: a pitch line ("line:<track>"), the bass or a
+    drum — or nothing (the chorus, quotes and words)."""
+    v = e.visual
+    if v in LINE_VISUALS:
+        return "line:" + line_of(e)[1]
+    if v in ("bass", "kick", "snare", "hat", "hat2", "perc"):
+        return v
+    if v in ("crash", "corner", "hit"):
+        return "crash"
+    return None
+
+
+def pp_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[int, tuple[dict[str, Rect], dict[str, str]]]:
+    """Each pitches-and-percussion part's boxes: {section: ({box: rect}, {what is seen: box})}."""
+    seen: dict[int, list] = {}
+    for e in events:
+        if arr.sections[e.section].layout == "pitchperc":
+            k = pp_part(e)
+            if k is not None and k not in seen.setdefault(e.section, []):
+                seen[e.section].append(k)
+    out = {}
+    for si, ks in seen.items():
+        order = [k for k in ks if k.startswith("line:")] + [k for k in PP_FIXED if k in ks]
+        rows, cols = next((rc for rc in PP_SHAPES if rc[0] * rc[1] >= len(order)), PP_SHAPES[-1])
+        cells, where = {}, {}
+        for i, k in enumerate(order[:rows * cols]):
+            r, c = divmod(i, cols)
+            cells[f"g{r}{c}"] = (c / cols, r / rows, 1 / cols, 1 / rows)
+            where[k] = f"g{r}{c}"
+        out[si] = (cells, where)
+    return out
+
+
+def grid4_cycles(arr: Arrangement, events: list[NoteEvent]) -> dict[int, list[str]]:
+    """The boxes each 4x4 part cycles its pitches through: the border's, but for those its drums and bass
+    show in."""
+    taken: dict[int, set] = {}
+    for e in events:
+        if arr.sections[e.section].layout == "grid4" and e.visual != "pitch_cycle":
+            taken.setdefault(e.section, set()).add(cell_for(e, "grid4"))
+    return {si: [c for c in GRID4_BORDER if c not in taken.get(si, ())] or list(GRID4_CYCLE)
+            for si, sec in enumerate(arr.sections) if sec.layout == "grid4"}
+
+
+def cell_for(e: NoteEvent, layout: str, cycle: Optional[list] = None) -> Optional[str]:
+    """The box an event is seen in (``cycle``: the boxes a 4x4 part cycles its pitches through)."""
     v = e.visual
     if v in ("none", "layer"):              # (a chord's voice is drawn over the chord, in its box)
         return None
@@ -230,13 +294,15 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
         if v in ("kick", "snare", "hat", "hat2", "perc", "crash", "bass", "corner", "side", "voices"):
             return None
         return "main"
-    if v == "hit":
-        return "full" if layout == "main" else GRID3_FIXED.get("crash") if layout == "grid3" else None
+    if v == "hit":                          # the opening crash: over everything, or the crash's box in a grid
+        if layout == "main":
+            return "full"
+        return {"grid3": GRID3_FIXED, "grid4": GRID4_FIXED}.get(layout, {}).get("crash")
     if layout == "split2":
         if v == "main":
             return "left" if e.index % 2 == 0 else "right"
         if v == "madness":
-            return "left" if e.sample.endswith("_a") or e.sample in ("pitch1", "word_a") else "right"
+            return "left" if is_call(e) else "right"
         if v in ("center", "center_late", "full_flash", "pitch_cycle"):
             return "left" if e.index % 2 == 0 else "right"
         return None
@@ -248,7 +314,7 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
         if v in ("full_flash", "center_late"):
             return "mc"
         if v == "madness":
-            return "ml" if e.sample in ("word_a",) else "mr"
+            return "ml" if is_call(e) else "mr"
         return GRID3_FIXED.get(v)
     if layout == "main":
         if v in ("main", "center", "center_late", "full_flash", "madness"):
@@ -258,7 +324,8 @@ def cell_for(e: NoteEvent, layout: str) -> Optional[str]:
         return MAIN_FIXED.get(v)
     if layout == "grid4":
         if v == "pitch_cycle":
-            return GRID4_CYCLE[e.index % len(GRID4_CYCLE)]
+            cycle = cycle or GRID4_CYCLE
+            return cycle[e.index % len(cycle)]
         if v == "voices":
             return GRID4_VOICES.get(e.sample)
         if v in ("main", "center", "full_flash", "center_late", "madness"):
@@ -309,28 +376,80 @@ def _apply_flip(frame: np.ndarray, state: str) -> np.ndarray:
 # ── background ───────────────────────────────────────────────────────────────
 
 
-class BlurredSource:
-    """The source video, blurred, playing behind the remix (read a second at a time)."""
+#: Pictures a background can be (they stay; a video or a GIF loops).
+PICTURE_EXTS = ff.PICTURE_EXTS
+
+
+class Backdrop:
+    """What plays behind the boxes — the source video blurred, or a video, GIF or picture of your own, blurred
+    or as it is — read a second at a time, and looping with no gap: after its last frame comes its first."""
 
     CHUNK_S = 1.0
 
-    def __init__(self, source: str, w: int, h: int, fps: float, duration: float):
-        self.source, self.w, self.h, self.fps = source, w, h, fps
-        self.duration = max(duration, 1.0)
+    def __init__(self, source: str, w: int, h: int, fps: float, duration: float, blur: bool = True):
+        self.source, self.w, self.h, self.fps, self.blur = source, w, h, fps, blur
+        # (a length unknown: it plays on, and loops where the picture turns out to end)
+        self.duration = max(duration, 1.0 / fps) if duration > 0 else 1e9
+        self.picture = os.path.splitext(source)[1].lower() in PICTURE_EXTS
         self._chunk: Optional[int] = None
-        self._frames: Optional[np.ndarray] = None
+        self._frames = np.zeros((0, h, w, 3), dtype=np.uint8)
+        self._held: set = set()             # chunks a frame short mid-way: their last frame stays a moment
+
+    def _read(self, c: int) -> np.ndarray:
+        return ff.read_blurred(self.source, c * self.CHUNK_S, self.CHUNK_S + 1.0 / self.fps, self.fps, self.w,
+                               self.h, blur=self.blur)
 
     def frame(self, t: float) -> Optional[np.ndarray]:
-        ts = t % self.duration
-        c = int(ts // self.CHUNK_S)
-        if c != self._chunk:
-            self._chunk = c
-            self._frames = ff.read_blurred(self.source, c * self.CHUNK_S, self.CHUNK_S + 1.0 / self.fps, self.fps,
-                                           self.w, self.h)
-        if self._frames is None or self._frames.shape[0] == 0:
+        if self.picture:
+            t = 0.0
+        for _ in range(3):
+            ts = t % self.duration
+            c = int(ts // self.CHUNK_S)
+            if c != self._chunk:
+                self._chunk, self._frames = c, self._read(c)
+            n = self._frames.shape[0]
+            i = int((ts - c * self.CHUNK_S) * self.fps + 1e-6)     # (a loop's times come back a hair short)
+            if i < n:
+                return self._frames[i]
+            if n and (self.picture or c in self._held):
+                return self._frames[-1]
+            if n and (c + 1) * self.CHUNK_S < self.duration and self._read(c + 1).shape[0]:
+                self._held.add(c)
+                return self._frames[-1]
+            if n == 0 and c > 0:            # past the end already (a jump): where it ends, halving the way back
+                lo, hi = 0, c
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    lo, hi = (mid, hi) if self._read(mid).shape[0] else (lo, mid)
+                c, n = lo, self._read(lo).shape[0]
+            end = c * self.CHUNK_S + n / self.fps
+            if end <= 0:
+                return None                 # nothing to show (a file that cannot be read)
+            # The picture ends here — the file runs on with its sound only, or ends a frame early: the loop is
+            # this long, and goes on from the first frame (it used to go black until the file's end).
+            self.duration = end
+        return None
+
+
+BlurredSource = Backdrop                    # (its old name)
+
+
+def backdrop_for(cfg: "VideoConfig", source: str, has_video: bool, duration: float) -> Optional[Backdrop]:
+    """What plays behind the boxes with a look: your own video, GIF or picture, or the source blurred."""
+    if cfg.background == "file":
+        path = cfg.background_file
+        if not path or not os.path.isfile(path):
             return None
-        i = min(int((ts - c * self.CHUNK_S) * self.fps), self._frames.shape[0] - 1)
-        return self._frames[i]
+        try:
+            info = ff.probe(path)
+        except ff.FFmpegError:
+            return None
+        if not info.has_video:
+            return None
+        return Backdrop(path, cfg.width, cfg.height, cfg.fps, info.duration, blur=bool(cfg.background_blur))
+    if cfg.background in ("blur", "mirror") and has_video:
+        return Backdrop(source, cfg.width, cfg.height, cfg.fps, duration)
+    return None
 
 
 # ── clip cache ───────────────────────────────────────────────────────────────
@@ -776,11 +895,18 @@ class Compositor:
         # Visible events with their cell, sorted by start.  Each pitch line has a box of its own; a chord's
         # other voices are layers over the chord's picture, in its box.
         lines = line_cells(arr, events)
+        cycles = grid4_cycles(arr, events)
+        self.pp = pp_cells(arr, events)
+        # A part split in two with words (the Madness): the call and the response have the halves, the
+        # pitches are heard under them.
+        worded = {e.section for e in events if e.visual == "madness"}
         self.vis: list[tuple] = []
         self.layers: dict[tuple, list[tuple]] = {}
         for e in events:
             s = bank.get(e.sample)
             if s is None:
+                continue
+            if e.visual in LINE_VISUALS and e.section in worded and arr.sections[e.section].layout == "split2":
                 continue
             length = max(audible_length(e, s), cfg.min_hold_s)
             if e.choke:
@@ -791,7 +917,11 @@ class Compositor:
                     (e.t, e.t + length, e, rate))
                 continue
             sec = arr.sections[e.section]
-            cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or cell_for(e, sec.layout)
+            if sec.layout == "pitchperc":
+                cell = self.pp.get(e.section, ({}, {}))[1].get(pp_part(e) or "")
+            else:
+                cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or \
+                    cell_for(e, sec.layout, cycles.get(e.section))
             if cell is None:
                 continue
             if cell == "full":
@@ -805,8 +935,8 @@ class Compositor:
         self.crashes = sorted(e.t for e in events if e.sample == "crash")
 
         self.bg_val = 0 if cfg.background == "black" else 14
-        self.blur_bg = (backdrop or BlurredSource(source, W, H, fps, info.duration)) \
-            if (cfg.background in ("blur", "mirror") and info.has_video) else None
+        self.blur_bg = (backdrop or backdrop_for(cfg, source, info.has_video, info.duration)) \
+            if cfg.background in ("blur", "mirror", "file") else None
         self.gradient = _gradient(W, H) if cfg.background == "gradient" or (
             cfg.background == "mirror" and self.blur_bg is None) else None
         self.post = PostFX(cfg, W, H)
@@ -875,7 +1005,7 @@ class Compositor:
         si = self.section_at(t)
         sec = arr.sections[si]
         layout = sec.layout
-        cells = LAYOUT_CELLS[layout]
+        cells = self.pp.get(si, ({}, {}))[0] if layout == "pitchperc" else LAYOUT_CELLS.get(layout) or {}
         canvas = np.full((H, W, 3), self.bg_val, dtype=np.uint8)
         if self.blur_bg is not None and sec.kind not in cfg.blink_sections:
             # Our source, blurred and dimmed, behind the boxes (the blink sections stay black

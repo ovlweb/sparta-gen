@@ -28,6 +28,7 @@ class FakeEngine extends Engine {
     final key = path.replaceFirst('/api/', '');
     if (data.containsKey(key)) return _copy(data[key]);
     if (path == '/api/projects') return {'projects': []};
+    if (path.startsWith('/api/update?') && data.containsKey('update')) return _copy(data['update']);
     throw EngineException('no fixture for GET $path');
   }
 
@@ -41,6 +42,15 @@ class FakeEngine extends Engine {
       return {'name': 'New part', 'kind': kind, 'bars': body?['bars'] ?? 8, 'layout': 'main', 'tracks': []};
     }
     if (path == '/api/samples/select') return _copy(data['samples']);
+    if (path == '/api/pattern/blocks') {
+      final t = (body?['track'] as Map?) ?? const {};
+      return {
+        'notes': [{'start': 0, 'dur': 2, 'value': 0, 'voice': 0, 'sharp': 0}],
+        'mode': 'semitone', 'loop': 16.0, 'pickup': 0.0, 'over': '', 'length': 2.0,
+        'once': t['pattern'] == 'notes', 'slots': {},
+      };
+    }
+    if (path == '/api/pattern/write') return {'text': '0* _ 0 ____________', 'mode': body?['mode'], 'steps': 16.0};
     return {'project': _copy(data['project'])};
   }
 
@@ -157,10 +167,62 @@ void main() {
     expect((sections[1] as Map)['kind'], 'epicness'); // after the first part, the one shown
   });
 
+  testWidgets('a pattern is drawn as blocks: a tap adds one, Done keeps them', (tester) async {
+    final engine = await startApp(tester);
+    await open(tester, 'Remix');
+    Future<void> press(Finder f) async {
+      await tester.ensureVisible(f.first);
+      await tester.pumpAndSettle();
+      await tester.tap(f.first);
+      await tester.pumpAndSettle();
+    }
+
+    await press(find.textContaining('Tracks (', skipOffstage: false));
+    await press(find.text('Edit as blocks', skipOffstage: false)); // (words and icon: tests run as on a phone)
+    expect(find.textContaining('· blocks'), findsOneWidget);
+    final grid = find.byWidgetPredicate((w) => w is CustomPaint && '${w.painter.runtimeType}' == '_BlocksPainter');
+    expect(grid, findsOneWidget);
+    // The key's root (value 0) is row 19 from the top (+19 … -12); a 16th is 26 px wide, a row 24 px high.
+    await tester.tapAt(tester.getTopLeft(grid) + const Offset(3 * 26 + 6, 19 * 24 + 8));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    await press(find.text('Save structure', skipOffstage: false)); // (at the top of the page)
+    final saved = engine.posts.lastWhere((p) => p.$1 == '/api/arrangement').$2!;
+    final track = ((saved['sections'] as List).first['tracks'] as List).first as Map;
+    expect(track['pattern'], 'notes'); // a MIDI base's notes stay notes
+    expect(track['notes'], [
+      [0.0, 2.0, 0, 0],
+      [3.0, 1.0, 0, 0],
+    ]);
+  });
+
+  testWidgets('a new version is found from the Help menu, with what is new in it', (tester) async {
+    final engine = await startApp(tester);
+    engine.data['update'] = {
+      'current': '1.0.0rc1', 'newer': true, 'latest': '1.0.0', 'notes': 'Blocks for patterns',
+      'page': 'https://github.com/ovlweb/sparta-gen/releases/tag/v1.0.0',
+      'asset': {'name': 'SpartaGen-1.0.0-Linux-x64.zip', 'url': 'https://example.invalid/x.zip', 'size': 120000000},
+    };
+    await tester.tap(find.text('Help'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check for updates…'));
+    await tester.pumpAndSettle();
+    expect(find.text('SpartaGen 1.0.0 is out'), findsOneWidget);
+    expect(find.textContaining('You have 1.0.0rc1. The update is 120 MB.'), findsOneWidget);
+    expect(find.text('Blocks for patterns'), findsOneWidget);
+    expect(find.text('Update and restart'), findsOneWidget); // (the tests run on a computer)
+    await tester.tap(find.text('Later'));
+    await tester.pumpAndSettle();
+    expect(find.text('SpartaGen 1.0.0 is out'), findsNothing);
+  });
+
   testWidgets('a volume can be switched off and back', (tester) async {
     final engine = await startApp(tester);
     await open(tester, 'Look & sound');
     await tester.scrollUntilVisible(find.byTooltip('Switch Pitches off'), 300, scrollable: _settingsList());
+    await tester.ensureVisible(find.byTooltip('Switch Pitches off'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Switch Pitches off'));
     await tester.pumpAndSettle();
     final sent = engine.posts.lastWhere((p) => p.$1 == '/api/look').$2!;

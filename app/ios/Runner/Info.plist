@@ -70,5 +70,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- An update installs through SideStore or AltStore when they are here (their install?url= links). -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>sidestore</string>
+		<string>altstore</string>
+	</array>
 </dict>
 </plist>

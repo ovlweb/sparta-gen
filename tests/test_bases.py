@@ -172,5 +172,18 @@ def test_a_loaded_base_file_plays_only_under_a_remix_built_on_it(tmp_path):
     s.project.variant = "base"
     assert s.mix_settings()["base_path"].endswith("base.mp3")   # built on the base: it plays
     s.project.variant = "midi"
-    assert "base_path" in s.mix_settings()                   # a MIDI base's backing audio
+    s.project.midi = {"path": str(tmp_path / "mine.mid")}
+    assert "base_path" in s.mix_settings() and s.base_heard()   # your MIDI of a base: its audio under it
     assert s.project.mix["base_path"]                        # never forgotten, only silent
+
+
+def test_a_midi_template_never_plays_the_loaded_base_under_it(tmp_path):
+    """Issue 2: a base file opened by hand (the Sparta base itself, say) played under Blend S's notes."""
+    from spartagen.project import Session
+    s = Session(workspace=str(tmp_path / "ws"))
+    s.project.mix["base_path"] = str(tmp_path / "base.mp3")
+    s.project.variant = "base"
+    s.set_variant("blend_s")
+    assert s.project.variant == "midi" and s.project.midi["template"] == "blend_s"
+    assert "base_path" not in s.mix_settings() and not s.base_heard()
+    assert s.project.mix["base_path"].endswith("base.mp3")   # kept for when the remix goes back on it

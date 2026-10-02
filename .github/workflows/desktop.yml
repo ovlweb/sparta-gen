@@ -58,7 +58,7 @@ jobs:
           channel: stable
           cache: true
       - name: Engine build tools
-        run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg
+        run: pip install pyinstaller numpy scipy pillow yt-dlp imageio-ffmpeg certifi
       - name: Build and test
         run: python scripts/build_desktop.py --test
       - uses: actions/upload-artifact@v4

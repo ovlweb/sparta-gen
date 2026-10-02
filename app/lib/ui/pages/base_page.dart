@@ -101,7 +101,7 @@ class _BasePageState extends State<BasePage> {
           );
     final basePath = app.basePath;
     return [
-      if (basePath != null && app.variant != 'base' && app.variant != 'midi')
+      if (basePath != null && !app.baseHeard)
         Card(
           color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.12),
           child: ListTile(
@@ -417,7 +417,7 @@ class _BasePageState extends State<BasePage> {
                 icon: const Icon(Icons.folder_open),
                 label: const Text('Open another base…')),
           ]),
-          if (app.variant == 'midi')
+          if (app.variant == 'midi' && app.baseHeard)
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text('The remix follows the MIDI; this file plays under it.',

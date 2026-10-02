@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../state/app_state.dart';
 import '../widgets/common.dart';
+import '../widgets/pattern_blocks.dart';
 
 const _layouts = {
   'main': 'Main + boxes',
@@ -12,6 +13,7 @@ const _layouts = {
   'split2': 'Split in two',
   'grid3': '3×3 grid',
   'grid4': '4×4 grid',
+  'pitchperc': 'Pitches & percussion',
 };
 
 const _layoutIcons = {
@@ -20,14 +22,15 @@ const _layoutIcons = {
   'split2': Icons.vertical_split_outlined,
   'grid3': Icons.grid_view,
   'grid4': Icons.apps,
+  'pitchperc': Icons.grid_on,
 };
 
 /// Each picture's boxes (x, y, w, h from 0 to 1), as the engine lays them out.
 List<Rect> _layoutBoxes(String layout) {
   Rect r(double x, double y, double w, double h) => Rect.fromLTWH(x, y, w, h);
-  List<Rect> grid(int n) => [
+  List<Rect> grid(int n, [int? cols]) => [
         for (var row = 0; row < n; row++)
-          for (var col = 0; col < n; col++) r(col / n, row / n, 1 / n, 1 / n),
+          for (var col = 0; col < (cols ?? n); col++) r(col / (cols ?? n), row / n, 1 / (cols ?? n), 1 / n),
       ];
   return switch (layout) {
     'main' => [
@@ -40,6 +43,8 @@ List<Rect> _layoutBoxes(String layout) {
     'full' => [r(0, 0, 1, 1)],
     'split2' => [r(0, 0, 0.5, 1), r(0.5, 0, 0.5, 1)],
     'grid4' => grid(4),
+    // A box for each pitch and drum the part has, no chorus: as many as it needs (here a typical part's).
+    'pitchperc' => grid(3, 4),
     _ => grid(3),
   };
 }
@@ -637,7 +642,7 @@ class _RemixPageState extends State<RemixPage> {
             label: Text('Tracks (${tracks.length})'),
           ),
         ),
-        if (open) ...[for (var j = 0; j < tracks.length; j++) _trackRow(context, tracks[j], 'pt-$_gen-$i-$j')],
+        if (open) ...[for (var j = 0; j < tracks.length; j++) _trackRow(context, tracks[j], 'pt-$_gen-$i-$j', i)],
       ]),
     );
   }
@@ -648,7 +653,7 @@ class _RemixPageState extends State<RemixPage> {
     return [for (final s in list) '${(s as Map)['id']}'];
   }
 
-  Widget _trackRow(BuildContext context, Map<String, dynamic> t, String fieldKey) {
+  Widget _trackRow(BuildContext context, Map<String, dynamic> t, String fieldKey, int section) {
     final cs = Theme.of(context).colorScheme;
     final muted = t['muted'] == true;
     final pattern = '${t['pattern'] ?? ''}';
@@ -683,7 +688,8 @@ class _RemixPageState extends State<RemixPage> {
                   if (v == null) return;
                   t['pattern'] = v;
                   if (v.startsWith('text:') || (!v.startsWith('drum:') && !v.startsWith('bass:'))) t['mode'] = 'auto';
-                  _changed();
+                  t.addAll({'loop': 0.0, 'pickup': 0.0, 'over': ''}); // (what the blocks kept of the last one)
+                  _changed(rebuilt: true);
                 },
                 icon: const Icon(Icons.piano, size: 18),
                 label: ConstrainedBox(
@@ -691,9 +697,19 @@ class _RemixPageState extends State<RemixPage> {
                   child: Text(_patternName(pattern), overflow: TextOverflow.ellipsis),
                 ),
               ),
+            if (!'${t['follow'] ?? ''}'.startsWith('@'))
+              AdaptiveButton.tonal(
+                onPressed: app.busy
+                    ? null
+                    : () async {
+                        if (await editPatternBlocks(context, app, t, section)) _changed(rebuilt: true);
+                      },
+                icon: const Icon(Icons.view_comfy_alt_outlined, size: 18),
+                label: const Text('Edit as blocks'),
+              ),
             if (slots.isNotEmpty)
               Pill('plays ${slots.entries.map((e) => '${e.key}→${e.value is Map ? (e.value as Map)['sample'] : e.value}').join(', ')}',
-                  icon: Icons.grid_view)
+                  icon: Icons.grid_view, ellipsis: true)
             else
               LabeledDropdown<String>(
                 label: 'Sample',
@@ -723,6 +739,7 @@ class _RemixPageState extends State<RemixPage> {
                 maxLines: 3,
                 onChanged: (v) {
                   t['pattern'] = 'text:$v';
+                  t['loop'] = 0.0; // (as long as it is written now)
                   _changed();
                 },
               ),

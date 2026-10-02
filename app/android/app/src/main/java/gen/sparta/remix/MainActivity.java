@@ -10,9 +10,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.FileProvider;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -31,7 +33,8 @@ import io.flutter.plugin.common.MethodChannel;
 
 /**
  * The Flutter app, plus what only Android can do for it: start the engine service and hand over its port
- * and token ("gen.sparta/engine"), and the system's document picker and "Save as" ("gen.sparta/files").
+ * and token ("gen.sparta/engine"), and the system's document picker, "Save as" and installer for an update
+ * ("gen.sparta/files").
  */
 public class MainActivity extends FlutterActivity {
     private static final int REQ_OPEN = 4101;
@@ -150,6 +153,36 @@ public class MainActivity extends FlutterActivity {
                 } catch (RuntimeException e) {
                     pendingOpen = null;
                     result.error("files", "No app can pick files: " + e.getMessage(), null);
+                }
+                break;
+            }
+            case "installApk": {
+                String path = call.argument("path");
+                File apk = path != null ? new File(path) : null;
+                if (apk == null || !apk.isFile()) {
+                    result.error("files", "The update has not been downloaded.", null);
+                    break;
+                }
+                if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                    // Android asks once: SpartaGen may install apps (its page in the settings), then Update again.
+                    try {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + getPackageName())));
+                    } catch (RuntimeException e) {
+                        Log.w(EngineService.TAG, "install permission page", e);
+                    }
+                    result.success("permission");
+                    break;
+                }
+                try {
+                    Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".files", apk);
+                    Intent install = new Intent(Intent.ACTION_VIEW)
+                            .setDataAndType(uri, "application/vnd.android.package-archive")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(install);
+                    result.success("installing");
+                } catch (RuntimeException e) {
+                    result.error("files", "The installer did not open: " + e.getMessage(), null);
                 }
                 break;
             }

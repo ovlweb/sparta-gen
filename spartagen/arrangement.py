@@ -54,6 +54,11 @@ class TrackSpec:
     muted: bool = False
     voice_samples: list = field(default_factory=list)  # one sample per line of a multi-line pattern
     notes: list = field(default_factory=list)   # pattern "notes": [[start step, steps, value, voice], …] (MIDI)
+    # A "text:" pattern written by the block editor keeps what the pattern it came from had:
+    loop: float = 0.0                           # its loop in steps (0: as long as it is written)
+    pickup: float = 0.0                         # steps written before its downbeat (a lead-in)
+    over: str = ""                              # what it was written over: "" the original progression, "none" a
+                                                # free melody (never moved with the chords), or a progression
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -73,7 +78,7 @@ class SectionSpec:
     bars: int
     tracks: list[TrackSpec]
     name: str = ""
-    layout: str = "grid3"                       # main | full | split2 | grid3 | grid4
+    layout: str = "grid3"                       # main | full | split2 | grid3 | grid4 | pitchperc
     fx: list = field(default_factory=list)      # bus FX over the section
     progression: Optional[str] = None
 
@@ -84,9 +89,16 @@ class SectionSpec:
 
     @staticmethod
     def from_dict(d: dict) -> "SectionSpec":
-        return SectionSpec(kind=d["kind"], bars=int(d["bars"]), tracks=[TrackSpec.from_dict(t) for t in d["tracks"]],
-                           name=d.get("name", ""), layout=d.get("layout", "grid3"), fx=list(d.get("fx", [])),
-                           progression=d.get("progression"))
+        sec = SectionSpec(kind=d["kind"], bars=int(d["bars"]), tracks=[TrackSpec.from_dict(t) for t in d["tracks"]],
+                          name=d.get("name", ""), layout=d.get("layout", "grid3"), fx=list(d.get("fx", [])),
+                          progression=d.get("progression"))
+        if sec.kind == "madness":
+            # A Madness saved before its parts were seen in a grid had them hidden (only its words showed).
+            for tr in sec.tracks:
+                if tr.visual == "none" and tr.stem != "quotes":
+                    tr.visual = {"pitch": "voices" if tr.voice_samples else "pitch_cycle", "bass": "bass",
+                                 "drum": "kick"}.get(tr.kind, "none")
+        return sec
 
 
 @dataclass
@@ -472,12 +484,14 @@ def sec_madness(bars: int, opts: dict) -> SectionSpec:
     tracks = [
         TrackSpec("words", "words", opts.get("madness_words", "madwords.original"), mode="index",
                   slots={"1": "word_a", "2": "word_b"}, pitched=False, gain_db=0.0, visual="madness", flip="none"),
+        # In the split the call and the response have the two halves and the pitches are heard under them;
+        # in a grid every part has its box.
         TrackSpec("pitch", "pitch", opts.get("madness_pattern") or "mad.first", sample="pitch1", gain_db=-9.0,
-                  crisp=True, visual="none", stem="pitch_soft"),
+                  crisp=True, visual="pitch_cycle", stem="pitch_soft"),
         TrackSpec("pitch_gate", "pitch", "mad.second_half", sample="pitch2", gain_db=-10.0, start_bar=half,
-                  visual="none", stem="pitch_soft"),
+                  visual="pitch_cycle", stem="pitch_soft"),
         TrackSpec("bass", "bass", "bass:held", mode="index", slots={"1": "bass"}, follow="progression",
-                  gain_db=-11.0 if opts.get("base") else -5.0, sustain=True, visual="none"),   # the soft part
+                  gain_db=-11.0 if opts.get("base") else -5.0, sustain=True, visual="bass"),   # the soft part
     ]
     if opts.get("base"):
         tracks += _perc_layers(_perc_pattern(opts, PERC_DEFAULT), gain=-3.0)
@@ -846,6 +860,7 @@ class NoteEvent:
     index: int = 0           # nth note on this track (drives flips / cell cycling); a chord's voices share it
     max_len: float = 0.0     # hard cut (choke), filled in by the compiler
     layer: int = 0           # a chord's voice over its picture (visual "layer"): 1 = the first one over it …
+    asked: str = ""          # the sample the pattern asked for, when another stands in for it (see FALLBACKS)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -857,7 +872,8 @@ FALLBACKS = {
     "pitch4": ("pitch3", "pitch2", "pitch1"), "chorus_c": ("word_a", "word_b", "chorus_a"),
     "chorus_c_a": ("chorus_c", "chorus_a"), "chorus_c_b": ("chorus_c", "chorus_b"),
     "quote1": ("quote2", "quote3", "phrase"), "hat2": ("hat_closed",), "perc": ("snare", "clap"),
-    "clap": ("snare",), "snare": ("clap",), "hat_open": ("hat_closed",), "word_b": ("word_a",),
+    "clap": ("snare",), "snare": ("clap",), "hat_open": ("hat_closed",),
+    "word_a": ("chorus_a", "pitch1"), "word_b": ("word_a", "chorus_b", "chorus_a", "pitch1"),
 }
 
 
@@ -903,7 +919,14 @@ def _pattern_source(track: TrackSpec) -> tuple[Optional[ParsedPattern], Optional
         return ParsedPattern(notes, length, mode, voices=voices), None, 1e9, 0.0
     if p.startswith("text:"):
         pp = parse(p[5:], track.mode)
-        return pp, ORIGINAL_PROGRESSION, pp.loop_length(), 0.0
+        written = None if track.over == "none" else (track.over or ORIGINAL_PROGRESSION)
+        if track.loop:
+            loop = float(track.loop)
+        elif track.pickup:
+            loop = ParsedPattern([], pp.length - track.pickup, pp.mode).loop_length()
+        else:
+            loop = pp.loop_length()
+        return pp, written, loop, float(track.pickup or 0.0)
     if p.startswith("drum:"):
         _, groove, part = p.split(":", 2)
         text = lib.DRUMS[groove].get(part, "")
@@ -925,6 +948,30 @@ def _pattern_source(track: TrackSpec) -> tuple[Optional[ParsedPattern], Optional
     else:
         loop = pp.loop_length()
     return pp, d.progression, loop, float(d.pickup or 0.0)
+
+
+def pattern_blocks(track: TrackSpec) -> dict:
+    """A track's pattern as the block editor shows it: its notes (16th steps from where it is written: a lead-in
+    first), read as semitones or as slots, how long it loops, its lead-in, what it was written over and what
+    each slot plays — all that writing it back (``text:`` with ``loop``, ``pickup``, ``over``) keeps."""
+    pp, written, loop, pickup = _pattern_source(track)
+    once = track.pattern == "notes"             # a MIDI base's notes: played once, as they are
+    if pp is None:
+        mode = "index" if track.slots or track.kind in ("drum", "oneshot", "words", "chop") else "semitone"
+        notes, length = [], 0.0
+    else:
+        mode = "index" if pp.mode == "index" else "semitone"
+        notes, length = pp.notes, pp.length
+    if once or not loop:
+        loop = max(STEPS_PER_BAR, -(-length // STEPS_PER_BAR) * STEPS_PER_BAR)
+
+    def label(v) -> str:
+        items = v if isinstance(v, list) else [v]
+        return " + ".join(str(it.get("sample", track.sample) if isinstance(it, dict) else it) for it in items)
+    return {"notes": [n.to_dict() for n in notes], "mode": mode, "loop": float(loop), "pickup": float(pickup),
+            "over": "" if written == ORIGINAL_PROGRESSION else "none" if written is None else written,
+            "length": float(length), "once": once,
+            "slots": {str(k): label(v) for k, v in _track_slots(track).items()}}
 
 
 def _track_slots(tr: TrackSpec) -> dict:
@@ -1061,6 +1108,7 @@ def compile_events(arr: Arrangement, available: Optional[set] = None) -> list[No
                         choke=tr.choke, section=si, section_kind=sec.kind,
                         visual=visual, flip=tr.flip,
                         index=(chords - 1 if chord_tone else chords) if tr.voice_samples else count, layer=layer,
+                        asked=ent["sample"] if sample != ent["sample"] else "",
                     ))
                     emitted = True
                 if emitted:
