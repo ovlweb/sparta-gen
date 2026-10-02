@@ -10,8 +10,9 @@ on:
   workflow_dispatch:
   workflow_call:
 
+# (Called by Release, github.workflow is "Release": a release's run is never cancelled by a push's, nor cancels it.)
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

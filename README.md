@@ -49,7 +49,7 @@ rendered — then fine-tune anything you like, and **Save** it where you want.
 > [composition-cassidy on GitHub](https://github.com/composition-cassidy)) — the first to make a program for remixers
 > and others with AI: [Xleth](https://github.com/composition-cassidy/Xleth). SpartaGen follows that idea.
 
-> **Release candidate (1.0.0 RC 1)** — everything is in; now it needs testing by everyone.
+> **Release candidate (1.0.0 RC 2)** — everything is in; now it needs testing by everyone.
 > See [Release candidate — please test](#release-candidate--please-test).
 
 ### Quick start — your next remix, on your own
@@ -95,9 +95,10 @@ name). Once installed, SpartaGen **updates itself** from there — see [Updates]
 **Where the apps are**: GitHub → *Actions* has a workflow per app — **Desktop apps** (Windows, macOS, Linux),
 **Android app** and **iOS app** — that builds and tests it; *Run workflow* there builds it any time, and the run's
 *Artifacts* hold the apps (`SpartaGen-Windows-X64`, `SpartaGen-macOS-ARM64`, `SpartaGen-Linux-X64`,
-`SpartaGen-Android`, `SpartaGen-iOS`). Push a tag like `v1.0.0-rc1` and **Release** builds all
-of them into **one GitHub release** (a pre-release for `rc` tags). It is the same app everywhere: same engine, same
-screens, same one-click remix.
+`SpartaGen-Android`, `SpartaGen-iOS`). Push a tag like `v1.0.0-rc2` — or *Run workflow* on **Release** with that
+version — and **Release** builds all of them, as that version, into **one GitHub release** (a pre-release for `rc`
+tags; a version that is out already is refused). It is the same app everywhere: same engine, same screens, same
+one-click remix.
 
 Requirements (from source): **ffmpeg** and **numpy**. `scipy` (faster), `yt-dlp` (links), `pillow` (audio-only cards) are optional —
 there is a pure-numpy fallback for every filter, so minimal installs (e.g. Termux without scipy) still work.
@@ -109,6 +110,7 @@ SpartaGen looks for a new version when it starts — straight from this reposito
 window; *Help → Check for updates…* looks any time (and has the switch for looking at start). It reads the releases
 through GitHub's API, and through the releases feed when the API is busy (it answers 60 times an hour per internet
 address); a repository that moves is followed. Release candidates (`-rc`) are offered to release candidates only.
+1.0.0 RC 1 came before the updater: install the next release over it by hand, once.
 
 - **Windows, macOS, Linux**: **Update and restart** downloads the new app, puts it where this one is and starts it;
   your projects and settings stay. An app in a folder you cannot change (`C:\Program Files`, say) is updated by hand.

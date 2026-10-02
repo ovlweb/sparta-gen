@@ -22,9 +22,15 @@ on:
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
   workflow_call:
+    inputs:
+      version:
+        description: "A release's version (v1.0.0-rc2 …): the app is built as that version"
+        type: string
+        default: ""
 
+# (Called by Release, github.workflow is "Release": a release's run is never cancelled by a push's, nor cancels it.)
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -47,6 +53,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: The release's version in the app
+        if: inputs.version
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python scripts/set_version.py "$VERSION"
       - name: Linux build tools
         if: runner.os == 'Linux'
         run: |

@@ -1,17 +1,18 @@
 name: Release
 
-# A tag (v1.0.0, v1.0.0-rc1 …) builds and tests every app, then puts them all in one GitHub release —
+# A tag (v1.0.0, v1.0.0-rc2 …) builds and tests every app, then puts them all in one GitHub release —
 # a pre-release for -rc, -beta and -alpha tags. Or, without a tag: Actions → Release → Run workflow on a branch,
-# with the version to release; the tag is made on the commit it runs on.
+# with the version to release; the tag is made on the commit it runs on.  Either way every app is built as that
+# version (scripts/set_version.py): the updater compares it with the releases, so an app that called itself older
+# would be offered its own release again and again.  A version that is released already is refused.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to release — its tag, e.g. v1.0.0-rc1"
+        description: "The version to release — its tag, e.g. v1.0.0-rc2 or v1.0.0 (a new one each time)"
         required: true
-        default: "v1.0.0-rc1"
 
 permissions:
   contents: read
@@ -21,13 +22,20 @@ jobs:
     name: Version
     runs-on: ubuntu-latest
     steps:
-      - name: A release from Run workflow is named like a tag
+      - uses: actions/checkout@v4
+      - name: A version the apps can be built as (v1.0.0, v1.0.0-rc2, v1.0.0-beta1, v1.0.0-alpha1)
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: python3 scripts/set_version.py --check "$VERSION"
+      - name: Not released already
         if: github.event_name == 'workflow_dispatch'
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || {
-            echo "::error::The version must look like v1.0.0 or v1.0.0-rc1 (got: $VERSION)"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null; then
+            echo "::error::$VERSION is taken: its tag exists. Run it with a new version (or delete that release and its tag on GitHub first)"
+            exit 1
+          fi
 
   tests:
     name: Tests
@@ -38,17 +46,23 @@ jobs:
     name: Desktop apps
     needs: tests
     uses: ./.github/workflows/desktop.yml
+    with:
+      version: ${{ inputs.version || github.ref_name }}
 
   android:
     name: Android app
     needs: tests
     uses: ./.github/workflows/android.yml
+    with:
+      version: ${{ inputs.version || github.ref_name }}
     secrets: inherit
 
   ios:
     name: iOS app
     needs: tests
     uses: ./.github/workflows/ios.yml
+    with:
+      version: ${{ inputs.version || github.ref_name }}
 
   publish:
     name: GitHub release
