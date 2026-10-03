@@ -28,6 +28,12 @@ const _roleKind = {
 /// Both chorus parts come from one pick: the main phrase.
 const _selectKey = {'chorus_a': 'chorus', 'chorus_b': 'chorus', 'chorus_c_a': 'chorus_c', 'chorus_c_b': 'chorus_c'};
 
+/// The picks that can come from another of the project's videos (the clap comes with the snare's).
+const _sourceSlots = {
+  'chorus', 'chorus_c', 'pitch1', 'pitch2', 'pitch3', 'pitch4', 'bass', 'kick', 'snare', 'hat_closed', 'hat_open', //
+  'hat2', 'perc', 'crash', 'quote1', 'quote2', 'quote3', 'phrase', 'word_a', 'word_b',
+};
+
 const _roleName = {
   'chorus_a': 'Chorus — part 1', 'chorus_b': 'Chorus — part 2', 'chorus_c': 'Epicness — third word', //
   'chorus_c_a': 'DunDunDenDen 3A', 'chorus_c_b': 'DunDunDenDen 3B',
@@ -189,6 +195,21 @@ class _SampleTileState extends State<_SampleTile> {
   Map<String, dynamic> get s => widget.sample;
   String get id => '${s['id']}';
   String get selectKey => _selectKey[id] ?? id;
+  String get _name => _roleName[id] ?? '${s['label'] ?? id}';
+
+  /// Which pick says the video this sample is cut from (null: it goes with another's, like the syllables).
+  String? get fromKey {
+    final k = id == 'clap' ? 'snare' : selectKey;
+    return _sourceSlots.contains(k) ? k : null;
+  }
+
+  List<Map<String, dynamic>> get videos =>
+      [for (final v in (widget.bank['sources'] as List? ?? const [])) (v as Map).cast<String, dynamic>()];
+
+  /// The video its pick is cut from ("main" or another's id).
+  String get chosen => '${((widget.bank['from'] as Map?) ?? const {})[fromKey ?? selectKey] ?? s['source'] ?? 'main'}';
+
+  Map<String, dynamic>? get chosenVideo => videos.where((v) => v['id'] == chosen).firstOrNull;
 
   dynamic get selection => ((widget.bank['config'] as Map?)?['selections'] as Map?)?[selectKey];
 
@@ -212,14 +233,16 @@ class _SampleTileState extends State<_SampleTile> {
     final app = widget.app;
     final (a, z) = _currentCut();
     final duration = ((widget.bank['analysis'] as Map?)?['duration'] as num?)?.toDouble() ?? z + 5;
+    final video = chosenVideo;
     final cut = await showSampleCutter(
       context,
       app: app,
       title: selectKey == 'chorus' ? 'the main phrase (both Chorus parts)' : (_roleName[id] ?? id),
       start: a,
       end: z,
-      sourceDuration: duration,
-      sourcePath: app.source?['path'] as String?,
+      sourceDuration: chosen == 'main' ? duration : ((video?['duration'] as num?)?.toDouble() ?? z + 5),
+      sourcePath: chosen == 'main' ? (app.source?['path'] as String?) : (video?['path'] as String?),
+      source: chosen,
     );
     if (cut == null) return;
     await app.selectSample(selectKey, start: cut.$1, end: cut.$2);
@@ -248,12 +271,20 @@ class _SampleTileState extends State<_SampleTile> {
     final cs = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
     final kind = _roleKind[id];
-    final cands = kind == null ? const [] : ((widget.bank['candidates'] as Map?)?[kind] as List? ?? const []);
+    final from = chosen;
+    // The cuts to pick from are those found in the video the sample comes from.
+    final listed = from == 'main'
+        ? widget.bank['candidates'] as Map?
+        : ((widget.bank['source_candidates'] as Map?)?[from] as Map?);
+    final cands = kind == null ? const [] : (listed?[kind] as List? ?? const []);
     final sel = selection;
     final selIdx = sel is int ? sel : (sel is num ? sel.toInt() : null);
     final note = s['root_note'];
-    final srcPath = app.source?['path'] as String?;
+    final srcPath = (s['source_path'] ?? app.source?['path']) as String?;
     final meta = _meta();
+    final several = videos.length > 1;
+    final cutFrom = '${s['source'] ?? 'main'}';
+    final cutFromName = videos.where((v) => v['id'] == cutFrom).map((v) => '${v['name']}').firstOrNull ?? cutFrom;
 
     return ValueListenableBuilder<String?>(
       valueListenable: Players.playing,
@@ -270,7 +301,7 @@ class _SampleTileState extends State<_SampleTile> {
             clipBehavior: Clip.antiAlias,
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               InkWell(
-                onTap: () => Players.playSound(app.engine.url('${s['audio_url']}'), tag: id),
+                onTap: () => Players.toggle(app.engine.url('${s['audio_url']}'), tag: id, label: _name),
                 child: AspectRatio(
                   aspectRatio: 16 / 9,
                   child: Stack(fit: StackFit.expand, children: [
@@ -286,6 +317,12 @@ class _SampleTileState extends State<_SampleTile> {
                     ),
                     if (note != null && s['role'] != 'chorus')
                       Positioned(right: 8, top: 8, child: _tag('$note', cs.secondary, cs.onSecondary)),
+                    if (several && cutFrom != 'main')
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: _tag('from $cutFromName', Colors.black.withValues(alpha: 0.65), Colors.white),
+                      ),
                     Center(
                       child: Icon(isPlaying && playing == id ? Icons.graphic_eq : Icons.play_circle_fill,
                           size: 42, color: Colors.white.withValues(alpha: 0.85)),
@@ -311,26 +348,46 @@ class _SampleTileState extends State<_SampleTile> {
                   const SizedBox(height: 8),
                   Row(children: [
                     Expanded(
-                      child: AdaptiveButton.tonal(
+                      child: PlayToggle(
+                        tag: id,
                         style: _compact,
-                        onPressed: () => Players.playSound(app.engine.url('${s['audio_url']}'), tag: id),
-                        icon: const Icon(Icons.play_arrow, size: 18),
-                        label: const Text('Play'),
+                        iconSize: 18,
+                        play: () => Players.playSound(app.engine.url('${s['audio_url']}'), tag: id, label: _name),
+                        label: 'Play',
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: AdaptiveButton.outlined(
+                      child: PlayToggle(
+                        tag: '$id:orig',
                         style: _compact,
-                        onPressed: srcPath == null
+                        iconSize: 18,
+                        outlined: true,
+                        icon: Icons.hearing,
+                        play: srcPath == null
                             ? null
                             : () => Players.playSound(srcPath,
-                                tag: '$id:orig', start: (s['src_start'] as num?)?.toDouble(), end: (s['src_end'] as num?)?.toDouble()),
-                        icon: const Icon(Icons.hearing, size: 18),
-                        label: const Text('Original'),
+                                tag: '$id:orig', start: (s['src_start'] as num?)?.toDouble(),
+                                end: (s['src_end'] as num?)?.toDouble(), label: '$_name (as in the video)'),
+                        label: 'Original',
                       ),
                     ),
                   ]),
+                  if (several && fromKey != null) ...[
+                    const SizedBox(height: 10),
+                    LabeledDropdown<String>(
+                      label: 'From',
+                      width: double.infinity,
+                      value: from,
+                      enabled: !app.busy,
+                      items: {
+                        for (final v in videos) '${v['id']}': v['id'] == 'main' ? '${v['name']} (main)' : '${v['name']}',
+                      },
+                      onChanged: (v) {
+                        if (v != from) app.sampleSource(fromKey!, v);
+                      },
+                    ),
+                  ],
                   if (kind != null) ...[
                     const SizedBox(height: 10),
                     LabeledDropdown<int>(

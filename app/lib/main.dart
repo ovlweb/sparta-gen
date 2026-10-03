@@ -78,6 +78,9 @@ class _EngineGateState extends State<EngineGate> {
   }
 
   Future<AppExitResponse> _onExit() async {
+    // The window closed: the project's changes saved, let go — or the app stays open.
+    final app = _app;
+    if (app != null && !_quitting && mounted && !await confirmLeave(context, app)) return AppExitResponse.cancel;
     await _shutdown();
     return AppExitResponse.exit;
   }
@@ -85,9 +88,6 @@ class _EngineGateState extends State<EngineGate> {
   Future<void> _shutdown() async {
     if (_quitting) return;
     _quitting = true;
-    try {
-      await _app?.saveProject().timeout(const Duration(seconds: 3));
-    } catch (_) {}
     await Players.dispose();
     await _engine?.shutdown();
   }

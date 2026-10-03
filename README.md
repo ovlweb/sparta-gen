@@ -49,7 +49,7 @@ rendered — then fine-tune anything you like, and **Save** it where you want.
 > [composition-cassidy on GitHub](https://github.com/composition-cassidy)) — the first to make a program for remixers
 > and others with AI: [Xleth](https://github.com/composition-cassidy/Xleth). SpartaGen follows that idea.
 
-> **Release candidate (1.0.0 RC 2)** — everything is in; now it needs testing by everyone.
+> **Release candidate (1.0.0 RC 3)** — everything is in; now it needs testing by everyone.
 > See [Release candidate — please test](#release-candidate--please-test).
 
 ### Quick start — your next remix, on your own
@@ -134,12 +134,16 @@ words too. The app has its own font, Inter, the same on every system.
 Six pages, in the order you go — on a computer in a side bar, on a phone in the bottom bar. The menu bar
 (*File*, *Remix*, *Help*; the app menu on macOS) has the rest, with shortcuts: **Ctrl/⌘+N** new project,
 **Ctrl/⌘+O** open, **Ctrl/⌘+S** save, **Ctrl/⌘+Shift+S** save as, **Ctrl/⌘+Enter** make the remix,
-**Ctrl/⌘+R** render a preview, **Ctrl/⌘+1…6** the pages. Click the project's name to rename it; the app opens
-the project you worked on last.
+**Ctrl/⌘+R** render a preview, **Ctrl/⌘+.** stop the sound, **Ctrl/⌘+1…6** the pages. Click the project's name to
+rename it; the app opens the project you worked on last. Every change is kept at once (a dot by the project's name
+until it is saved); leaving a project with changes (a new one, another opened, the app closed) asks: **Save**, **Don't
+save** (back to how you saved it last — a project never saved is deleted) or *Cancel*. *File → Recent projects* lists
+your projects, each with a button to delete it (its folder goes too: renders, cut samples).
 
 1. **Source** — *Open video…* (the system's Open dialog), drop a file on the window, or paste a YouTube/other link
    (downloaded with yt-dlp). The video plays right there. **⚡ Make my Sparta Remix** does everything in one go;
-   *Only cut the samples* stops after the samples.
+   *Only cut the samples* stops after the samples. **More videos**: add others to cut samples from — on the Samples
+   page each sample can come from any of them (the pitches from one, the kick or a hi-hat from another).
 2. **Base** — what the remix is built on:
    - **Template**: the *Bases* — the **Sparta Remix (Extended base)** (2:08 at 140 BPM in D: the base most remixes
      are made on — its audio comes with the app and plays under the remix, which follows it as it is read from the
@@ -152,11 +156,17 @@ the project you worked on last.
      CTE are laid out the Extended way, with an Awesomeness before the first Epicness) and its key are set for each
      base;
      change any channel under *MIDI*. And *My templates* — search, see each one's parts; **save the current structure
-     as your own template**, import or delete them (`.spartabase.json`, shareable). (The wiki's pitch patterns are
-     all still there to pick for any track.)
+     as your own template** (on a MIDI: with the MIDI and what each channel plays; with your base audio under it),
+     **Export as zip…** any template — its MIDI, its audio and its settings in one file to share — and **Import
+     template…** (a `.zip`, or a `.spartabase.json`), or delete them. (The wiki's pitch patterns are all still there
+     to pick for any track.) **Your own base audio plays under any template** (*Add base audio…*): the template's
+     notes — its parts, its bass line, its drums — stay what the remix plays, and the file plays under them, its
+     bar 1 on the template's first bar (move it a beat or a 16th if it is off).
    - **Base audio file**: open your base; its tempo, bar 1, key, chords and parts are read and the remix follows
-     them (or tell it which template the base is, and follow the template's layout instead). Base volume, and
-     whether our drums and bass play over it.
+     them. Or tell it which template the base is: a MIDI base's template then plays its own MIDI — its parts, bass
+     line and drums, not a reading of the audio — with your file under it (the file only says where its bar 1 is);
+     the Extended base is followed as the template knows it (its parts, chords and tempo). Base volume, whether
+     our drums and bass play over it, and its timing (a beat or a 16th earlier or later).
    - **MIDI**: open the MIDI of any base — even one that is not public. Each channel is listed with its notes and
      range: say what it plays (the main phrase, a pitch, the chords, the bass, drums, kick/snare/clap/hat/crash,
      quotes, Madness words) or switch it **off**, move it an octave, set its volume (a channel that doubles another
@@ -168,10 +178,12 @@ the project you worked on last.
      the base's Chorus does (not from 0:00), with each part's own pattern. The base's audio can play under it.
    - **Key**: *Auto* follows the base (template, audio or MIDI); or pick one of the 12 keys.
 
-   A base file you opened plays under the remix built on it, or under your own MIDI of it — never under a MIDI
-   template's notes (another song, another tempo): there it waits, silent, until the remix is built on it again.
+   A base you opened plays under whatever the remix is built on — that base, your MIDI or any template. The base a
+   template comes with (the Extended's) plays only under that template, never under another one's notes.
 3. **Samples** — every sample with its picture, where it was cut and its note (e.g. `D#5 → D5 (-1.01 st)`):
-   ▶ plays it processed, *Original* plays that stretch of the video. Pick another cut from the list the analysis
+   ▶ plays it processed, *Original* plays that stretch of the video — press again to stop it (or **Stop** in the bar
+   at the top, which shows whatever plays, on any page). With several videos, **From** says which one a sample is
+   cut from: its list of cuts and the cutter are that video's. Pick another cut from the list the analysis
    found, or **cut it yourself**: the video's sound as a waveform and its frames as a film strip, the cut between
    two handles you drag — it opens on where the sample is cut now; play the cut, zoom (the mouse wheel zooms around
    the pointer, two fingers pinch), drag outside the cut to look around (the waveform and the frames follow at
@@ -191,8 +203,9 @@ the project you worked on last.
    with the mouse for a longer one; blocks that sound together make a chord; bars, the length of a new block, 32nds,
    zoom and undo; ▶ plays the pattern on its samples. *Done* writes it back as the wiki's notation (shown under the
    grid), so it plays exactly as drawn — an Epicness lead-in, a pattern's own loop and a free melody stay as they
-   were. The pictures: *Main + boxes*, *Full screen*, *Split in two*, *3×3*, *4×4*, and **Pitches & percussion** — a
-   grid of the part's pitches, bass and drums only, a box each, no chorus (it is heard, not seen).
+   were. The pictures: *Main + boxes*, *Full screen*, *Split in two*, *3×3*, *4×4*, and **Pitches & percussion** — no
+   chorus (it is heard, not seen): the part's pitch lines and bass in a row across the top, its drums in a smaller
+   row along the bottom, a line between them, so no hi-hat is taken for a pitch.
    *Save structure* keeps your edits.
 5. **Look & sound** — see [Look & sound](#look--sound): pick a visual style and a sound, change any effect, set each
    part's **volume** — and see it at once: the **live preview** draws the remix at any moment with every change
@@ -280,7 +293,7 @@ crashes, the log shows where each of its threads was and, on macOS, the system's
 
 ## Release candidate — please test
 
-This is **1.0.0 RC 1**: every feature is in, and it needs people to try it on their own videos, bases and
+This is **1.0.0 RC 3**: every feature is in, and it needs people to try it on their own videos, bases and
 computers. Things worth trying:
 
 - [ ] The one-click remix on a few different videos (speech, songs, loud and quiet ones).
@@ -290,7 +303,12 @@ computers. Things worth trying:
 - [ ] Swapping samples and cutting one yourself; the structure editor (add, move, remove parts; change patterns).
 - [ ] Every visual style and sound preset, and a few effects changed by hand.
 - [ ] Rendering 720p/1080p and saving the video and the audio (WAV and MP3) where you want; the sample pack, the MIDI.
-- [ ] Closing and opening the app again (your project comes back); *File → Recent projects*.
+- [ ] Closing and opening the app again (your project comes back); *File → Recent projects*, deleting one.
+- [ ] Leaving a project with changes: *Save*, *Don't save* (it goes back to how it was saved), *Cancel*.
+- [ ] Samples from two videos: *More videos* on the Source page, *From* on the Samples page.
+- [ ] Your own base audio under a MIDI template; a template exported as a zip and imported again (MIDI, audio and
+      channels with it).
+- [ ] Stopping a sound: its own button again, or *Stop* in the bar at the top.
 - [ ] On Android: *Share → SpartaGen* from the gallery, a render with the screen off, *Save video…*.
 - [ ] On an iPhone or iPad: a video *From Photos*, the one-click remix, *Save video…* → *Save Video*.
 

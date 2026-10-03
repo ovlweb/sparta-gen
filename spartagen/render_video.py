@@ -183,11 +183,13 @@ GRID3_FIXED = {"kick": "bl", "snare": "br", "hat": "tl", "crash": "tr", "bass": 
                "quote": "tc", "center": "mc", "hat2": "tl", "perc": "br"}
 GRID3_LINE_CELLS = ["mc", "ml", "mr", "tc", "bc", "tl", "tr", "bl", "br"]
 LINE_VISUALS = ("pitch_cycle", "voices")
-# The pitches-and-percussion grid (no chorus): a box for each pitch line, the bass and each drum the part plays —
-# the lines first — in as few rows and columns as they fit in (see pp_cells).  The chorus, the quotes and the
-# words are heard, not seen.
-PP_FIXED = ("bass", "kick", "snare", "hat", "hat2", "perc", "crash")
-PP_SHAPES = ((1, 1), (1, 2), (2, 2), (2, 3), (3, 3), (3, 4), (4, 4), (4, 5), (5, 5))    # rows, columns
+# The pitches-and-percussion picture (no chorus): the pitches and the drums kept apart, so nobody takes a hi-hat for
+# a pitch — a box for each pitch line and the bass across the top, a box for each drum along the bottom (smaller), a
+# line between them (see pp_cells).  The chorus, the quotes and the words are heard, not seen.
+PP_DRUMS = ("kick", "snare", "hat", "hat2", "perc", "crash")
+PP_PITCH_H = 0.62                           # the pitches' share of the height, when the part has drums too
+PP_BAND = 0.05                              # the band between the pitches and the drums
+PP_PER_ROW = {"pitch": 4, "drums": 6}       # boxes in a row before another row starts
 LAYOUT_CELLS["pitchperc"] = {}              # (each part's own: pp_cells)
 
 
@@ -253,8 +255,24 @@ def pp_part(e: NoteEvent) -> Optional[str]:
     return None
 
 
-def pp_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[int, tuple[dict[str, Rect], dict[str, str]]]:
-    """Each pitches-and-percussion part's boxes: {section: ({box: rect}, {what is seen: box})}."""
+def _pp_rows(keys: list, y0: float, height: float, per_row: int) -> dict[str, Rect]:
+    """Boxes for ``keys`` in rows across the frame, from ``y0`` down ``height`` (a shorter last row sits in the
+    middle)."""
+    n = len(keys)
+    rows = max(1, math.ceil(n / per_row))
+    per = math.ceil(n / rows)
+    out = {}
+    for i, k in enumerate(keys):
+        r, c = divmod(i, per)
+        in_row = min(per, n - r * per)
+        out[k] = ((1.0 - in_row / per) / 2 + c / per, y0 + r * height / rows, 1.0 / per, height / rows)
+    return out
+
+
+def pp_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[int, tuple[dict[str, Rect], dict[str, str],
+                                                                               Optional[float]]]:
+    """Each pitches-and-percussion part's boxes: {section: ({box: rect}, {what is seen: box}, where the line between
+    the pitches and the drums is — as a share of the height — or None when the part has only one of them)}."""
     seen: dict[int, list] = {}
     for e in events:
         if arr.sections[e.section].layout == "pitchperc":
@@ -263,14 +281,23 @@ def pp_cells(arr: Arrangement, events: list[NoteEvent]) -> dict[int, tuple[dict[
                 seen[e.section].append(k)
     out = {}
     for si, ks in seen.items():
-        order = [k for k in ks if k.startswith("line:")] + [k for k in PP_FIXED if k in ks]
-        rows, cols = next((rc for rc in PP_SHAPES if rc[0] * rc[1] >= len(order)), PP_SHAPES[-1])
+        pitches = [k for k in ks if k.startswith("line:")] + (["bass"] if "bass" in ks else [])
+        drums = [k for k in PP_DRUMS if k in ks]
+        if pitches and drums:
+            half = PP_BAND / 2
+            areas = [(pitches, 0.0, PP_PITCH_H - half, PP_PER_ROW["pitch"]),
+                     (drums, PP_PITCH_H + half, 1.0 - PP_PITCH_H - half, PP_PER_ROW["drums"])]
+            line = PP_PITCH_H
+        else:
+            areas = [(pitches or drums, 0.0, 1.0, PP_PER_ROW["pitch" if pitches else "drums"])]
+            line = None
         cells, where = {}, {}
-        for i, k in enumerate(order[:rows * cols]):
-            r, c = divmod(i, cols)
-            cells[f"g{r}{c}"] = (c / cols, r / rows, 1 / cols, 1 / rows)
-            where[k] = f"g{r}{c}"
-        out[si] = (cells, where)
+        for keys, y0, height, per_row in areas:
+            for k, rect in _pp_rows(keys, y0, height, per_row).items():
+                box = f"{'p' if keys is pitches else 'd'}{len(cells)}"
+                cells[box] = rect
+                where[k] = box
+        out[si] = (cells, where, line)
     return out
 
 
@@ -456,7 +483,8 @@ def backdrop_for(cfg: "VideoConfig", source: str, has_video: bool, duration: flo
 
 
 class ClipCache:
-    """Decoded frames per (sample, size, 1-second chunk), LRU-bounded in memory."""
+    """Decoded frames per (sample, size, 1-second chunk), LRU-bounded in memory.  Each sample's clip comes from the
+    video it is cut from (the project's main one, ``source``, unless the sample names another)."""
 
     CHUNK_S = 1.0
 
@@ -467,20 +495,32 @@ class ClipCache:
         self.limit = memory_mb * 1024 * 1024
         self.used = 0
         self.has_video = has_video
+        self._videos: dict[str, bool] = {}           # the other videos: whether each has a picture
         self._lru: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+
+    def _has_video(self, path: str) -> bool:
+        if path == self.source:
+            return self.has_video
+        if path not in self._videos:
+            try:
+                self._videos[path] = ff.probe(path).has_video
+            except Exception:                     # (gone or unreadable: a card instead of its clips)
+                self._videos[path] = False
+        return self._videos[path]
 
     def _load(self, sid: str, w: int, h: int, chunk: int) -> np.ndarray:
         s = self.bank.get(sid)
         if s is None:
             return np.zeros((1, h, w, 3), dtype=np.uint8)
-        if not self.has_video:
+        src = s.source or self.source
+        if not self._has_video(src):
             return _audio_only_card(sid, s.label, w, h)
         src_len = max(1.0 / self.fps, s.src_end - s.src_start)
         a = s.src_start + chunk * self.CHUNK_S
         dur = min(self.CHUNK_S, src_len - chunk * self.CHUNK_S)
         if dur <= 0:
             return np.zeros((0, h, w, 3), dtype=np.uint8)
-        return ff.read_frames(self.source, a, dur + 0.5 / self.fps, self.fps, w, h, "cover")
+        return ff.read_frames(src, a, dur + 0.5 / self.fps, self.fps, w, h, "cover")
 
     def frame(self, sid: str, w: int, h: int, t_src: float) -> Optional[np.ndarray]:
         """Frame at t_src seconds into the sample's source clip (held on the last frame)."""
@@ -918,7 +958,7 @@ class Compositor:
                 continue
             sec = arr.sections[e.section]
             if sec.layout == "pitchperc":
-                cell = self.pp.get(e.section, ({}, {}))[1].get(pp_part(e) or "")
+                cell = self.pp.get(e.section, ({}, {}, None))[1].get(pp_part(e) or "")
             else:
                 cell = (lines.get(line_of(e)) if e.visual in LINE_VISUALS else None) or \
                     cell_for(e, sec.layout, cycles.get(e.section))
@@ -1005,7 +1045,7 @@ class Compositor:
         si = self.section_at(t)
         sec = arr.sections[si]
         layout = sec.layout
-        cells = self.pp.get(si, ({}, {}))[0] if layout == "pitchperc" else LAYOUT_CELLS.get(layout) or {}
+        cells = self.pp.get(si, ({}, {}, None))[0] if layout == "pitchperc" else LAYOUT_CELLS.get(layout) or {}
         canvas = np.full((H, W, 3), self.bg_val, dtype=np.uint8)
         if self.blur_bg is not None and sec.kind not in cfg.blink_sections:
             # Our source, blurred and dimmed, behind the boxes (the blink sections stay black
@@ -1082,6 +1122,8 @@ class Compositor:
             _layer_edge(canvas, lx, ly, lw, lh, box)
         for bx, by, bw, bh, color, bright in borders:
             draw_border(canvas, bx, by, bw, bh, color, cfg.border, bright)
+        if layout == "pitchperc" and self.pp.get(si, ({}, {}, None))[2] is not None:
+            _pp_line(canvas, self.pp[si][2], self.user_color)
         # Kick punch: a short zoom bounce on every kick.
         kick_dt = self._since(self.kicks, t)
         if cfg.punch > 0 and 0 <= kick_dt < 0.12 and layout != "full":
@@ -1090,6 +1132,16 @@ class Compositor:
         if self.titles is not None and self.titles.ok:
             _draw_titles(canvas, self.titles, arr, si, t - self.starts[si], W, H, cfg.intro_title)
         return canvas
+
+
+def _pp_line(canvas: np.ndarray, at: float, color: Optional[tuple]) -> None:
+    """The line between the pitches (above) and the drums (below), across the frame at ``at`` of its height."""
+    H, W = canvas.shape[:2]
+    y = int(round(at * H))
+    t = max(2, H // 180)
+    c = np.array(color or (235, 235, 235), dtype=np.float32)
+    band = canvas[max(0, y - t // 2):y - t // 2 + t]
+    band[:] = (band.astype(np.float32) * 0.15 + c * 0.85).astype(np.uint8)
 
 
 def render_video(

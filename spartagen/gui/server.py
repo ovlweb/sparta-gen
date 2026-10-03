@@ -32,7 +32,7 @@ from .. import download as dl
 from ..arrangement import VARIANTS, Arrangement, make_section, SECTION_BUILDERS
 from ..patterns import library as lib
 from ..patterns.notation import parse as parse_pattern, parse_progression
-from ..project import Project, Session, default_workspace
+from ..project import AUTOSAVE_FILE, PROJECT_FILE, Project, Session, default_workspace
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 
@@ -85,17 +85,19 @@ class App:
         return path
 
     def new_session(self) -> "Session":
-        """A new project, with the look and sound chosen last."""
+        """A new project, with the look and sound chosen last (nothing to save until it changes)."""
         from .native_api import apply_look_defaults
         s = Session(workspace=self._new_workspace())
         apply_look_defaults(self.root, s.project)
+        s.apply_template_base()
+        s.mark_clean()
         return s
 
     def _last_session(self) -> Optional["Session"]:
-        """The project worked on last (the app opens where you left it)."""
+        """The project worked on last (the app opens where you left it — with its changes, saved or not)."""
         for entry in _list_projects(self.root):
             try:
-                return Session(Project.load(entry["path"]))
+                return open_session(entry["path"])
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         return None
@@ -133,7 +135,7 @@ class App:
                 if acquired:
                     self.heavy_lock.release()
                 try:
-                    self.session.project.save()
+                    self.session.autosave()
                 except Exception:
                     pass
 
@@ -154,11 +156,13 @@ class App:
         # A template's own base goes under the remix before anything is read (a new project, a base taken away).
         self.session.apply_template_base()
         p = self.session.project
+        bm = self.session.base_map()                # (as the remix follows it)
         d = {
             "name": p.name, "workspace": p.workspace, "variant": p.variant, "options": p.options,
             "samples_config": p.samples, "mix": p.mix, "video": p.video,
+            "saved": self.session.saved, "changed": self.session.dirty,
             "source": None, "analyzed": p.analysis is not None, "outputs": {},
-            "base": ({k: v for k, v in p.base.items() if k not in ("roots", "bar_db")} if p.base else None),
+            "base": ({k: v for k, v in bm.items() if k not in ("roots", "bar_db")} if bm else None),
         }
         if p.source_path:
             d["source"] = dict(p.source_info, url=self.media_url(p.source_path), name=os.path.basename(p.source_path))
@@ -169,6 +173,12 @@ class App:
             d["outputs"][q] = o
         if p.source_path:
             d["source"]["path"] = p.source_path
+        # Every video of the project: the main one first, then the others samples may be cut from.
+        d["sources"] = [{"id": v["id"], "name": os.path.basename(v["path"]), "path": v["path"],
+                         "url": self.media_url(v["path"]), "duration": (v.get("info") or {}).get("duration"),
+                         "has_video": bool((v.get("info") or {}).get("has_video")),
+                         "analyzed": (p.analysis is not None) if v["id"] == "main" else bool(v.get("analysis"))}
+                        for v in self.session.source_list()]
         d["base_path"] = p.mix.get("base_path")
         from .native_api import extra_view
         d.update(extra_view(self.session))
@@ -178,20 +188,37 @@ class App:
         s = self.session
         bank = s.bank()
         an = s.analysis()
+
+        def on(sid: str) -> str:
+            return "" if sid in ("", "main") else f"&source={sid}"
         samples = []
         for sid, smp in bank.samples.items():
             d = smp.to_dict()
             d["audio_url"] = f"/api/sample/{sid}.wav?v={abs(hash(s._bank_key)) % 10 ** 8}"
-            d["thumb_url"] = f"/api/thumb?t={smp.src_start + min(0.05, smp.duration / 2):.3f}"
+            d["thumb_url"] = f"/api/thumb?t={smp.src_start + min(0.05, smp.duration / 2):.3f}{on(smp.source_id)}"
+            d["source_path"] = smp.source or s.project.source_path
             samples.append(d)
-        cands = {}
-        for kind, lst in an.candidates.items():
-            cands[kind] = [dict(c.to_dict(), audio_url=f"/api/candidate/{kind}/{i}.wav",
-                                thumb_url=f"/api/thumb?t={c.start + 0.02:.3f}") for i, c in enumerate(lst[:25])]
-            for c in cands[kind]:
-                c["info"].pop("mfcc", None)
-                c["info"].pop("frames", None)
-        return {"samples": samples, "candidates": cands, "config": s.project.samples,
+
+        def listed(analysis, sid: str) -> dict:
+            out = {}
+            for kind, lst in analysis.candidates.items():
+                out[kind] = [dict(c.to_dict(), audio_url=f"/api/candidate/{kind}/{i}.wav?x=1{on(sid)}",
+                                  thumb_url=f"/api/thumb?t={c.start + 0.02:.3f}{on(sid)}") for i, c in enumerate(lst[:25])]
+                for c in out[kind]:
+                    c["info"].pop("mfcc", None)
+                    c["info"].pop("frames", None)
+            return out
+        others, videos = {}, []
+        for v in s.source_list():
+            vid = v["id"]
+            done = vid == "main" or bool(v.get("analysis")) or vid in s._analyses
+            videos.append({"id": vid, "name": os.path.basename(v["path"]), "path": v["path"], "analyzed": done,
+                           "has_video": bool((v.get("info") or {}).get("has_video")),
+                           "duration": (v.get("info") or {}).get("duration")})
+            if vid != "main" and done:
+                others[vid] = listed(s.analysis(sid=vid), vid)
+        return {"samples": samples, "candidates": listed(an, "main"), "source_candidates": others,
+                "config": s.project.samples, "from": s.sample_sources(), "sources": videos,
                 "analysis": {"duration": an.duration, "noise_floor_db": an.noise_floor_db,
                              "loud_ref_db": an.loud_ref_db}}
 
@@ -348,18 +375,20 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             self._error(str(exc), 500)
 
-    _NO_AUTOSAVE = ("/api/quit", "/api/project/new", "/api/project/open", "/api/project/save")
+    _NO_AUTOSAVE = ("/api/quit", "/api/project/new", "/api/project/open", "/api/project/save", "/api/project/discard",
+                    "/api/project/delete", "/api/project/save_as")
 
     def _autosave(self) -> None:
-        """Every change is kept at once: the project file is saved after each successful change (a job saves
-        when it ends), so nothing is lost when the app is closed by force or crashes."""
+        """Every change is kept at once, apart from the saved project (see :meth:`Session.autosave`) after each
+        successful change (a job keeps it when it ends), so nothing is lost when the app is closed by force or
+        crashes — and "Don't save" can still go back to the saved one."""
         if urlparse(self.path).path in self._NO_AUTOSAVE:
             return
         s = self.app.session
-        if not s.lock.acquire(blocking=False):      # a job is working on the project: it saves when it ends
+        if not s.lock.acquire(blocking=False):      # a job is working on the project: it keeps it when it ends
             return
         try:
-            s.project.save()
+            s.autosave()
         except Exception:                           # (never fail the request for it)
             traceback.print_exc()
         finally:
@@ -396,7 +425,8 @@ class Handler(BaseHTTPRequestHandler):
             # Only files the project references (the source / a render) may be served from outside the workspace.
             full = os.path.abspath(q.get("path", ""))
             p = app.session.project
-            allowed = {os.path.abspath(p.source_path)} | {os.path.abspath(o.get("file", "")) for o in p.outputs.values()}
+            allowed = {os.path.abspath(v["path"]) for v in app.session.source_list()} | \
+                {os.path.abspath(o.get("file", "")) for o in p.outputs.values()}
             if p.mix.get("base_path"):
                 allowed.add(os.path.abspath(p.mix["base_path"]))
             if full not in allowed:
@@ -418,15 +448,32 @@ class Handler(BaseHTTPRequestHandler):
             app.session = app.new_session()
             return self._json(app.project_view())
         if path == "/api/project/save" and method == "POST":
-            where = s.project.save()
-            return self._json({"saved": where})
+            where = s.save()
+            return self._json({"saved": where, "project": app.project_view()})
+        if path == "/api/project/discard" and method == "POST":
+            # "Don't save": back to the project as saved last — or, never saved, gone (a new one instead).
+            if s.discard():
+                _remove_project_folder(app.root, s.project.workspace)
+                app.session = app.new_session()
+            else:
+                app.session = open_session(s.saved_path)
+            return self._json(app.project_view())
         if path == "/api/projects" and method == "GET":
             return self._json({"projects": _list_projects(app.root)})
         if path == "/api/project/open" and method == "POST":
             body = self._body_json()
-            proj = Project.load(body["path"])
-            app.session = Session(proj)
+            app.session = open_session(body["path"])
             return self._json(app.project_view())
+        if path == "/api/project/delete" and method == "POST":
+            # A project out of Recent projects, with its folder (renders, cut samples …).
+            folder = os.path.dirname(os.path.abspath(str(self._body_json().get("path") or "")))
+            if not _in_workspace(app.root, folder) or not any(
+                    os.path.isfile(os.path.join(folder, f)) for f in (PROJECT_FILE, AUTOSAVE_FILE)):
+                return self._error("that is not one of your projects")
+            if os.path.abspath(s.project.workspace) == folder:
+                app.session = app.new_session()          # the open one: a new one takes its place
+            _remove_project_folder(app.root, folder)
+            return self._json({"projects": _list_projects(app.root), "project": app.project_view()})
         if path == "/api/project/name" and method == "POST":
             s.project.name = str(self._body_json().get("name", s.project.name))[:80]
             return self._json(app.project_view())    # a structure you edited keeps its own title
@@ -458,7 +505,11 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body_json()
 
             def run(progress):
-                s.analysis(lambda p, m: progress(0.8 * p, m), force=bool(body.get("force")))
+                # The main video, and the others samples are cut from.
+                videos = ["main", *s.videos_in_use()]
+                for i, vid in enumerate(videos):
+                    s.analysis(lambda p, m, i=i: progress(0.8 * (i + p) / len(videos), m), force=bool(body.get("force")),
+                               sid=vid)
                 s.bank(lambda p, m: progress(0.8 + 0.2 * p, m))
                 return app.bank_view()
             return self._json(app.start_job("analyze", run).to_dict())
@@ -495,15 +546,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(s.sample_wav(m.group(1)))
         m = re.match(r"^/api/candidate/(\w+)/(\d+)\.wav$", path)
         if m:
-            return self._send_file(s.candidate_wav(m.group(1), int(m.group(2))))
+            return self._send_file(s.candidate_wav(m.group(1), int(m.group(2)), q.get("source") or "main"))
         if path == "/api/thumb":
-            if not s.project.source_path or not s.project.source_info.get("has_video"):
+            # A frame of the main video (or of another of the project's videos: ?source=).
+            try:
+                video = s._source(q.get("source") or "main")
+            except KeyError:
+                video = None
+            if video is None or not (video.get("info") or {}).get("has_video"):
                 return self._send_file(os.path.join(STATIC, "noframe.svg"))
+            from ..project import _file_key
             t = float(q.get("t", 0))
             w, h = int(q.get("w", 240)), int(q.get("h", 135))
-            out = s.path("thumbs", f"{int(t * 1000)}-{w}x{h}.jpg")
+            out = s.path("thumbs", f"{_file_key(video['path'])}-{int(t * 1000)}-{w}x{h}.jpg")
             if not os.path.isfile(out):
-                ff.save_jpeg(s.project.source_path, t, out, w, h)
+                ff.save_jpeg(video["path"], t, out, w, h)
             return self._send_file(out)
 
         # ── patterns & arrangement ──
@@ -680,22 +737,54 @@ def _safe(name: str) -> str:
 
 
 def _list_projects(root: str) -> list[dict]:
+    """The projects in the workspace, newest first: saved ones, and those with changes not saved yet (``saved``:
+    whether it was ever saved; ``changed``: whether it changed since)."""
     out = []
     if not os.path.isdir(root):
         return out
     for d in sorted(os.listdir(root), reverse=True):
-        f = os.path.join(root, d, "project.spartagen.json")
+        saved = os.path.join(root, d, PROJECT_FILE)
+        auto = os.path.join(root, d, AUTOSAVE_FILE)
+        f = auto if os.path.isfile(auto) else saved
         if os.path.isfile(f):
             try:
                 with open(f, "r", encoding="utf-8") as fh:
                     meta = json.load(fh)
-                out.append({"path": f, "name": meta.get("name"), "variant": meta.get("variant"),
+                out.append({"path": saved if os.path.isfile(saved) else auto, "name": meta.get("name"),
+                            "variant": meta.get("variant"),
                             "source": os.path.basename(meta.get("source_path") or "") or None,
-                            "modified": os.path.getmtime(f)})
+                            "modified": os.path.getmtime(f), "saved": os.path.isfile(saved),
+                            "changed": os.path.isfile(auto)})
             except (OSError, ValueError):
                 continue
     out.sort(key=lambda p: p["modified"], reverse=True)
     return out[:50]
+
+
+def _in_workspace(root: str, folder: str) -> bool:
+    """Whether ``folder`` is a project's folder inside the workspace (never the workspace itself, nor anything
+    outside it)."""
+    root, folder = os.path.abspath(root), os.path.abspath(folder)
+    return folder.startswith(root + os.sep) and os.path.dirname(folder) == root
+
+
+def _remove_project_folder(root: str, folder: str) -> None:
+    """Delete a project's folder (renders, cut samples …) — only ever one of the workspace's own."""
+    if _in_workspace(root, folder):
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def open_session(path: str) -> "Session":
+    """A project from its file (``project.spartagen.json``, or one saved elsewhere) — with the changes made since it
+    was saved, when there are (they are kept beside it until saved or let go)."""
+    folder = os.path.dirname(os.path.abspath(path))
+    auto = os.path.join(folder, AUTOSAVE_FILE)
+    changed = os.path.basename(path) in (PROJECT_FILE, AUTOSAVE_FILE) and os.path.isfile(auto)
+    s = Session(Project.load(auto if changed else path))
+    if not changed:
+        s.apply_template_base()
+        s.mark_clean()
+    return s
 
 
 def _free_port(host: str) -> int:

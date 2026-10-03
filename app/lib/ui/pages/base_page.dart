@@ -99,21 +99,7 @@ class _BasePageState extends State<BasePage> {
                       : null,
             ),
           );
-    final basePath = app.basePath;
     return [
-      if (basePath != null && !app.baseHeard)
-        Card(
-          color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.12),
-          child: ListTile(
-            leading: Icon(Icons.info_outline, color: Theme.of(context).colorScheme.secondary),
-            title: Text('Your base ${basePath.split(RegExp(r'[\\/]')).last} is silent while the remix is built on a '
-                'template.'),
-            trailing: TextButton(
-              onPressed: app.busy ? null : () => app.baseOptions({'follow': true}),
-              child: const Text('Build it on my base'),
-            ),
-          ),
-        ),
       LayoutBuilder(builder: (context, box) {
         if (box.maxWidth > 900) {
           return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -124,7 +110,91 @@ class _BasePageState extends State<BasePage> {
         }
         return Column(children: [list, const SizedBox(height: 16), details]);
       }),
+      if (current != null) _underTemplate(context, current),
     ];
+  }
+
+  /// Your own base audio under a template: it plays there (the template's notes — its bass line, its drums — stay
+  /// what the remix plays), or it can be added.  A template that comes with its base plays that one.
+  Widget _underTemplate(BuildContext context, Map<String, dynamic> t) {
+    if ('${t['audio'] ?? ''}' != '' && !app.baseOwn) {
+      return SectionCard(
+        title: 'Its own base plays under the remix',
+        subtitle: 'To build the remix on your own base audio instead, open it under “Base audio file”.',
+        child: _baseControls(context),
+      );
+    }
+    final path = app.baseOwn ? app.basePath : null;
+    if (path == null) {
+      return SectionCard(
+        title: 'Your base audio under it (optional)',
+        subtitle: 'Play your base’s own audio under ${t['name']}, its bar 1 on the template’s first bar. The remix '
+            'still plays the template — its parts, its bass line and its drums.',
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: AdaptiveButton.outlined(
+            onPressed: app.busy ? null : () => _openBase(follow: false, template: '${t['id']}'),
+            icon: const Icon(Icons.audio_file_outlined),
+            label: const Text('Add base audio…'),
+          ),
+        ),
+      );
+    }
+    return SectionCard(
+      title: 'Your base audio under it',
+      subtitle: path.split(RegExp(r'[\\/]')).last,
+      trailing: AdaptiveButton.text(
+          onPressed: app.busy ? null : app.clearBase, icon: const Icon(Icons.close), label: const Text('Remove')),
+      child: _baseControls(context),
+    );
+  }
+
+  /// The base file's level, what our drums and bass do over it, and where its bar 1 sits under the remix.
+  Widget _baseControls(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final mix = (app.project['mix'] as Map?) ?? {};
+    final offset = ((mix['base_offset'] as num?) ?? 0).toDouble();
+    final bpm = ((app.arrangementSummary?['bpm'] as num?) ?? (app.baseMap?['bpm'] as num?) ?? 140).toDouble();
+    final beat = 60.0 / bpm;
+    // (The base's bar 1 is [offset] seconds into the file: more plays the base earlier under the remix.)
+    void move(double by) => app.baseOptions({'base_offset': double.parse((offset + by).toStringAsFixed(4))});
+    return Wrap(spacing: 16, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      SliderRow(
+        label: 'Base volume',
+        value: ((mix['base_gain_db'] as num?) ?? -3).toDouble(),
+        min: -24,
+        max: 6,
+        divisions: 30,
+        format: (v) => '${v.toStringAsFixed(0)} dB',
+        onChanged: app.setBaseVolume,
+      ),
+      LabeledDropdown<String>(
+        label: 'Our drums and bass',
+        value: '${mix['base_mode'] ?? 'remix'}',
+        width: 330,
+        items: const {
+          'remix': 'Keep them over the base (remix)',
+          'replace': 'Leave them to the base (replace)',
+          'layer': 'Keep everything (layer)',
+        },
+        onChanged: (v) => app.baseOptions({'base_mode': v}),
+      ),
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Text('In time: bar 1 at ${offset.toStringAsFixed(3)} s', style: TextStyle(color: cs.onSurfaceVariant)),
+        IconButton(
+            tooltip: 'The base a beat earlier', onPressed: app.busy ? null : () => move(beat),
+            icon: const Icon(Icons.fast_rewind)),
+        IconButton(
+            tooltip: 'The base a 16th earlier', onPressed: app.busy ? null : () => move(beat / 4),
+            icon: const Icon(Icons.chevron_left)),
+        IconButton(
+            tooltip: 'The base a 16th later', onPressed: app.busy ? null : () => move(-beat / 4),
+            icon: const Icon(Icons.chevron_right)),
+        IconButton(
+            tooltip: 'The base a beat later', onPressed: app.busy ? null : () => move(-beat),
+            icon: const Icon(Icons.fast_forward)),
+      ]),
+    ]);
   }
 
   List<Widget> _groupTiles(BuildContext context, Map<String, dynamic> g, String selectedId) {
@@ -243,11 +313,24 @@ class _BasePageState extends State<BasePage> {
           ),
           AdaptiveButton.outlined(
             onPressed: () async {
-              final path = await app.pickFile(Kinds.json);
+              final path = await app.pickFile(Kinds.template);
               if (path != null) await app.importTemplate(path);
             },
             icon: const Icon(Icons.file_download_outlined),
             label: const Text('Import template…'),
+          ),
+          AdaptiveButton.outlined(
+            onPressed: () async {
+              final where = await app.saveFile(
+                suggestedName: '${Files.safeName('${t['name']}')}.zip',
+                kind: Kinds.zip,
+                mime: 'application/zip',
+                write: (dest) => app.exportTemplate('${t['id']}', dest),
+              );
+              if (where != null) app.info('Template saved to $where — import it in SpartaGen to use it.');
+            },
+            icon: const Icon(Icons.ios_share),
+            label: const Text('Export as zip…'),
           ),
           if (t['user'] == true)
             AdaptiveButton.text(
@@ -266,28 +349,50 @@ class _BasePageState extends State<BasePage> {
   Future<void> _saveTemplateDialog(BuildContext context) async {
     final name = TextEditingController();
     final desc = TextEditingController();
+    final onMidi = app.variant == 'midi' && app.midi != null;
+    final ownBase = app.baseOwn && app.basePath != null;
+    var withMidi = true;
+    var withAudio = true;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Save as my template'),
-        content: SizedBox(
-          width: 420,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Base name')),
-            const SizedBox(height: 12),
-            TextField(controller: desc, decoration: const InputDecoration(labelText: 'Notes (optional)'), maxLines: 2),
-            const SizedBox(height: 8),
-            const Text('Saves the parts, tempo, key and pattern choices of the current remix. The file '
-                '(.spartabase.json) can be shared and imported by other remixers.'),
-          ]),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
+          title: const Text('Save as my template'),
+          content: SizedBox(
+            width: 440,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Base name')),
+              const SizedBox(height: 12),
+              TextField(controller: desc, decoration: const InputDecoration(labelText: 'Notes (optional)'), maxLines: 2),
+              if (onMidi)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: withMidi,
+                  onChanged: (v) => setDialog(() => withMidi = v ?? true),
+                  title: const Text('With the MIDI and what each channel plays'),
+                ),
+              if (ownBase)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: withAudio,
+                  onChanged: (v) => setDialog(() => withAudio = v ?? true),
+                  title: Text('With the base audio (${app.basePath!.split(RegExp(r'[\\/]')).last})'),
+                ),
+              const SizedBox(height: 8),
+              const Text('Saves the parts, tempo, key and pattern choices of the current remix. Export it as a '
+                  'zip to share it: other remixers import it, MIDI and audio included.'),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
-        ],
       ),
     );
-    if (ok == true && name.text.trim().isNotEmpty) await app.saveTemplate(name.text.trim(), desc.text.trim());
+    if (ok == true && name.text.trim().isNotEmpty) {
+      await app.saveTemplate(name.text.trim(), desc.text.trim(), withMidi: withMidi, withAudio: withAudio);
+    }
   }
 
   Map<String, String> get _templateChoices {
@@ -303,11 +408,40 @@ class _BasePageState extends State<BasePage> {
 
   // ── base audio ──
 
+  /// What "This base is" does with the template chosen: a MIDI base's template plays its own MIDI over the file.
+  Widget? _baseIsNote(BuildContext context, String id) {
+    final t = _templateOf(id);
+    if (t == null) return null;
+    final cs = Theme.of(context).colorScheme;
+    final words = '${t['midi'] ?? ''}' != ''
+        ? 'The remix plays ${t['name']}’s MIDI — its parts, its bass line and its drums — with this file under it; '
+            'the file only says where its bar 1 is.'
+        : '${t['audio'] ?? ''}' != ''
+            ? 'The remix follows ${t['name']} as the template knows it — its parts, chords and tempo — from where '
+                'this file’s bar 1 is.'
+            : 'Its tempo guides the reading; its patterns go on the parts.';
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(words, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+    );
+  }
+
+  Map<String, dynamic>? _templateOf(String id) {
+    if (id.isEmpty) return null;
+    for (final g in _groups) {
+      for (final t in (g['templates'] as List)) {
+        if ((t as Map)['id'] == id) return t.cast<String, dynamic>();
+      }
+    }
+    return null;
+  }
+
   List<Widget> _audioMode(BuildContext context) {
     final bm = app.baseMap;
-    final path = app.basePath;
+    final path = app.baseOwn ? app.basePath : null;       // (not the audio a template comes with)
     final cs = Theme.of(context).colorScheme;
     if (path == null) {
+      final playing = app.basePath != null && app.baseHeard ? app.template : null;
       return [
         SectionCard(
           child: Column(children: [
@@ -315,7 +449,8 @@ class _BasePageState extends State<BasePage> {
               icon: Icons.audio_file_outlined,
               title: 'Open your Sparta base (mp3, wav …)',
               message: 'Its tempo, bar 1, key, chords and parts (Chorus, DunDunDenDen, Epicness, Madness …) are read '
-                  'from it and the remix is built bar for bar on them.',
+                  'from it and the remix is built bar for bar on them.'
+                  '${playing != null ? ' Now ${playing['name']}’s own base plays under the remix.' : ''}',
               action: AdaptiveButton.filled(
                 onPressed: app.busy ? null : () => _openBase(),
                 icon: const Icon(Icons.folder_open),
@@ -329,11 +464,11 @@ class _BasePageState extends State<BasePage> {
               items: _templateChoices,
               onChanged: (v) => setState(() => _baseTemplate = v),
             ),
+            ?_baseIsNote(context, _baseTemplate),
           ]),
         ),
       ];
     }
-    final mix = (app.project['mix'] as Map?) ?? {};
     final sections = (bm?['sections'] as List?)?.map((e) => (e as Map).cast<String, dynamic>()).toList() ?? [];
     return [
       SectionCard(
@@ -372,38 +507,19 @@ class _BasePageState extends State<BasePage> {
               items: _templateChoices,
               onChanged: (v) => app.baseOptions({'template': v}),
             ),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'detected', label: Text('Its detected parts')),
-                ButtonSegment(value: 'template', label: Text('The template’s layout')),
-              ],
-              selected: {'${app.project['base_structure'] ?? 'detected'}'},
-              onSelectionChanged: (s) => app.baseOptions({'structure': s.first}),
-            ),
+            if (app.variant == 'base')
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'detected', label: Text('Its detected parts')),
+                  ButtonSegment(value: 'template', label: Text('The template’s layout')),
+                ],
+                selected: {'${app.project['base_structure'] ?? 'detected'}'},
+                onSelectionChanged: (s) => app.baseOptions({'structure': s.first}),
+              ),
           ]),
+          ?_baseIsNote(context, '${app.project['base_template'] ?? ''}'),
           const SizedBox(height: 12),
-          Wrap(spacing: 16, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            SliderRow(
-              label: 'Base volume',
-              value: ((mix['base_gain_db'] as num?) ?? -3).toDouble(),
-              min: -24,
-              max: 6,
-              divisions: 30,
-              format: (v) => '${v.toStringAsFixed(0)} dB',
-              onChanged: app.setBaseVolume,
-            ),
-            LabeledDropdown<String>(
-              label: 'Our drums and bass',
-              value: '${mix['base_mode'] ?? 'remix'}',
-              width: 330,
-              items: const {
-                'remix': 'Keep them over the base (remix)',
-                'replace': 'Leave them to the base (replace)',
-                'layer': 'Keep everything (layer)',
-              },
-              onChanged: (v) => app.baseOptions({'base_mode': v}),
-            ),
-          ]),
+          _baseControls(context),
           const SizedBox(height: 14),
           Wrap(spacing: 10, runSpacing: 10, children: [
             if (app.variant != 'base' && bm != null)
@@ -417,17 +533,14 @@ class _BasePageState extends State<BasePage> {
                 icon: const Icon(Icons.folder_open),
                 label: const Text('Open another base…')),
           ]),
-          if (app.variant == 'midi' && app.baseHeard)
+          if (app.variant != 'base')
             Padding(
               padding: const EdgeInsets.only(top: 10),
-              child: Text('The remix follows the MIDI; this file plays under it.',
-                  style: TextStyle(color: cs.onSurfaceVariant)),
-            )
-          else if (app.variant != 'base')
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text('The remix is built on a template now, so this file is silent — build the remix on it to '
-                  'hear it under the remix again.',
+              child: Text(
+                  app.variant == 'midi'
+                      ? 'The remix plays ${app.template?['name'] ?? 'your MIDI'} — its parts, bass line and drums — '
+                          'and this file plays under it.'
+                      : 'The remix is built on ${app.builtOn}, and this file plays under it.',
                   style: TextStyle(color: cs.onSurfaceVariant)),
             ),
         ]),
@@ -435,10 +548,10 @@ class _BasePageState extends State<BasePage> {
     ];
   }
 
-  Future<void> _openBase({bool follow = true}) async {
+  Future<void> _openBase({bool follow = true, String? template}) async {
     final path = await app.pickFile(Kinds.audio);
     if (path == null) return;
-    await app.openBase(path, template: _baseTemplate, follow: follow);
+    await app.openBase(path, template: template ?? _baseTemplate, follow: follow);
   }
 
   // ── MIDI ──

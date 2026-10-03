@@ -104,37 +104,64 @@ class _ShellState extends State<Shell> {
   // ── actions ──
   Future<void> _openProject() async {
     final path = await app.pickFile(Kinds.json);
-    if (path != null) await app.openProject(path);
+    if (path != null && mounted && await confirmLeave(context, app)) await app.openProject(path);
   }
 
   Future<void> _recent() async {
-    final list = await app.recentProjects();
+    var list = await app.recentProjects();
     if (!mounted) return;
     final path = await showDialog<String>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Recent projects'),
-        children: [
-          if (list.isEmpty)
-            const Padding(padding: EdgeInsets.all(20), child: Text('No projects yet.')),
-          for (final pr in list)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, '${pr['path']}'),
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.folder_special_outlined),
-                title: Text('${pr['name'] ?? 'Untitled'}'),
-                subtitle: Text([
-                  if (pr['source'] != null) '${pr['source']}',
-                  if (pr['modified'] != null) _ago(pr['modified']),
-                ].join(' · ')),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => SimpleDialog(
+          title: const Text('Recent projects'),
+          children: [
+            if (list.isEmpty)
+              const Padding(padding: EdgeInsets.all(20), child: Text('No projects yet.')),
+            for (final pr in list)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, '${pr['path']}'),
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.folder_special_outlined),
+                  title: Text('${pr['name'] ?? 'Untitled'}'),
+                  subtitle: Text([
+                    if (pr['source'] != null) '${pr['source']}',
+                    if (pr['modified'] != null) _ago(pr['modified']),
+                    if (pr['saved'] == false) 'never saved' else if (pr['changed'] == true) 'changes not saved',
+                  ].join(' · ')),
+                  trailing: IconButton(
+                    tooltip: 'Delete this project',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () async {
+                      if (!await _confirmDelete(context, '${pr['name'] ?? 'Untitled'}')) return;
+                      final left = await app.deleteProject('${pr['path']}');
+                      setDialog(() => list = left);
+                    },
+                  ),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
-    if (path != null && path.isNotEmpty) await app.openProject(path);
+    if (path != null && path.isNotEmpty && mounted && await confirmLeave(context, app)) await app.openProject(path);
   }
+
+  static Future<bool> _confirmDelete(BuildContext context, String name) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Delete “$name”?'),
+          content: const Text('The project and its folder go: its renders and cut samples too (videos you saved '
+              'elsewhere stay). This cannot be undone.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          ],
+        ),
+      ) ==
+      true;
 
   static String _ago(dynamic ts) {
     final t = (ts as num?)?.toDouble();
@@ -166,22 +193,11 @@ class _ShellState extends State<Shell> {
   }
 
   Future<void> _newProject() async {
-    if (app.hasSource) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Start a new project?'),
-          content: const Text('This project stays saved; you can open it again from Recent projects.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('New project')),
-          ],
-        ),
-      );
-      if (ok != true) return;
-      await app.saveProject();
-    }
-    await app.newProject();
+    if (await confirmLeave(context, app)) await app.newProject();
+  }
+
+  Future<void> _quit() async {
+    if (await confirmLeave(context, app)) await widget.onQuit!();
   }
 
   Future<void> _saveAs() async {
@@ -210,7 +226,7 @@ class _ShellState extends State<Shell> {
           _Item('Rename project…', _rename, null),
           if (widget.onQuit != null) ...[
             null,
-            _Item('Quit', () => widget.onQuit!(), const SingleActivator(LogicalKeyboardKey.keyQ, control: true)),
+            _Item('Quit', _quit, const SingleActivator(LogicalKeyboardKey.keyQ, control: true)),
           ],
         ]),
         _Menu('Remix', [
@@ -224,6 +240,7 @@ class _ShellState extends State<Shell> {
           _Item('Cut the samples', () => app.hasSource ? app.analyze() : app.go(AppPage.source), null),
           _Item('Render a preview', () => app.hasSource ? app.render('preview') : app.go(AppPage.source),
               const SingleActivator(LogicalKeyboardKey.keyR, control: true)),
+          _Item('Stop the sound', Players.stopSound, const SingleActivator(LogicalKeyboardKey.period, control: true)),
           null,
           for (final (i, pg) in AppPage.values.indexed)
             _Item(_pages[pg]!.$1, () => app.go(pg), SingleActivator(LogicalKeyboardKey(0x31 + i), control: true)),
@@ -406,6 +423,15 @@ class _ShellState extends State<Shell> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: compact ? 17 : 15)),
           ),
+          if (app.changed)
+            Tooltip(
+              message: app.saved ? 'Changes not saved' : 'Not saved yet',
+              child: Padding(
+                key: const ValueKey('unsaved'),
+                padding: const EdgeInsets.only(left: 6),
+                child: Icon(Icons.circle, size: 9, color: cs.secondary),
+              ),
+            ),
           const SizedBox(width: 6),
           Icon(Icons.edit, size: 15, color: cs.onSurfaceVariant),
         ]),
@@ -481,6 +507,7 @@ class _ShellState extends State<Shell> {
             ]),
           ),
           _jobBar(),
+          const SoundBar(),
           Expanded(child: _page()),
         ]),
       ),
@@ -508,7 +535,7 @@ class _ShellState extends State<Shell> {
           ),
         ],
       ),
-      body: Column(children: [_jobBar(), Expanded(child: _page())]),
+      body: Column(children: [_jobBar(), const SoundBar(), Expanded(child: _page())]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: app.page.index,
         onDestinationSelected: (i) => app.go(AppPage.values[i]),
@@ -552,6 +579,35 @@ class _ShellState extends State<Shell> {
       },
     );
   }
+}
+
+/// Before the project is left (a new one, another opened, the app quit): its changes saved, let go, or staying
+/// with it.  True when it may be left.
+Future<bool> confirmLeave(BuildContext context, AppState app) async {
+  if (!app.changed) return true;
+  final choice = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Save the changes to “${app.name}”?'),
+      content: Text(app.saved
+          ? 'If you don’t save them, the project goes back to how you saved it last.'
+          : 'This project was never saved: if you don’t save it, it is deleted.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, 'cancel'), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(context, 'discard'), child: const Text('Don’t save')),
+        FilledButton(onPressed: () => Navigator.pop(context, 'save'), child: const Text('Save')),
+      ],
+    ),
+  );
+  if (choice == 'save') {
+    await app.saveProject();
+    return !app.changed;
+  }
+  if (choice == 'discard') {
+    await app.discardProject();
+    return true;
+  }
+  return false;
 }
 
 class _Menu {
