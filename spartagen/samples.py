@@ -37,6 +37,16 @@ from .audio.psola import TunedSample, tune_to_note, find_marks
 
 #: Main, second, third and fourth pitch — several pitches play the chord lines together.
 PITCH_ROLES = ("pitch1", "pitch2", "pitch3", "pitch4")
+#: What a cut is picked for on the Samples page — each can come from another of the project's videos — and the
+#: samples that pick makes (the main phrase's two Chorus parts, the snare's clap, the third word's halves …).
+SOURCE_SLOTS = {"chorus": ("chorus_a", "chorus_b"), "chorus_c": ("chorus_c", "chorus_c_a", "chorus_c_b"),
+                **{r: (r,) for r in PITCH_ROLES}, "bass": ("bass",), "kick": ("kick",), "snare": ("snare", "clap"),
+                "hat_closed": ("hat_closed",), "hat_open": ("hat_open",), "hat2": ("hat2",), "perc": ("perc",),
+                "crash": ("crash",), "quote1": ("quote1",), "quote2": ("quote2",), "quote3": ("quote3",),
+                "phrase": ("phrase",), "word_a": ("word_a",), "word_b": ("word_b",)}
+#: A pick that goes with another's video unless it is given its own: the main phrase (and its chops) and the
+#: Epicness's third word with the Chorus, the Madness's response with its call.
+SOURCE_FOLLOWS = {"phrase": "chorus", "chorus_c": "chorus", "word_b": "word_a"}
 #: Pitch candidates tried (isolated, tuned, measured) before the auto picks are made.
 PITCH_TRIES = 40
 #: An auto-picked pitch keeps at least this much of its note inside one camera shot (an 8th at 140 BPM
@@ -57,6 +67,8 @@ class Sample:
     tuned: Optional[TunedSample] = None  # formant-preserving transposition source
     video_rate: float = 1.0              # source seconds per sample second
     meta: dict = field(default_factory=dict)
+    source: str = ""                     # the video it is cut from ("": the project's main one)
+    source_id: str = ""                  # that video's id in the project ("": the main one)
 
     @property
     def duration(self) -> float:
@@ -76,6 +88,7 @@ class Sample:
             "video_rate": round(self.video_rate, 4),
             "meta": {k: v for k, v in self.meta.items() if isinstance(v, (int, float, str, bool, type(None)))
                      or isinstance(v, list) and all(isinstance(z, (int, float)) for z in v)},
+            "source": self.source_id or "main",
         }
 
 
@@ -657,11 +670,11 @@ class SampleBank:
             os.makedirs(os.path.dirname(wav), exist_ok=True)
             dsp.write_wav(wav, s.audio, s.sr)
             written.append(wav)
-            if video and source_path:
+            if video and (s.source or source_path):
                 clip = os.path.join(folder, rel + ".mp4")
                 dur = max(0.05, (s.src_end - s.src_start))
                 try:
-                    ff.cut_clip(source_path, s.src_start, dur, clip, audio_wav=wav)
+                    ff.cut_clip(s.source or source_path, s.src_start, dur, clip, audio_wav=wav)
                     written.append(clip)
                 except ff.FFmpegError:
                     pass

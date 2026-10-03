@@ -55,8 +55,10 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get midi => _map(project['midi']);
   Map<String, dynamic>? get baseMap => _map(project['base']);
   String? get basePath => project['base_path'] as String?;
-  /// Whether the loaded base file plays under the remix (not under a template's own music).
+  /// Whether the loaded base file plays under the remix.
   bool get baseHeard => project['base_heard'] == true;
+  /// Whether the base file is one the user opened (else the audio a template comes with, or none).
+  bool get baseOwn => project['base_own'] == true;
   Map<String, dynamic>? get template => _map(project['template']);
   Map<String, dynamic>? get arrangementSummary => _map(project['arrangement']);
   Map<String, dynamic> get outputs => _map(project['outputs']) ?? {};
@@ -64,6 +66,10 @@ class AppState extends ChangeNotifier {
   String get keyMode => '${project['key_mode'] ?? 'auto'}';
   String get workspace => '${project['workspace'] ?? ''}';
   String get name => '${project['name'] ?? 'Untitled Sparta Remix'}';
+  /// Whether the project changed since it was saved last (every change is kept, apart, until saved or let go).
+  bool get changed => project['changed'] == true;
+  /// Whether it was ever saved (a project never saved goes when its changes are let go).
+  bool get saved => project['saved'] == true;
   bool get ffmpegOk => status['ffmpeg'] == true;
   String get version => '${status['version'] ?? ''}';
 
@@ -354,12 +360,19 @@ class AppState extends ChangeNotifier {
     await _call(() async => catalog = _map(await engine.get('/api/templates')));
   }
 
-  Future<void> saveTemplate(String name, String description) async {
+  /// The remix as a template of mine: on a MIDI with the MIDI and what each channel plays ([withMidi]), with the
+  /// base audio under it ([withAudio]).
+  Future<void> saveTemplate(String name, String description, {bool withMidi = true, bool withAudio = true}) async {
     await _call(() async {
-      final r = _map(await engine.post('/api/template/save', {'name': name, 'description': description}));
+      final r = _map(await engine.post('/api/template/save',
+          {'name': name, 'description': description, 'with_midi': withMidi, 'with_audio': withAudio}));
       catalog = _map(r?['catalog']) ?? catalog;
     }, done: 'Saved “$name” in My templates.');
   }
+
+  /// A template as one .zip (its MIDI, audio and settings inside) to [dest].
+  Future<bool> exportTemplate(String id, String dest) async =>
+      (await _call(() => engine.post('/api/template/export', {'id': id, 'dest': dest}))) != null;
 
   Future<void> importTemplate(String path) async {
     await _call(() async {
@@ -574,20 +587,53 @@ class AppState extends ChangeNotifier {
   String frameUrl(double t, {int width = 640, int height = 360}) =>
       engine.url('/api/frame?t=${t.toStringAsFixed(3)}&w=$width&h=$height&v=$pictureVersion');
 
-  /// The source's sound from [start] to [end] seconds, as [n] peaks from 0 to 1.
-  Future<List<double>?> waveform(double start, double end, {int n = 600}) async {
+  /// A video's sound (the main one's, or [source]'s) from [start] to [end] seconds, as [n] peaks from 0 to 1.
+  Future<List<double>?> waveform(double start, double end, {int n = 600, String source = 'main'}) async {
     try {
-      final r = _map(await engine.get(
-          '/api/waveform?start=${start.toStringAsFixed(3)}&end=${end.toStringAsFixed(3)}&n=$n'));
+      final r = _map(await engine.get('/api/waveform?start=${start.toStringAsFixed(3)}&end=${end.toStringAsFixed(3)}'
+          '&n=$n${source == 'main' ? '' : '&source=$source'}'));
       return [for (final p in (r?['peaks'] as List? ?? const [])) (p as num).toDouble()];
     } catch (_) {
       return null;
     }
   }
 
-  /// A frame of the source video (for the sample cutter's film strip).
-  String thumbUrl(double t, {int width = 160, int height = 90}) =>
-      engine.url('/api/thumb?t=${t.toStringAsFixed(3)}&w=$width&h=$height');
+  /// A frame of a video (the main one, or [source]) — for the sample cutter's film strip.
+  String thumbUrl(double t, {int width = 160, int height = 90, String source = 'main'}) => engine.url(
+      '/api/thumb?t=${t.toStringAsFixed(3)}&w=$width&h=$height${source == 'main' ? '' : '&source=$source'}');
+
+  // ── several videos ──
+
+  /// The project's videos: the main one first ("main"), then the others samples may be cut from.
+  List<Map<String, dynamic>> get sources =>
+      [for (final v in (project['sources'] as List? ?? const [])) (v as Map).cast<String, dynamic>()];
+
+  /// Another video to cut samples from.
+  Future<void> addSource(String path) async {
+    await _call(() async => _setProject(await engine.post('/api/source/add', {'path': path})),
+        done: 'Added — on the Samples page, choose what is cut from it.');
+  }
+
+  /// A video out of the project: what was cut from it is cut from the main one again.
+  Future<void> removeSource(String id) async {
+    await _call(() async {
+      _setProject(await engine.post('/api/source/remove', {'id': id}));
+      if (analyzed) bank = _map(await engine.get('/api/samples'));
+      arrangement = null;
+    });
+  }
+
+  /// Cut [role]'s sample (and what goes with it) from video [source]: that video is read first if it was not yet.
+  Future<void> sampleSource(String role, String source) async {
+    final name = source == 'main'
+        ? 'the main video'
+        : '${sources.where((v) => v['id'] == source).map((v) => v['name']).firstOrNull ?? source}';
+    final r = _map(await runJob('Cutting from $name', '/api/samples/from', {'role': role, 'source': source}));
+    if (r == null) return;
+    bank = r;
+    arrangement = null;
+    notifyListeners();
+  }
 
   // ── exports ──
   Future<bool> exportFile(String file, String dest, {String? audioFormat}) async {
@@ -612,36 +658,48 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveProject() async {
-    await _call(() => engine.post('/api/project/save'), done: 'Project saved.');
+    await _call(() async => _setProject(await engine.post('/api/project/save')), done: 'Project saved.');
+  }
+
+  /// Let the changes go: back to the project as saved last — or, never saved, a new project instead.
+  Future<void> discardProject() async {
+    await _call(() async => _opened(await engine.post('/api/project/discard')));
+  }
+
+  /// A project out of Recent projects, with its folder; the list as it is then.  The open one: a new project
+  /// takes its place.
+  Future<List<Map<String, dynamic>>> deleteProject(String path) async {
+    final r = _map(await _call(() => engine.post('/api/project/delete', {'path': path})));
+    if (r == null) return recentProjects();
+    final now = _map(r['project']);
+    if (now != null && now['workspace'] != workspace) await _call(() async => _opened(now));
+    final list = r['projects'];
+    return list is List ? list.map((e) => (e as Map).cast<String, dynamic>()).toList() : [];
+  }
+
+  /// Another project is the open one now: its own look, samples and structure.
+  Future<void> _opened(dynamic view) async {
+    _setProject(view);
+    look = _map(await engine.get('/api/look'));
+    bank = null;
+    arrangement = null;
+    lastRender = null;
+    _pickLastRender();
+    if (analyzed) await loadSamples(quiet: true);
+    page = AppPage.source;
   }
 
   Future<bool> saveProjectAs(String dest) async =>
       (await _call(() => engine.post('/api/project/save_as', {'dest': dest}), done: 'Project saved.')) != null;
 
   Future<void> openProject(String path) async {
-    await _call(() async {
-      _setProject(await engine.post('/api/project/open', {'path': path}));
-      look = _map(await engine.get('/api/look')); // its own look, not the one shown before
-      bank = null;
-      arrangement = null;
-      lastRender = null;
-      _pickLastRender();
-      if (analyzed) await loadSamples(quiet: true);
-      page = AppPage.source;
-    });
+    await _call(() async => _opened(await engine.post('/api/project/open', {'path': path})));
   }
 
   /// A new project starts with the look and sound chosen last (the engine keeps them): what the Look page
   /// shows is what renders.
   Future<void> newProject() async {
-    await _call(() async {
-      _setProject(await engine.post('/api/project/new'));
-      look = _map(await engine.get('/api/look'));
-      bank = null;
-      arrangement = null;
-      lastRender = null;
-      page = AppPage.source;
-    });
+    await _call(() async => _opened(await engine.post('/api/project/new')));
   }
 
   Future<List<Map<String, dynamic>>> recentProjects() async {

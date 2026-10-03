@@ -243,25 +243,61 @@ def test_the_engine_opens_the_project_worked_on_last(tmp_path):
     root = str(tmp_path / "work")
     first = App(root)
     first.session.project.name = "Left it here"
-    first.session.project.save()
+    first.session.save()
     assert App(root, resume=True).session.project.name == "Left it here"
     assert App(root).session.project.name != "Left it here"          # the web GUI starts fresh
     assert App(str(tmp_path / "empty"), resume=True).session.project.name   # nothing yet: a new project
+    # Changed and not saved (the app was closed by force): it opens with the changes, still to save.
+    again = App(root, resume=True)
+    again.session.project.name = "Changed, not saved"
+    again.session.autosave()
+    last = App(root, resume=True).session
+    assert last.project.name == "Changed, not saved" and last.dirty and last.saved
 
 
-def test_every_change_is_saved_at_once(tmp_path):
-    """The app can be closed by force (or crash): what was changed is already in the project file."""
+def test_every_change_is_kept_at_once_beside_the_saved_project(tmp_path):
+    """The app can be closed by force (or crash): what was changed is kept at once — beside the saved project, so
+    Don't save can still go back to it, and a project never saved leaves nothing behind."""
     httpd, url = make_server("127.0.0.1", 0, str(tmp_path / "work"), token=TOKEN, web_ui=False)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = url.rstrip("/")
     try:
         project = call(base, "/api/project")
-        call(base, "/api/template/use", {"id": "extended"})
-        path = os.path.join(project["workspace"], "project.spartagen.json")
-        saved = json.load(open(path, encoding="utf-8"))
-        assert saved["variant"] == "base" and saved["options"]["base_from_template"] == "extended"
+        ws = project["workspace"]
+        saved, auto = os.path.join(ws, "project.spartagen.json"), os.path.join(ws, "autosave.spartagen.json")
+        assert not project["changed"] and not project["saved"]
+        call(base, "/api/template/use", {"id": "blend_s"})
+        assert json.load(open(auto, encoding="utf-8"))["midi"]["template"] == "blend_s"
         call(base, "/api/look", {"video": {"style": "neon"}})
-        assert json.load(open(path, encoding="utf-8"))["video"]["style"] == "neon"
+        assert json.load(open(auto, encoding="utf-8"))["video"]["style"] == "neon" and not os.path.exists(saved)
+        v = call(base, "/api/project")
+        assert v["changed"] and not v["saved"]
+        listed = call(base, "/api/projects")["projects"][0]
+        assert listed["saved"] is False and listed["changed"] is True and listed["path"] == auto
+        r = call(base, "/api/project/save", {})
+        assert r["project"]["saved"] and not r["project"]["changed"] and os.path.isfile(saved)
+        assert not os.path.exists(auto)
+        # A change, then Don't save: back to the project as saved.
+        call(base, "/api/look", {"video": {"style": "classic"}})
+        assert call(base, "/api/project")["changed"]
+        back = call(base, "/api/project/discard", {})
+        assert back["workspace"] == ws and back["video"]["style"] == "neon" and not back["changed"]
+        # A change undone is no change.
+        call(base, "/api/look", {"video": {"style": "classic"}})
+        call(base, "/api/look", {"video": {"style": "neon"}})
+        assert not call(base, "/api/project")["changed"]
+        # A new project, changed, never saved: Don't save leaves nothing of it.
+        new = call(base, "/api/project/new", {})
+        assert not new["changed"]
+        call(base, "/api/project/name", {"name": "Throwaway"})
+        assert call(base, "/api/project")["changed"]
+        fresh = call(base, "/api/project/discard", {})
+        assert not os.path.exists(new["workspace"]) and fresh["workspace"] != new["workspace"]
+        # Out of Recent projects, with its folder.
+        r = call(base, "/api/project/delete", {"path": saved})
+        assert not os.path.exists(ws) and all(os.path.dirname(x["path"]) != ws for x in r["projects"])
+        call(base, "/api/project/delete", {"path": str(tmp_path / "elsewhere" / "project.spartagen.json")}, expect=400)
+        call(base, "/api/project/delete", {"path": str(tmp_path / "work")}, expect=400)
     finally:
         httpd.shutdown()
 
@@ -358,3 +394,83 @@ def test_updates_are_found_downloaded_and_refused_where_they_cannot_go(engine, t
         raise ValueError("could not reach GitHub to look for updates (offline)")
     monkeypatch.setattr(update, "fetch_releases", offline)
     call(engine, "/api/update?platform=android", expect=400)
+
+
+def _raw(base, path):
+    req = urllib.request.Request(base + path)
+    req.add_header("X-Sparta-Token", TOKEN)
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return r.headers["Content-Type"], r.read()
+
+
+def test_samples_are_cut_from_several_videos(engine, synthetic_source, tmp_path):
+    from test_sources import _second_video
+    call(engine, "/api/project/new", {})
+    call(engine, "/api/source/path", {"path": synthetic_source})
+    other = _second_video(str(tmp_path))
+    call(engine, "/api/source/add", {"path": str(tmp_path / "nowhere.mp4")}, expect=400)
+    v = call(engine, "/api/source/add", {"path": other})
+    assert [(x["id"], x["name"], x["analyzed"]) for x in v["sources"]] == [
+        ("main", os.path.basename(synthetic_source), False), ("v2", "other.mp4", False)]
+    call(engine, "/api/source/add", {"path": other}, expect=400)                    # (once)
+    assert wait(engine, call(engine, "/api/analyze", {}))["status"] == "done"
+    job = wait(engine, call(engine, "/api/samples/from", {"role": "pitch2", "source": "v2"}))
+    assert job["status"] == "done"
+    bank = job["result"]
+    p2 = next(x for x in bank["samples"] if x["id"] == "pitch2")
+    assert p2["source"] == "v2" and p2["source_path"] == other and p2["thumb_url"].endswith("&source=v2")
+    assert bank["from"]["pitch2"] == "v2" and bank["from"]["pitch1"] == "main"
+    assert [x["id"] for x in bank["sources"]] == ["main", "v2"] and bank["sources"][1]["analyzed"]
+    cand = bank["source_candidates"]["v2"]["pitch"][0]
+    assert cand["audio_url"].endswith("&source=v2") and cand["end"] <= bank["sources"][1]["duration"] + 0.01
+    kind, wav = _raw(engine, cand["audio_url"])
+    assert wav[:4] == b"RIFF"
+    kind, jpg = _raw(engine, "/api/thumb?t=0.2&w=64&h=36&source=v2")
+    assert kind == "image/jpeg" and jpg[:2] == b"\xff\xd8"
+    wf = call(engine, "/api/waveform?start=0&end=1&n=16&source=v2")
+    assert len(wf["peaks"]) == 16 and abs(wf["duration"] - bank["sources"][1]["duration"]) < 0.05
+    call(engine, "/api/samples/from", {"role": "pitch2", "source": "v7"}, expect=400)
+    call(engine, "/api/samples/from", {"role": "everything", "source": "v2"}, expect=400)
+    v = call(engine, "/api/source/remove", {"id": "v2"})
+    assert [x["id"] for x in v["sources"]] == ["main"]
+    assert all(x["source"] == "main" for x in call(engine, "/api/samples")["samples"])
+
+
+def test_a_template_is_exported_as_a_zip_and_imported(engine, tmp_path):
+    import zipfile
+    dest = str(tmp_path / "shared" / "Blend S.zip")
+    assert call(engine, "/api/template/export", {"id": "blend_s", "dest": dest})["saved"] == dest
+    with zipfile.ZipFile(dest) as z:
+        assert sorted(z.namelist()) == ["blend_s.mid", "sparta_blend_s_base.spartabase.json"]
+    r = call(engine, "/api/template/import", {"path": dest})
+    assert r["saved"]["id"] == "my.sparta_blend_s_base" and r["saved"]["midi"] == "sparta_blend_s_base/blend_s.mid"
+    mine = next(g for g in r["catalog"]["groups"] if g["name"] == "My templates")["templates"]
+    assert "my.sparta_blend_s_base" in [t["id"] for t in mine]
+    call(engine, "/api/template/use", {"id": "my.sparta_blend_s_base"})
+    v = call(engine, "/api/project")
+    assert v["variant"] == "midi" and v["midi"]["template"] == "my.sparta_blend_s_base"
+    call(engine, "/api/template/export", {"id": "nope", "dest": dest}, expect=400)
+    call(engine, "/api/template/export", {"id": "blend_s"}, expect=400)
+    call(engine, "/api/template/delete", {"id": "my.sparta_blend_s_base"})
+
+
+def test_don_t_save_never_deletes_a_folder_outside_the_workspace(tmp_path):
+    """A project file can name any folder as its own: letting its changes go deletes nothing outside SpartaGen's."""
+    httpd, url = make_server("127.0.0.1", 0, str(tmp_path / "work"), token=TOKEN, web_ui=False)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = url.rstrip("/")
+    try:
+        precious = tmp_path / "my documents"
+        precious.mkdir()
+        (precious / "keep.txt").write_text("mine")
+        odd = tmp_path / "odd.spartagen.json"
+        odd.write_text(json.dumps({"name": "Odd", "workspace": str(precious)}))
+        call(base, "/api/project/open", {"path": str(odd)})
+        call(base, "/api/project/name", {"name": "Odd, changed"})
+        assert call(base, "/api/project")["changed"]
+        call(base, "/api/project/discard", {})
+        assert (precious / "keep.txt").read_text() == "mine"
+        call(base, "/api/project/delete", {"path": str(precious / "autosave.spartagen.json")}, expect=400)
+        assert precious.is_dir()
+    finally:
+        httpd.shutdown()

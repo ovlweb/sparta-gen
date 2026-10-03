@@ -31,6 +31,9 @@ class Kinds {
   static const wav = XTypeGroup(label: 'WAV audio', extensions: ['wav'], uniformTypeIdentifiers: ['com.microsoft.waveform-audio']);
   static const mp3 = XTypeGroup(label: 'MP3 audio', extensions: ['mp3'], uniformTypeIdentifiers: ['public.mp3']);
   static const zip = XTypeGroup(label: 'ZIP archive', extensions: ['zip'], uniformTypeIdentifiers: ['public.zip-archive']);
+  static const template = XTypeGroup(
+      label: 'SpartaGen template (.zip or .spartabase.json)', extensions: ['zip', 'json'],
+      mimeTypes: ['application/zip', 'application/json'], uniformTypeIdentifiers: ['public.zip-archive', 'public.json']);
   static const mid = XTypeGroup(label: 'MIDI file', extensions: ['mid'], uniformTypeIdentifiers: ['public.midi-audio']);
 }
 

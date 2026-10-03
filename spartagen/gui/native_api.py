@@ -71,6 +71,8 @@ def extra_view(session) -> dict:
             "base_template_info": base_tpl.to_dict() if base_tpl else None,
             "base_structure": p.options.get("base_structure") or "detected",
             "base_heard": bool(p.mix.get("base_path")) and session.base_heard(),
+            # The base file is the user's own (else the audio a template comes with, or none).
+            "base_own": session.own_base(), "base_from_template": p.options.get("base_from_template") or "",
             "key": p.samples.get("key") or "D", "key_mode": p.options.get("key_mode") or "auto",
             "arrangement": arrangement_view(session)}
 
@@ -177,14 +179,21 @@ def route(h, method: str, path: str, q: dict) -> bool:
         if not name:
             h._error("give the template a name")
             return True
-        t = bases.template_from_arrangement(s.arrangement(), name, str(b.get("description") or ""),
-                                            key=s.project.samples.get("key"),
-                                            options=dict(s.project.options.get("patterns") or {}))
-        saved = bases.save_user_template(t)
+        t, audio_map = s.as_template(name, str(b.get("description") or ""), with_midi=b.get("with_midi", True) is not False,
+                                     with_audio=b.get("with_audio", True) is not False)
+        saved = bases.save_user_template(t, audio_map=audio_map)
         return ok({"saved": saved.to_dict(), "catalog": bases.catalog()})
     if path == "/api/template/import" and method == "POST":
         t = bases.import_template(h._body_json()["path"])
         return ok({"saved": t.to_dict(), "catalog": bases.catalog()})
+    if path == "/api/template/export" and method == "POST":
+        # A template as one .zip (its MIDI, its audio and their settings inside), to a path from a Save dialog.
+        b = h._body_json()
+        dest = str(b.get("dest") or "").strip()
+        if not dest:
+            h._error("choose where to save the template")
+            return True
+        return ok({"saved": bases.export_template(str(b.get("id") or ""), dest)})
     if path == "/api/template/delete" and method == "POST":
         bases.delete_user_template(h._body_json()["id"])
         return ok({"catalog": bases.catalog()})
@@ -211,17 +220,21 @@ def route(h, method: str, path: str, q: dict) -> bool:
         return True
     if path == "/api/base/options" and method == "POST":
         b = h._body_json()
-        if "template" in b:
-            s.project.options["base_template"] = b["template"] or ""
+        p = s.project
+        # The remix follows the base now: built on it, or on the MIDI of the template it was said to be.
+        following = p.variant == "base" or (p.variant == "midi" and s.own_base() and bool((p.midi or {}).get("template"))
+                                            and (p.midi or {}).get("template") == p.options.get("base_template"))
         if "structure" in b:
-            s.project.options["base_structure"] = b["structure"]
+            p.options["base_structure"] = b["structure"]
         for k in ("base_gain_db", "base_mode", "base_offset"):
             if k in b:
-                s.project.mix[k] = b[k]
-        if b.get("follow") and s.project.base:
-            s.project.variant = "base"
-        if any(k in b for k in ("template", "structure", "follow")):
-            s.project.arrangement = None             # (the base's level, mode or offset leave the parts as they are)
+                p.mix[k] = float(b[k]) if k != "base_mode" else b[k]
+        if b.get("follow") or ("template" in b and following):
+            s.follow_base(b.get("template") if "template" in b else None)
+        elif "template" in b:
+            p.options["base_template"] = b["template"] or ""
+        if "structure" in b and p.variant == "base":
+            p.arrangement = None                     # (the base's level, mode or offset leave the parts as they are)
         return ok()
     if path == "/api/base/clear" and method == "POST":
         s.clear_base()
@@ -244,6 +257,31 @@ def route(h, method: str, path: str, q: dict) -> bool:
     if path == "/api/midi/clear" and method == "POST":
         s.clear_midi()
         return ok()
+
+    # ── the project's other videos (samples may be cut from any of them) ──
+    if path == "/api/source/add" and method == "POST":
+        src = h._body_json().get("path", "")
+        if not os.path.isfile(src):
+            h._error(f"file not found: {src}")
+            return True
+        s.add_source(src)
+        return ok()
+    if path == "/api/source/remove" and method == "POST":
+        s.remove_source(str(h._body_json().get("id") or ""))
+        return ok()
+    if path == "/api/samples/from" and method == "POST":
+        # Cut a pick from another video: that video is analysed first if it was not yet, then the samples again.
+        b = h._body_json()
+        vid = str(b.get("source") or "main")
+        s.set_sample_source(str(b.get("role") or ""), vid)
+
+        def run(progress):
+            if vid != "main":
+                s.analysis(lambda p, m: progress(0.7 * p, m), sid=vid)
+            s.bank(lambda p, m: progress(0.7 + 0.3 * p, m))
+            return app.bank_view()
+        h._json(app.start_job("sample-source", run).to_dict())
+        return True
 
     # ── key ──
     if path == "/api/key" and method == "POST":
@@ -365,7 +403,8 @@ def route(h, method: str, path: str, q: dict) -> bool:
         # The source's sound between two times, as peaks (0-1): what the sample cutter draws.
         import numpy as np
         from .. import SAMPLE_RATE
-        x = s.audio()
+        vid = q.get("source") or "main"                # (another of the project's videos)
+        x = s.audio(vid)
         total = len(x) / SAMPLE_RATE
         a = min(max(0.0, float(q.get("start", 0.0))), total)
         z = min(max(a, float(q.get("end", a + 4.0))), total)
@@ -373,10 +412,12 @@ def route(h, method: str, path: str, q: dict) -> bool:
         seg = np.abs(x[int(a * SAMPLE_RATE):int(z * SAMPLE_RATE)])
         peaks = [float(c.max()) if c.size else 0.0 for c in np.array_split(seg, n)] if seg.size else [0.0] * n
         # One scale for the whole video (its loudest moment), so zooming or moving the view keeps the heights.
-        cached = getattr(s, "_wave_top", None)
+        tops = getattr(s, "_wave_tops", None)
+        if tops is None:
+            tops = s._wave_tops = {}
+        cached = tops.get(vid)
         if cached is None or cached[0] != len(x):
-            cached = (len(x), max(float(np.max(np.abs(x))) if len(x) else 0.0, 1e-6))
-            s._wave_top = cached
+            cached = tops[vid] = (len(x), max(float(np.max(np.abs(x))) if len(x) else 0.0, 1e-6))
         top = cached[1]
         return ok({"start": round(a, 4), "end": round(z, 4), "duration": round(total, 4),
                    "peaks": [round(min(1.0, p / top), 4) for p in peaks]})

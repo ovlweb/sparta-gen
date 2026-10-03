@@ -336,7 +336,7 @@ def test_a_grid_of_the_pitches_and_percussion_only(tmp_path, synthetic_source):
     ev = compile_events(arr, set(bank.samples))
     cfg = RV.VideoConfig.from_dict({"preset_name": "preview", "width": 320, "height": 180})
     comp = RV.Compositor(s.project.source_path, arr, ev, bank, cfg)
-    cells, where = comp.pp[ci]
+    cells, where, line = comp.pp[ci]
     shown = [v for v in comp.vis if v[3].section == ci]
     assert shown and not any(v[3].visual in ("main", "center", "madness") for v in shown)
     assert {v[2] for v in shown} <= set(cells)
@@ -346,8 +346,21 @@ def test_a_grid_of_the_pitches_and_percussion_only(tmp_path, synthetic_source):
     boxes = list(cells.values())                 # in the frame, none over another
     assert all(x >= 0 and y >= 0 and x + w <= 1 + 1e-9 and y + h <= 1 + 1e-9 for x, y, w, h in boxes)
     assert len({(x, y) for x, y, _w, _h in boxes}) == len(boxes)
+    # RC 3: the pitches (and the bass) above the line, the drums below it — never mixed in one grid.
+    assert line is not None
+    for k, box in where.items():
+        x, y, w, h = cells[box]
+        if k.startswith("line:") or k == "bass":
+            assert y + h <= line + 1e-9, k
+        else:
+            assert y >= line - 1e-9, k
     t = arr.section_starts()[ci] + 2.5 * arr.bar_s
     assert comp.still(t).shape == (180, 320, 3)
+    plain = RV.VideoConfig.from_dict({"preset_name": "preview", "width": 320, "height": 180, "punch": 0.0,
+                                      "shake": 0.0, "rgb_split": 0.0, "scanlines": 0.0, "grain": 0.0, "vignette": 0.0})
+    frame = RV.Compositor(s.project.source_path, arr, ev, bank, plain).still(t)
+    row = frame[int(round(line * 180))]
+    assert row.mean() > 150 and row.mean() > frame[int(round(line * 180)) - 6].mean()   # the line between them
 
 
 def test_a_background_of_unknown_length_plays_and_loops(tmp_path):

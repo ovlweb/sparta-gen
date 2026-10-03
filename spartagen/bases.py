@@ -22,6 +22,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import zipfile
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -65,17 +67,22 @@ class BaseTemplate:
     def bars(self) -> int:
         return sum(int(b) for _k, b in self.plan)
 
+    def _folder(self) -> str:
+        """Where the files a template names by name are: beside a template of the user's (in its folder), else
+        with SpartaGen's own."""
+        return os.path.dirname(self.path) if self.user and self.path else TEMPLATE_DIR
+
     def midi_path(self) -> str:
         """The MIDI file of a MIDI base ("" for a base without one)."""
         if not self.midi or os.path.isabs(self.midi):
             return self.midi
-        return os.path.join(TEMPLATE_DIR, self.midi)
+        return os.path.join(self._folder(), self.midi)
 
     def audio_path(self) -> str:
         """The audio of a base that comes with it ("" for a base without)."""
         if not self.audio or os.path.isabs(self.audio):
             return self.audio
-        return os.path.join(TEMPLATE_DIR, self.audio)
+        return os.path.join(self._folder(), self.audio)
 
     def audio_map(self) -> Optional[dict]:
         """The map of that audio read once and kept beside it (``<file>.json``: tempo, bar 1, chords, parts), so
@@ -304,13 +311,37 @@ def validate(t: BaseTemplate) -> None:
             lib.get(pid)
 
 
-def save_user_template(t: BaseTemplate, folder: Optional[str] = None) -> BaseTemplate:
-    """Write a template to the templates folder (overwrites one of the same name)."""
-    validate(t)
+def save_user_template(t: BaseTemplate, folder: Optional[str] = None,
+                       audio_map: Optional[dict] = None) -> BaseTemplate:
+    """Write a template to the templates folder (overwrites one of the same name).  A MIDI or base audio it names
+    by a full path is copied into a folder of its own beside it (``<name>/``), with the audio's map
+    (``audio_map``: tempo, bar 1, chords, parts — or the map kept beside the audio), so the template keeps
+    working wherever those files were, and can be exported whole."""
     folder = folder or user_dir()
     os.makedirs(folder, exist_ok=True)
     slug = _slug(t.name)
     path = os.path.join(folder, slug + SUFFIX)
+    t = BaseTemplate.from_dict(asdict(t))
+    t.user, t.path = True, path
+    media = os.path.join(folder, slug)
+    for attr in ("midi", "audio"):
+        src = getattr(t, attr)
+        if not src or not os.path.isabs(src):
+            continue
+        if not os.path.isfile(src):
+            raise ValueError(f"the {attr.upper() if attr == 'midi' else attr} file of {t.name!r} is missing: {src}")
+        os.makedirs(media, exist_ok=True)
+        dst = os.path.join(media, os.path.basename(src))
+        if os.path.abspath(dst) != os.path.abspath(src):
+            shutil.copy2(src, dst)
+        if attr == "audio":
+            beside = os.path.splitext(src)[0] + ".json"
+            known = audio_map if audio_map is not None else _read_json(beside)
+            if known:
+                with open(os.path.splitext(dst)[0] + ".json", "w", encoding="utf-8") as fh:
+                    json.dump(known, fh, indent=1)
+        setattr(t, attr, f"{slug}/{os.path.basename(src)}")
+    validate(t)
     d = t.to_dict()
     for k in ("user", "path", "bars", "duration"):
         d.pop(k, None)
@@ -325,11 +356,123 @@ def save_user_template(t: BaseTemplate, folder: Optional[str] = None) -> BaseTem
     return saved
 
 
+def _read_json(path: str) -> Optional[dict]:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
+#: The most a shared template's files may weigh (a zip that says more is refused before anything is unpacked).
+MAX_FILE_MB = {"midi": 8, "audio": 300, "json": 4}
+
+
+def export_template(tid: str, dest: str, folder: Optional[str] = None) -> str:
+    """A template as one .zip to share: its ``.spartabase.json`` (parts, tempo, key, patterns, what the samples play
+    of each MIDI channel …) with its MIDI and its base audio — and that audio's map — beside it.  Import template…
+    reads it back."""
+    t = get_template(tid, folder)
+    slug = _slug(t.name)
+    d = t.to_dict()
+    for k in ("user", "path", "bars", "duration"):
+        d.pop(k, None)
+    d["group"], d["id"] = "My templates", slug
+    files: list[tuple[str, str, int]] = []
+    for attr in ("midi", "audio"):
+        src = getattr(t, attr + "_path")()
+        if not src or not os.path.isfile(src):
+            d[attr] = ""
+            continue
+        name = os.path.basename(src)
+        d[attr] = name
+        files.append((src, name, zipfile.ZIP_DEFLATED if attr == "midi" else zipfile.ZIP_STORED))
+        if attr == "audio" and os.path.isfile(os.path.splitext(src)[0] + ".json"):
+            files.append((os.path.splitext(src)[0] + ".json", os.path.splitext(name)[0] + ".json",
+                          zipfile.ZIP_DEFLATED))
+    os.makedirs(os.path.dirname(os.path.abspath(dest)) or ".", exist_ok=True)
+    tmp = dest + ".tmp"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(slug + SUFFIX, json.dumps(d, indent=1))
+        for src, name, how in files:
+            z.write(src, name, compress_type=how)
+    os.replace(tmp, dest)
+    return dest
+
+
 def import_template(path: str, folder: Optional[str] = None) -> BaseTemplate:
-    """Add a shared ``.spartabase.json`` (or any template JSON) to my templates."""
-    with open(path, "r", encoding="utf-8") as fh:
-        t = BaseTemplate.from_dict(json.load(fh))
+    """Add a shared template to my templates: a .zip (as :func:`export_template` writes it: the template with the
+    MIDI and base audio it names), or a ``.spartabase.json`` on its own — the files it names are looked for
+    beside it."""
+    if zipfile.is_zipfile(path):
+        return _import_zip(path, folder)
+    data = _read_json(path)
+    if data is None or "plan" not in data:
+        raise ValueError("this is not a SpartaGen template (a .spartabase.json, or a .zip with one)")
+    t = BaseTemplate.from_dict(data)
+    here = os.path.dirname(os.path.abspath(path))
+    for attr in ("midi", "audio"):
+        name = getattr(t, attr)
+        if name and not os.path.isabs(name):
+            near = os.path.join(here, os.path.basename(name))
+            if os.path.isfile(near):
+                setattr(t, attr, near)
+            elif os.path.isfile(os.path.join(TEMPLATE_DIR, os.path.basename(name))):
+                setattr(t, attr, os.path.join(TEMPLATE_DIR, os.path.basename(name)))    # one of SpartaGen's own
+            else:
+                raise ValueError(f"the template names {name!r}, which is not beside it — import the template's .zip")
     return save_user_template(t, folder)
+
+
+def _import_zip(path: str, folder: Optional[str]) -> BaseTemplate:
+    import tempfile
+    with zipfile.ZipFile(path) as z:
+        members = {os.path.basename(i.filename): i for i in z.infolist() if not i.is_dir() and
+                   os.path.basename(i.filename)}
+
+        def read(info: zipfile.ZipInfo, kind: str) -> bytes:
+            if info.file_size > MAX_FILE_MB[kind] * 1024 * 1024:
+                raise ValueError(f"{info.filename} is too big for a template's {kind} file")
+            return z.read(info)
+
+        data = None
+        for name in sorted(members, key=lambda n: (not n.endswith(SUFFIX), n)):
+            if name.endswith(".json"):
+                try:
+                    d = json.loads(read(members[name], "json").decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if isinstance(d, dict) and "plan" in d:
+                    data = d
+                    break
+        if data is None:
+            raise ValueError("there is no SpartaGen template (.spartabase.json) in this zip")
+        t = BaseTemplate.from_dict(data)
+        tmp = tempfile.mkdtemp(prefix="spartagen-template-")
+        try:
+            audio_map = None
+            for attr in ("midi", "audio"):
+                name = os.path.basename(getattr(t, attr) or "")
+                if not name:
+                    continue
+                info = members.get(name)
+                if info is None:
+                    raise ValueError(f"the template names {name!r}, which is not in the zip")
+                out = os.path.join(tmp, name)              # (by its name alone: nothing lands outside)
+                with open(out, "wb") as fh:
+                    fh.write(read(info, attr))
+                setattr(t, attr, out)
+                if attr == "audio":
+                    known = members.get(os.path.splitext(name)[0] + ".json")
+                    if known is not None:
+                        try:
+                            audio_map = json.loads(read(known, "json").decode("utf-8"))
+                        except (ValueError, UnicodeDecodeError):
+                            audio_map = None
+            return save_user_template(t, folder, audio_map=audio_map if isinstance(audio_map, dict) else None)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 def delete_user_template(tid: str, folder: Optional[str] = None) -> None:
@@ -337,6 +480,9 @@ def delete_user_template(tid: str, folder: Optional[str] = None) -> None:
     if not t.user:
         raise ValueError("built-in templates cannot be deleted")
     os.remove(t.path)
+    media = t.path[:-len(SUFFIX)]
+    if os.path.isdir(media):                      # its MIDI and audio
+        shutil.rmtree(media, ignore_errors=True)
 
 
 def plan_kind(kind: str, name: str = "") -> str:

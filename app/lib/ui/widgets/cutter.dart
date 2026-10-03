@@ -20,6 +20,7 @@ Future<(double, double)?> showSampleCutter(
   required double end,
   required double sourceDuration,
   String? sourcePath,
+  String source = 'main',
 }) =>
     showDialog<(double, double)>(
       context: context,
@@ -30,6 +31,7 @@ Future<(double, double)?> showSampleCutter(
         end: end,
         sourceDuration: sourceDuration,
         sourcePath: sourcePath,
+        source: source,
       ),
     );
 
@@ -42,6 +44,7 @@ class SampleCutter extends StatefulWidget {
     required this.end,
     required this.sourceDuration,
     this.sourcePath,
+    this.source = 'main',
   });
 
   final AppState app;
@@ -50,6 +53,9 @@ class SampleCutter extends StatefulWidget {
   final double end;
   final double sourceDuration;
   final String? sourcePath;
+
+  /// Which of the project's videos it is cut from ("main", or another's id).
+  final String source;
 
   @override
   State<SampleCutter> createState() => _SampleCutterState();
@@ -130,7 +136,7 @@ class _SampleCutterState extends State<SampleCutter> {
 
   Future<void> _loadOverview() async {
     final total = _total;
-    final peaks = await widget.app.waveform(0, total, n: 4000);
+    final peaks = await widget.app.waveform(0, total, n: 4000, source: widget.source);
     if (!mounted || peaks == null || peaks.isEmpty) return;
     setState(() => _overview = _Peaks(0, total, peaks));
     _loadDetail();
@@ -148,7 +154,7 @@ class _SampleCutterState extends State<SampleCutter> {
       final ask = ++_request;
       final a = max(0.0, _v0 - _span / 2);
       final z = min(_total, _v1 + _span / 2);
-      final peaks = await widget.app.waveform(a, z, n: 1600);
+      final peaks = await widget.app.waveform(a, z, n: 1600, source: widget.source);
       if (!mounted || ask != _request || peaks == null || peaks.isEmpty) return;
       setState(() => _detail = _Peaks(a, z, peaks));
     });
@@ -257,7 +263,7 @@ class _SampleCutterState extends State<SampleCutter> {
   void _play(double a, double z, String tag) {
     final src = widget.sourcePath;
     if (src == null) return;
-    Players.playSound(src, tag: tag, start: a, end: z);
+    Players.playSound(src, tag: tag, start: a, end: z, label: tag == 'cutter' ? 'the cut' : 'around the cut');
   }
 
   @override
@@ -283,9 +289,10 @@ class _SampleCutterState extends State<SampleCutter> {
             const SizedBox(height: 12),
             // What the clip looks like where it starts and where it ends.
             Row(children: [
-              Expanded(child: _frame(app.thumbUrl(_shownA + 0.02, width: 480, height: 270), 'starts on ${fmtTime(_shownA)}')),
+              Expanded(child: _frame(app.thumbUrl(_shownA + 0.02, width: 480, height: 270, source: widget.source), 'starts on ${fmtTime(_shownA)}')),
               const SizedBox(width: 10),
-              Expanded(child: _frame(app.thumbUrl(max(_shownA, _shownZ - 0.04), width: 480, height: 270), 'ends on ${fmtTime(_shownZ)}')),
+              Expanded(child: _frame(app.thumbUrl(max(_shownA, _shownZ - 0.04), width: 480, height: 270, source: widget.source),
+                  'ends on ${fmtTime(_shownZ)}')),
             ]),
             const SizedBox(height: 12),
             // Film strip over the waveform, the cut over both.
@@ -351,15 +358,17 @@ class _SampleCutterState extends State<SampleCutter> {
             ]),
             const SizedBox(height: 10),
             Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              AdaptiveButton.tonal(
-                onPressed: widget.sourcePath == null ? null : () => _play(_a, _z, 'cutter'),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Play the cut'),
+              PlayToggle(
+                tag: 'cutter',
+                play: widget.sourcePath == null ? null : () => _play(_a, _z, 'cutter'),
+                label: 'Play the cut',
               ),
-              AdaptiveButton.outlined(
-                onPressed: widget.sourcePath == null ? null : () => _play(_v0, _v1, 'cutter:view'),
-                icon: const Icon(Icons.hearing),
-                label: const Text('Play around it'),
+              PlayToggle(
+                tag: 'cutter:view',
+                outlined: true,
+                icon: Icons.hearing,
+                play: widget.sourcePath == null ? null : () => _play(_v0, _v1, 'cutter:view'),
+                label: 'Play around it',
               ),
               IconButton(tooltip: 'Zoom in', icon: const Icon(Icons.zoom_in), onPressed: () => _zoom(1 / 1.6)),
               IconButton(tooltip: 'Zoom out', icon: const Icon(Icons.zoom_out), onPressed: () => _zoom(1.6)),
@@ -417,7 +426,7 @@ class _SampleCutterState extends State<SampleCutter> {
           bottom: 0,
           width: max(1.0, tile - 2),
           child: Image.network(
-            widget.app.thumbUrl(min(_total, (k + 0.5) * step)),
+            widget.app.thumbUrl(min(_total, (k + 0.5) * step), source: widget.source),
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => Container(color: Colors.black),

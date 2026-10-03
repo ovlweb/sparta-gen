@@ -211,10 +211,11 @@ class _ExportPageState extends State<ExportPage> {
                   label: const Text('Save video…'),
                 ),
               if (out['quality'] == 'audio')
-                AdaptiveButton.outlined(
-                  onPressed: () => Players.playSound('${out['audio'] ?? out['file']}', tag: 'mix'),
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Listen'),
+                PlayToggle(
+                  tag: 'mix',
+                  outlined: true,
+                  play: () => Players.playSound('${out['audio'] ?? out['file']}', tag: 'mix', label: 'your remix'),
+                  label: 'Listen',
                 ),
               MenuAnchor(
                 builder: (context, c, _) => AdaptiveButton.tonal(

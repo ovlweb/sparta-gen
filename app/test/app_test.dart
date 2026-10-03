@@ -25,9 +25,9 @@ class FakeEngine extends Engine {
 
   @override
   Future<dynamic> get(String path) async {
+    if (path == '/api/projects') return {'projects': _copy(data['projects'] ?? [])};
     final key = path.replaceFirst('/api/', '');
     if (data.containsKey(key)) return _copy(data[key]);
-    if (path == '/api/projects') return {'projects': []};
     if (path.startsWith('/api/update?') && data.containsKey('update')) return _copy(data['update']);
     throw EngineException('no fixture for GET $path');
   }
@@ -51,6 +51,12 @@ class FakeEngine extends Engine {
       };
     }
     if (path == '/api/pattern/write') return {'text': '0* _ 0 ____________', 'mode': body?['mode'], 'steps': 16.0};
+    if (path == '/api/samples/from') {
+      final bank = _copy(data['samples']) as Map<String, dynamic>;
+      (bank['from'] as Map)[body?['role']] = body?['source'];
+      return {'id': 'j1', 'kind': 'sample-source', 'status': 'done', 'progress': 1.0, 'message': 'done', 'result': bank};
+    }
+    if (path == '/api/project/delete') return {'projects': [], 'project': _copy(data['project'])};
     return {'project': _copy(data['project'])};
   }
 
@@ -356,6 +362,124 @@ void main() {
     expect(find.text('youtube.com/c/CassidyBOTRR'), findsOneWidget);
     expect(find.text('github.com/composition-cassidy'), findsOneWidget);           // Xleth's maker, and a link to it
     expect(find.textContaining('not for sale'), findsOneWidget);                   // free for everyone, never sold
+  });
+
+  testWidgets('a sound plays until it is stopped — from the bar, or from its own button', (tester) async {
+    await startApp(tester);
+    await open(tester, 'Samples');
+    expect(find.byKey(const ValueKey('stop-sound')), findsNothing);
+    await tester.tap(find.text('Play').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Playing Chorus — part 1'), findsOneWidget);       // the bar, whatever page is shown
+    expect(find.text('Stop'), findsWidgets);                             // its button turned into Stop
+    await open(tester, 'Remix');
+    expect(find.byKey(const ValueKey('stop-sound')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('stop-sound')));
+    await tester.pumpAndSettle();
+    expect(Players.playing.value, isNull);
+    expect(find.byKey(const ValueKey('stop-sound')), findsNothing);
+    await open(tester, 'Samples');
+    await tester.tap(find.text('Play').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stop').first);                          // the same button stops it
+    await tester.pumpAndSettle();
+    expect(Players.playing.value, isNull);
+  });
+
+  testWidgets('leaving a changed project asks to save it; Don’t save lets the changes go', (tester) async {
+    final engine = FakeEngine();
+    (engine.data['status']['project'] as Map)['changed'] = true;
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(SpartaGenApp(engine: engine, settings: AppSettings.memory()));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('unsaved')), findsOneWidget);       // a dot by its name
+    Future<void> newProject() async {
+      await tester.tap(find.text('File'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New project'));
+      await tester.pumpAndSettle();
+    }
+
+    await newProject();
+    expect(find.text('Save the changes to “source”?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(engine.posts.where((p) => p.$1.startsWith('/api/project/')), isEmpty);  // nothing happened
+    await newProject();
+    await tester.tap(find.text('Don’t save'));
+    await tester.pumpAndSettle();
+    final paths = [for (final p in engine.posts) p.$1];
+    expect(paths.indexOf('/api/project/discard') < paths.indexOf('/api/project/new'), isTrue);
+    expect(paths.indexOf('/api/project/discard'), isNonNegative);
+  });
+
+  testWidgets('a project is deleted from Recent projects, once it is confirmed', (tester) async {
+    final engine = await startApp(tester);
+    engine.data['projects'] = [
+      {'path': '/home/tester/SpartaGen/remix-1/project.spartagen.json', 'name': 'Old one', 'source': 'a.mp4',
+       'modified': 1.7e9, 'saved': true, 'changed': false},
+    ];
+    await tester.tap(find.text('File'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recent projects…'));
+    await tester.pumpAndSettle();
+    expect(find.text('Old one'), findsOneWidget);
+    await tester.tap(find.byTooltip('Delete this project'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete “Old one”?'), findsOneWidget);
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/project/delete').$2!;
+    expect(sent['path'], '/home/tester/SpartaGen/remix-1/project.spartagen.json');
+    expect(find.text('Old one'), findsNothing);                          // gone from the list
+  });
+
+  testWidgets('a sample can be cut from another of the project’s videos', (tester) async {
+    final engine = FakeEngine();
+    final bank = engine.data['samples'] as Map<String, dynamic>;
+    bank['sources'] = [
+      {'id': 'main', 'name': 'source.mp4', 'path': '/home/tester/source.mp4', 'analyzed': true, 'duration': 164.2},
+      {'id': 'v2', 'name': 'other.mp4', 'path': '/home/tester/other.mp4', 'analyzed': true, 'duration': 30.0},
+    ];
+    bank['from'] = {'chorus': 'main', 'pitch1': 'main'};
+    bank['source_candidates'] = {'v2': bank['candidates']};
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(SpartaGenApp(engine: engine, settings: AppSettings.memory()));
+    await tester.pumpAndSettle();
+    await open(tester, 'Samples');
+    await tester.tap(find.text('source.mp4 (main)').first);              // Chorus part 1's “From”
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('other.mp4').last);
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/samples/from').$2!;
+    expect(sent, {'role': 'chorus', 'source': 'v2'});
+  });
+
+  testWidgets('your own base plays under a template, and can be moved in time', (tester) async {
+    final engine = FakeEngine();
+    final project = engine.data['status']['project'] as Map<String, dynamic>;
+    final blendS = ((engine.data['templates']['groups'] as List).first['templates'] as List)
+        .firstWhere((t) => t['id'] == 'blend_s');
+    project.addAll({'template': blendS, 'template_id': 'blend_s', 'base_own': true, 'base_heard': true});
+    tester.view.physicalSize = const Size(1400, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(SpartaGenApp(engine: engine, settings: AppSettings.memory()));
+    await tester.pumpAndSettle();
+    await open(tester, 'Base');
+    expect(find.text('Your base audio under it'), findsOneWidget);
+    expect(find.text('base.mp3'), findsOneWidget);
+    expect(find.textContaining('silent'), findsNothing);
+    expect(find.text('Export as zip…'), findsOneWidget);
+    await tester.ensureVisible(find.byTooltip('The base a beat later'));
+    await tester.tap(find.byTooltip('The base a beat later'));
+    await tester.pumpAndSettle();
+    final sent = engine.posts.lastWhere((p) => p.$1 == '/api/base/options').$2!;
+    expect(sent['base_offset'] as double, lessThan(0.1393));            // a beat later: less of the file skipped
   });
 
   test('an engine command keeps a quoted path with spaces in one piece', () {

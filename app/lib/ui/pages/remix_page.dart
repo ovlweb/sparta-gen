@@ -43,8 +43,12 @@ List<Rect> _layoutBoxes(String layout) {
     'full' => [r(0, 0, 1, 1)],
     'split2' => [r(0, 0, 0.5, 1), r(0.5, 0, 0.5, 1)],
     'grid4' => grid(4),
-    // A box for each pitch and drum the part has, no chorus: as many as it needs (here a typical part's).
-    'pitchperc' => grid(3, 4),
+    // No chorus: the pitches (and the bass) across the top, the drums along the bottom, a line between them —
+    // as many boxes as the part has (here a typical part's).
+    'pitchperc' => [
+        for (var i = 0; i < 3; i++) r(i / 3, 0, 1 / 3, 0.595),
+        for (var i = 0; i < 6; i++) r(i / 6, 0.645, 1 / 6, 0.355),
+      ],
     _ => grid(3),
   };
 }

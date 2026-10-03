@@ -322,7 +322,7 @@ class _PatternBlocksPageState extends State<PatternBlocksPage> {
     final t = await _drawnTrack();
     if (t == null) return;
     final audio = await app.listenPattern(t, widget.section);
-    if (audio != null) await Players.playSound(audio, tag: 'pattern');
+    if (audio != null) await Players.playSound(audio, tag: 'pattern', label: 'the pattern');
   }
 
   Future<void> _done() async {
@@ -386,8 +386,13 @@ class _PatternBlocksPageState extends State<PatternBlocksPage> {
                     },
               icon: const Icon(Icons.undo),
             ),
-            IconButton(
-                tooltip: 'Listen', onPressed: busy ? null : _listen, icon: const Icon(Icons.play_circle_outline)),
+            ValueListenableBuilder<String?>(
+              valueListenable: Players.playing,
+              builder: (context, playing, _) => playing == 'pattern'
+                  ? IconButton(tooltip: 'Stop', onPressed: Players.stopSound, icon: const Icon(Icons.stop_circle_outlined))
+                  : IconButton(
+                      tooltip: 'Listen', onPressed: busy ? null : _listen, icon: const Icon(Icons.play_circle_outline)),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 10, left: 4),
               child: FilledButton.icon(onPressed: busy ? null : _done, icon: const Icon(Icons.check), label: const Text('Done')),

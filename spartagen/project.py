@@ -20,7 +20,7 @@ from .audio import dsp
 from .audio.analysis import Analysis, analyze
 from .render_audio import MixConfig, muted_stems, render_mix
 from .render_video import VideoConfig, render_video
-from .samples import SampleBank, SampleConfig, build_bank
+from .samples import PITCH_ROLES, SOURCE_FOLLOWS, SOURCE_SLOTS, SampleBank, SampleConfig, build_bank
 
 Progress = Optional[Callable[[float, str], None]]
 
@@ -62,6 +62,7 @@ class Project:
     mix: dict = field(default_factory=dict)
     base: Optional[dict] = None              # BaseMap of the Sparta base (tempo, bars, sections …)
     midi: Optional[dict] = None              # a MIDI base: path, its parts, their roles (see spartagen.midi)
+    sources: list = field(default_factory=list)  # the other videos samples are cut from: {id, path, info, analysis}
     video: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
     version: str = __version__
@@ -92,6 +93,12 @@ class Project:
             return Project.from_dict(json.load(fh))
 
 
+#: The project as the user saved it last, and the project as it is now (every change is kept there at once, so
+#: nothing is lost if the app is closed by force — and "Don't save" can go back to the saved one).
+PROJECT_FILE = "project.spartagen.json"
+AUTOSAVE_FILE = "autosave.spartagen.json"
+
+
 def _file_key(path: str) -> str:
     st = os.stat(path)
     h = hashlib.sha1(f"{os.path.abspath(path)}|{st.st_size}|{int(st.st_mtime)}".encode()).hexdigest()
@@ -112,8 +119,73 @@ class Session:
         self._bank: Optional[SampleBank] = None
         self._bank_key: Optional[str] = None
         self._pitch_cache: dict = {}         # tried pitch candidates of this source (see build_bank)
+        self._audios: dict = {}              # the other videos': their sound, analysis and tried pitches, by id
+        self._analyses: dict = {}
+        self._pitch_caches: dict = {}
         self._midi = None                    # the parsed MIDI base (spartagen.midi.MidiSong)
         self._still: dict = {}               # the picture drawn last for the look's live preview, and its clips
+        self._clean: Optional[str] = None    # the project as saved (or as it began): see autosave
+
+    # ── saving ──
+    @property
+    def saved_path(self) -> str:
+        return os.path.join(self.project.workspace, PROJECT_FILE)
+
+    @property
+    def autosave_path(self) -> str:
+        return os.path.join(self.project.workspace, AUTOSAVE_FILE)
+
+    @property
+    def saved(self) -> bool:
+        """Whether the project was ever saved (it is in Recent projects)."""
+        return os.path.isfile(self.saved_path)
+
+    @property
+    def dirty(self) -> bool:
+        """Whether it changed since it was saved last (or was never saved)."""
+        return os.path.isfile(self.autosave_path)
+
+    def _state(self) -> str:
+        return json.dumps(self.project.to_dict(), sort_keys=True, default=str)
+
+    def mark_clean(self) -> None:
+        """What the project is now is what it was saved as (or began as): no changes yet."""
+        self._clean = self._state()
+
+    def autosave(self) -> Optional[str]:
+        """Keep the project as it is now, apart from the saved one — when it differs from it (back as it was, the
+        changes are gone: nothing is kept)."""
+        if self._clean is None and self.saved:
+            try:
+                self._clean = json.dumps(Project.load(self.saved_path).to_dict(), sort_keys=True, default=str)
+            except (OSError, ValueError):
+                self._clean = ""
+        if self._state() == self._clean:
+            try:
+                os.remove(self.autosave_path)
+            except FileNotFoundError:
+                pass
+            return None
+        return self.project.save(self.autosave_path)
+
+    def save(self) -> str:
+        """Save the project: it is what opens again, and Recent projects lists it."""
+        where = self.project.save(self.saved_path)
+        self.mark_clean()
+        try:
+            os.remove(self.autosave_path)
+        except FileNotFoundError:
+            pass
+        return where
+
+    def discard(self) -> bool:
+        """Forget the changes since the last save; True when the project was never saved (nothing to go back to:
+        its folder may go — see the engine's ``/api/project/discard``)."""
+        try:
+            os.remove(self.autosave_path)
+        except FileNotFoundError:
+            pass
+        return not self.saved
 
     # ── paths ──
     def path(self, *parts: str) -> str:
@@ -133,11 +205,14 @@ class Session:
         if not info.has_audio:
             raise ValueError("the source has no audio track — there is nothing to sample")
         with self.lock:
+            frm = self.sample_sources()
             self.project.source_path = path
             self.project.source_info = info.to_dict()
             self.project.analysis = None
             self.project.arrangement = None
-            self.project.samples["selections"] = {}
+            # The picks made in the old video go; those made in the project's other videos stay.
+            sel = self.project.samples.get("selections") or {}
+            self.project.samples["selections"] = {k: v for k, v in sel.items() if frm.get(k, "main") != "main"}
             self._audio = None
             self._analysis = None
             self._bank = None
@@ -146,21 +221,116 @@ class Session:
                 self.project.name = os.path.splitext(os.path.basename(path))[0][:60]
         return self.project.source_info
 
-    def audio(self) -> np.ndarray:
+    # ── the project's other videos ──
+    def source_list(self) -> list[dict]:
+        """The project's videos: the main one ("main"), then the others samples may be cut from — each
+        ``{id, path, info}``."""
+        p = self.project
+        main = [{"id": "main", "path": p.source_path, "info": p.source_info or {}}] if p.source_path else []
+        return main + [v for v in p.sources if v.get("path")]
+
+    def _source(self, sid: str) -> dict:
+        for v in self.source_list():
+            if v["id"] == (sid or "main"):
+                return v
+        raise KeyError(f"no video {sid!r} in this project")
+
+    def add_source(self, path: str) -> dict:
+        """Another video to cut samples from (the main one stays the main one)."""
+        path = os.path.abspath(path)
+        if not self.project.source_path:
+            raise ValueError("open the main video first")
+        if any(os.path.abspath(v["path"]) == path for v in self.source_list()):
+            raise ValueError("this video is in the project already")
+        info = ff.probe(path)
+        if not info.has_audio:
+            raise ValueError("this video has no sound — there is nothing to cut from it")
         with self.lock:
-            if self._audio is None:
-                if not self.project.source_path:
-                    raise ValueError("no source loaded")
-                cache = self.path("cache", f"source-{_file_key(self.project.source_path)}.f32")
-                if os.path.isfile(cache):
-                    self._audio = np.fromfile(cache, dtype=np.float32)
-                else:
-                    self._audio = ff.decode_audio(self.project.source_path, sr=SAMPLE_RATE, mono=True)
-                    self._audio.tofile(cache)
-            return self._audio
+            ids = {v.get("id") for v in self.project.sources}
+            n = 2
+            while f"v{n}" in ids:
+                n += 1
+            entry = {"id": f"v{n}", "path": path, "info": info.to_dict(), "analysis": None}
+            self.project.sources.append(entry)
+        return entry
+
+    def remove_source(self, sid: str) -> None:
+        """Take a video out of the project: what was cut from it is cut from the main one again."""
+        with self.lock:
+            if not any(v.get("id") == sid for v in self.project.sources):
+                raise KeyError(f"no video {sid!r} in this project")
+            gone = {slot for slot, v in self.sample_sources().items() if v == sid}
+            self.project.sources = [v for v in self.project.sources if v.get("id") != sid]
+            self.project.samples["from"] = {k: v for k, v in (self.project.samples.get("from") or {}).items()
+                                            if v != sid}
+            self.project.samples["selections"] = {k: v for k, v in (self.project.samples.get("selections") or {}).items()
+                                                  if k not in gone}
+            for cache in (self._audios, self._analyses, self._pitch_caches):
+                cache.pop(sid, None)
+
+    def sample_sources(self) -> dict:
+        """The video each pick of the Samples page is cut from (``{slot: video id}``): the user's choices, and the
+        picks that go with them (see ``samples.SOURCE_FOLLOWS``) — "main" for the rest."""
+        ids = {v["id"] for v in self.source_list()} | {"main"}
+        chosen = {k: v for k, v in (self.project.samples.get("from") or {}).items() if k in SOURCE_SLOTS and v in ids}
+        out = {slot: chosen.get(slot, "main") for slot in SOURCE_SLOTS}
+        for slot, lead in SOURCE_FOLLOWS.items():
+            if slot not in chosen:
+                out[slot] = out[lead]
+        return out
+
+    def set_sample_source(self, slot: str, sid: str) -> None:
+        """Cut ``slot``'s sample (and the picks that go with it) from another of the project's videos."""
+        if slot not in SOURCE_SLOTS:
+            raise ValueError(f"there is no sample {slot!r} to cut")
+        sid = sid or "main"
+        self._source(sid)                                  # (an unknown video is refused)
+        with self.lock:
+            before = self.sample_sources()
+            self.project.samples["from"] = dict(self.project.samples.get("from") or {}, **{slot: sid})
+            after = self.sample_sources()
+            # A pick in one video means nothing in another: those that moved are cut automatically again.
+            self.project.samples["selections"] = {k: v for k, v in (self.project.samples.get("selections") or {}).items()
+                                                  if before.get(k) == after.get(k)}
+
+    def audio(self, sid: str = "main") -> np.ndarray:
+        with self.lock:
+            if sid in ("", "main"):
+                if self._audio is None:
+                    if not self.project.source_path:
+                        raise ValueError("no source loaded")
+                    self._audio = self._decode(self.project.source_path)
+                return self._audio
+            x = self._audios.get(sid)
+            if x is None:
+                x = self._audios[sid] = self._decode(self._source(sid)["path"])
+            return x
+
+    def _decode(self, path: str) -> np.ndarray:
+        cache = self.path("cache", f"source-{_file_key(path)}.f32")
+        if os.path.isfile(cache):
+            return np.fromfile(cache, dtype=np.float32)
+        x = ff.decode_audio(path, sr=SAMPLE_RATE, mono=True)
+        x.tofile(cache)
+        return x
 
     # ── analysis ──
-    def analysis(self, progress: Progress = None, force: bool = False) -> Analysis:
+    def analysis(self, progress: Progress = None, force: bool = False, sid: str = "main") -> Analysis:
+        if sid not in ("", "main"):
+            entry = self._source(sid)
+            with self.lock:
+                an = self._analyses.get(sid)
+                if an is not None and not force:
+                    return an
+                if entry.get("analysis") and not force:
+                    an = self._analyses[sid] = Analysis.from_dict(entry["analysis"])
+                    return an
+            an = analyze(self.audio(sid), SAMPLE_RATE, progress)
+            with self.lock:
+                self._analyses[sid] = an
+                entry["analysis"] = an.to_dict()
+                self._bank = None
+            return an
         with self.lock:
             if self._analysis is not None and not force:
                 return self._analysis
@@ -175,26 +345,91 @@ class Session:
             self._bank = None
         return an
 
+    def videos_in_use(self) -> list[str]:
+        """The other videos some sample is cut from."""
+        return sorted({v for v in self.sample_sources().values() if v != "main"})
+
     # ── samples ──
     def bank(self, progress: Progress = None) -> SampleBank:
         # (Deeper or higher pitches are the same samples played elsewhere: nothing to cut again.)
-        key = json.dumps({k: v for k, v in self.project.samples.items() if k != "pitch_register"},
+        key = json.dumps({"samples": {k: v for k, v in self.project.samples.items() if k != "pitch_register"},
+                          "videos": [[v.get("id"), v.get("path")] for v in self.project.sources]},
                          sort_keys=True, default=str)
         with self.lock:
             if self._bank is not None and self._bank_key == key:
                 return self._bank
-        an = self.analysis(progress)
-        bank = build_bank(self.audio(), SAMPLE_RATE, an, SampleConfig.from_dict(self.project.samples), progress,
-                          shot_cuts=self._shot_cuts(), cache=self._pitch_cache)
+        frm = self.sample_sources()
+        others: dict[str, list] = {}
+        for slot, sid in frm.items():
+            if sid != "main":
+                others.setdefault(sid, []).append(slot)
+        if others:
+            bank = self._bank_of_videos(frm, others, progress)
+        else:
+            an = self.analysis(progress)
+            bank = build_bank(self.audio(), SAMPLE_RATE, an, SampleConfig.from_dict(self.project.samples), progress,
+                              shot_cuts=self._shot_cuts(), cache=self._pitch_cache)
         with self.lock:
             self._bank = bank
             self._bank_key = key
         return bank
 
-    def _shot_cuts(self):
-        """Camera cuts of the source video in a time range (None for audio-only sources)."""
-        info = self.project.source_info or {}
-        src = self.project.source_path
+    def _bank_of_videos(self, frm: dict, others: dict, progress: Progress) -> SampleBank:
+        """Samples cut from several videos: a bank from each video a pick comes from, then each pick's samples taken
+        from its own video's bank (a video's own best pitches go to the pitches it gives, in order).  The pitches
+        share one octave — the main pitch's — wherever they come from."""
+        cfg = SampleConfig.from_dict(self.project.samples)
+        sel = cfg.selections or {}
+        first = frm.get("pitch1", "main")
+        order = [first] + [sid for sid in ("main", *others) if sid != first]
+        octave = cfg.pitch_octave
+        banks: dict[str, SampleBank] = {}
+
+        def local_names(slots: list) -> dict:
+            pitches = [r for r in PITCH_ROLES if r in slots]
+            return {r: PITCH_ROLES[k] for k, r in enumerate(pitches)}
+        for i, sid in enumerate(order):
+            sub = (lambda p, m, i=i: progress((i + p) / len(order), m)) if progress else None
+            if sid == "main":
+                local_sel = {k: v for k, v in sel.items() if frm.get(k, "main") == "main"}
+            else:
+                names = local_names(others[sid])
+                local_sel = {names.get(k, k): v for k, v in sel.items() if k in others[sid]}
+            local = replace(cfg, selections=local_sel, pitch_octave=cfg.pitch_octave if sid == first else octave)
+            b = build_bank(self.audio(sid), SAMPLE_RATE, self.analysis(sub, sid=sid), local, sub,
+                           shot_cuts=self._shot_cuts(sid),
+                           cache=self._pitch_cache if sid == "main" else self._pitch_caches.setdefault(sid, {}))
+            banks[sid] = b
+            p1 = b.samples.get("pitch1")
+            if sid == first and octave is None and p1 is not None and p1.pitched:
+                octave = int(round(p1.root_midi)) // 12 - 1
+        out = banks["main"]
+        for sid, slots in others.items():
+            b, path, names = banks[sid], self._source(sid)["path"], local_names(slots)
+            for slot in slots:
+                ids = SOURCE_SLOTS[slot]
+                if slot == "phrase":                         # the main phrase's chops come with it
+                    for k in [k for k, smp in out.samples.items() if smp.role == "syllable"]:
+                        del out.samples[k]
+                    ids = ids + tuple(k for k, smp in b.samples.items() if smp.role == "syllable")
+                for gid in ids:
+                    lid = names.get(gid, gid)
+                    smp = b.samples.get(lid)
+                    if smp is None:                          # (none in that video: the main one's stays)
+                        continue
+                    smp = replace(smp, meta=dict(smp.meta), source=path, source_id=sid)
+                    if lid != gid:
+                        smp.id, smp.label = gid, smp.label.replace(lid, gid)
+                    out.samples[gid] = smp
+        return out
+
+    def _shot_cuts(self, sid: str = "main"):
+        """Camera cuts of a video in a time range (None for audio-only sources)."""
+        if sid in ("", "main"):
+            info, src = self.project.source_info or {}, self.project.source_path
+        else:
+            v = self._source(sid)
+            info, src = v.get("info") or {}, v["path"]
         if not src or not info.get("has_video"):
             return None
         fps = min(max(float(info.get("fps") or 25.0), 10.0), 60.0)
@@ -212,13 +447,14 @@ class Session:
             dsp.write_wav(out, s.audio, s.sr)
         return out
 
-    def candidate_wav(self, kind: str, index: int) -> str:
-        """Raw (unprocessed) audio of an analysis candidate."""
-        an = self.analysis()
+    def candidate_wav(self, kind: str, index: int, sid: str = "main") -> str:
+        """Raw (unprocessed) audio of an analysis candidate (of the main video, or of video ``sid``)."""
+        an = self.analysis(sid=sid)
         c = an.candidates[kind][index]
-        out = self.path("candidates", f"{kind}-{index}-{int(c.start * 1000)}.wav")
+        src = self._source(sid)["path"]
+        out = self.path("candidates", f"{_file_key(src)}-{kind}-{index}-{int(c.start * 1000)}.wav")
         if not os.path.isfile(out):
-            x = self.audio()
+            x = self.audio(sid)
             seg = x[int(c.start * SAMPLE_RATE):int(c.end * SAMPLE_RATE)]
             dsp.write_wav(out, dsp.apply_fades(seg, SAMPLE_RATE, 3, 6), SAMPLE_RATE)
         return out
@@ -287,7 +523,45 @@ class Session:
                 self.project.variant = "base"
                 self.project.arrangement = None
         self.follow_key(bm.key)
+        if fit and tpl is not None and tpl.midi:
+            # A MIDI base's template: the remix plays its MIDI — its bass line, its drums, its parts bar for bar —
+            # and this file plays under it, its bar 1 on the MIDI's first.
+            self.use_midi_template(tpl)
         return self.project.base
+
+    def follow_base(self, template: Optional[str] = None) -> None:
+        """Build the remix on the loaded base (``template``: which base it is, "" for none): on a MIDI base's
+        template the remix plays the template's MIDI over the file, else it follows the base (see
+        :meth:`base_map`)."""
+        if template is not None:
+            self.project.options["base_template"] = template or ""
+        tpl = self.base_template()
+        if tpl is not None and tpl.midi:
+            self.use_midi_template(tpl)
+            return
+        if not self.project.base:
+            raise ValueError("load a Sparta base first to fit the remix to it")
+        with self.lock:
+            self.project.variant = "base"
+            self.project.arrangement = None
+
+    def base_map(self) -> Optional[dict]:
+        """The base as the remix follows it: as read from the file — or, when the template it is knows this base
+        (its audio's map, kept beside it), the template's own parts, chords and tempo, from where this file's
+        bar 1 is.  Drums and bass then follow the template, not a reading of the audio."""
+        b = self.project.base
+        if not b:
+            return None
+        tpl = self.base_template()
+        known = tpl.audio_map() if tpl is not None else None
+        if not known:
+            return b
+        return dict(known, path=b.get("path", ""), offset=b.get("offset", known.get("offset", 0.0)),
+                    duration=b.get("duration", known.get("duration", 0.0)))
+
+    def own_base(self) -> bool:
+        """Whether the base file is one the user opened (not the audio a template comes with)."""
+        return bool(self.project.mix.get("base_path")) and not self.project.options.get("base_from_template")
 
     def clear_base(self) -> None:
         with self.lock:
@@ -354,13 +628,31 @@ class Session:
             m = self.project.midi
             m["mapping"] = clean_mapping(song, dict(m.get("mapping") or {}, **tpl.midi_mapping()))
             m.update({"template": tpl.id, "plan": [list(p) for p in tpl.plan], "minor": bool(tpl.minor)})
+            for k in ("auto_percussion", "auto_phrase"):        # (a template saved with its MIDI keeps them)
+                if k in tpl.options:
+                    m[k] = bool(tpl.options[k])
             if options is not None:
                 keep = {k: self.project.options[k] for k in ("key_mode", "base_template", "base_structure")
                         if k in self.project.options}
                 self.project.options = dict(keep, **options)
             self.project.arrangement = None
         self.follow_key(tpl.key)
+        if tpl.audio and not self.own_base() and os.path.isfile(tpl.audio_path()):
+            self._template_audio(tpl)                  # its base's own audio under its notes
         return self.project.midi
+
+    def _template_audio(self, tpl) -> None:
+        """Put the audio a MIDI base's template comes with under the remix (its map, kept beside it, says where
+        bar 1 is; without one it is read from the file)."""
+        from .audio.base import BaseMap, analyze_base_file
+        path = tpl.audio_path()
+        known = tpl.audio_map()
+        bm = BaseMap.from_dict(dict(known, path=path)) if known else analyze_base_file(path, bpm_hint=tpl.bpm)
+        with self.lock:
+            self.project.base = bm.to_dict()
+            self.project.mix.update({"base_path": path, "base_offset": bm.offset,
+                                     "base_mode": self.project.mix.get("base_mode") or "remix"})
+            self.project.options["base_from_template"] = tpl.id
 
     def use_audio_template(self, tpl, options: Optional[dict] = None) -> dict:
         """Build the remix on a template that comes with its base's audio (the Extended base): that base
@@ -430,6 +722,39 @@ class Session:
                     self.project.arrangement = None
         return self.project.midi
 
+    def as_template(self, name: str, description: str = "", with_midi: bool = True,
+                    with_audio: bool = True) -> tuple:
+        """The remix as a template of the user's: its parts, tempo, key and pattern choices — on a MIDI, the MIDI
+        with what the samples play of each channel (``with_midi``), and the base audio the user put under it
+        (``with_audio``).  Returns (template, the audio's map or None) for :func:`bases.save_user_template`."""
+        from .bases import MIDI_PLAN_KINDS, BaseTemplate, _slug, template_from_arrangement
+        p = self.project
+        arr = self.arrangement()
+        patterns = dict(p.options.get("patterns") or {})
+        if with_midi and p.variant == "midi" and p.midi:
+            song = self.midi_song()
+            m = p.midi
+            fold = {"intro_hits": "intro", "intro3": "intro", "chorus_final": "chorus", "awesomeness1": "awesomeness",
+                    "awesomeness2": "awesomeness"}
+            plan = [[k if k in MIDI_PLAN_KINDS else "chorus", int(sec.bars)]
+                    for sec in arr.sections for k in [fold.get(sec.kind, sec.kind)]]
+            t = BaseTemplate(id=_slug(name), name=name, bpm=float(song.bpm), key=arr.key,
+                             minor=bool(m.get("minor") if m.get("minor") is not None else song.minor), plan=plan,
+                             roles={pid: dict(r) for pid, r in (m.get("mapping") or {}).items()},
+                             midi=os.path.abspath(m["path"]), pitching=arr.pitching, polish=arr.polish,
+                             options=dict(patterns, wiki_perc=True, auto_percussion=bool(m.get("auto_percussion", True)),
+                                          auto_phrase=bool(m.get("auto_phrase", True))),
+                             description=description or f"Saved from “{arr.title}”.", user=True)
+        else:
+            t = template_from_arrangement(arr, name, description, key=p.samples.get("key"), options=patterns)
+        audio_map = None
+        base = p.mix.get("base_path")
+        if with_audio and base and os.path.isfile(base) and self.own_base() and self.base_heard():
+            t.audio = os.path.abspath(base)
+            if p.base:
+                audio_map = dict(p.base, path="", offset=float(p.mix.get("base_offset", p.base.get("offset", 0.0))))
+        return t, audio_map
+
     def clear_midi(self) -> None:
         with self.lock:
             self.project.midi = None
@@ -449,11 +774,13 @@ class Session:
             if self.project.variant == "midi" and self.project.midi:
                 from .midi import build_from_midi
                 m = self.project.midi
+                tpl = self._template(m.get("template"))
                 arr = build_from_midi(self.midi_song(), m.get("mapping"), bool(m.get("auto_percussion", True)),
                                       bool(m.get("auto_phrase", True)), key=key,
                                       pitching=o.get("pitching") or "normal", polish=o.get("polish") or "normal",
                                       section_bars=int(m.get("section_bars", 8)),
-                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern") or PERC_DEFAULT,
+                                      perc_pattern=(o.get("patterns") or {}).get("perc_pattern")
+                                      or (tpl.options.get("perc_pattern") if tpl is not None else None) or PERC_DEFAULT,
                                       plan=m.get("plan") or None, minor=m.get("minor"))
                 arr.title = o.get("title") or (f"{self.project.name} has a Sparta Remix" if self.project.source_path
                                                else "Sparta Remix")
@@ -462,7 +789,7 @@ class Session:
                 tpl = self.base_template()
                 extra = dict(tpl.options) if tpl else {}
                 extra.update(o.get("patterns") or {})
-                arr = build_from_base(self.project.base, pitching=o.get("pitching") or (tpl.pitching if tpl else "normal"),
+                arr = build_from_base(self.base_map(), pitching=o.get("pitching") or (tpl.pitching if tpl else "normal"),
                                       polish=o.get("polish") or (tpl.polish if tpl else "normal"),
                                       minor=None if o.get("minor") is None else bool(o.get("minor")),
                                       title=o.get("title") or None, chorus_pattern=o.get("chorus_pattern"),
@@ -537,14 +864,17 @@ class Session:
             return comp.still(t)
 
     def base_heard(self) -> bool:
-        """Whether a loaded base file plays under the remix: when the remix is built on it, or on your own MIDI
-        of a base — not on a template (a MIDI template's own music is another base, in another tempo)."""
+        """Whether the loaded base file plays under the remix: a base you opened plays under whatever the remix
+        is built on — that base, your MIDI or any template; the audio a template comes with only under that
+        template (never under another one's notes)."""
         p = self.project
-        return p.variant == "base" or (p.variant == "midi" and not (p.midi or {}).get("template"))
+        tid = p.options.get("base_from_template")
+        if not tid:
+            return True
+        return p.variant == "base" or (p.variant == "midi" and (p.midi or {}).get("template") == tid)
 
     def mix_settings(self) -> dict:
-        """The mix as rendered: a loaded base file plays under the remix only when :meth:`base_heard` — on a
-        template it waits, silent, instead of clashing with another tempo."""
+        """The mix as rendered: the loaded base file plays under the remix when :meth:`base_heard`."""
         mix = dict(self.project.mix)
         tid = self.project.options.get("base_from_template")
         if tid and not os.path.isfile(mix.get("base_path") or ""):
@@ -564,6 +894,8 @@ class Session:
         elif variant == "midi":
             if not self.project.midi:
                 raise ValueError("load a MIDI base first")
+            if self.project.midi.get("template") != self.project.options.get("base_from_template"):
+                self._drop_template_base()             # another template's base does not go under these notes
             tpl = self._template(self.project.midi.get("template"))
             key = tpl.key if tpl is not None else self.midi_song().key
         else:

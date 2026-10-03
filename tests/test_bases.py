@@ -162,28 +162,137 @@ def test_bad_templates_are_refused(change, msg, tmp_path):
         bases.save_user_template(t, str(tmp_path))
 
 
-def test_a_loaded_base_file_plays_only_under_a_remix_built_on_it(tmp_path):
-    """Picking a template with a base file loaded must not play that base under another structure/tempo."""
+def test_a_base_you_open_plays_under_any_remix(tmp_path):
+    """RC 3: a base file the user opened plays under whatever the remix is built on — that base, their MIDI or any
+    template (RC 2 silenced it under templates)."""
     from spartagen.project import Session
     s = Session(workspace=str(tmp_path / "ws"))
     s.project.mix["base_path"] = str(tmp_path / "base.mp3")
-    s.project.variant = "extended"
-    assert "base_path" not in s.mix_settings()               # a template: the base waits, silent
-    s.project.variant = "base"
-    assert s.mix_settings()["base_path"].endswith("base.mp3")   # built on the base: it plays
+    for variant in ("extended", "base", "unextended"):
+        s.project.variant = variant
+        assert s.mix_settings()["base_path"].endswith("base.mp3") and s.base_heard()
     s.project.variant = "midi"
     s.project.midi = {"path": str(tmp_path / "mine.mid")}
     assert "base_path" in s.mix_settings() and s.base_heard()   # your MIDI of a base: its audio under it
-    assert s.project.mix["base_path"]                        # never forgotten, only silent
+    s.set_variant("blend_s")                                   # a MIDI template: its notes, your base under them
+    assert s.project.midi["template"] == "blend_s" and s.mix_settings()["base_path"].endswith("base.mp3")
 
 
-def test_a_midi_template_never_plays_the_loaded_base_under_it(tmp_path):
-    """Issue 2: a base file opened by hand (the Sparta base itself, say) played under Blend S's notes."""
+def test_a_template_s_own_base_never_plays_under_another_template(tmp_path):
+    """Issue 2: the Extended base the default template brings must not go under Blend S's notes (or your MIDI's)."""
     from spartagen.project import Session
     s = Session(workspace=str(tmp_path / "ws"))
-    s.project.mix["base_path"] = str(tmp_path / "base.mp3")
-    s.project.variant = "base"
+    s.set_variant("extended")
+    assert s.project.options["base_from_template"] == "extended" and s.base_heard()
+    assert s.mix_settings()["base_path"].endswith("sparta_remix_extended.mp3")
     s.set_variant("blend_s")
     assert s.project.variant == "midi" and s.project.midi["template"] == "blend_s"
-    assert "base_path" not in s.mix_settings() and not s.base_heard()
-    assert s.project.mix["base_path"].endswith("base.mp3")   # kept for when the remix goes back on it
+    assert "base_path" not in s.mix_settings() and not s.project.mix.get("base_path")    # dropped, not just silent
+    # Left loaded by an older project: still never heard under another template's notes.
+    s.project.mix["base_path"] = bases.get_template("extended").audio_path()
+    s.project.options["base_from_template"] = "extended"
+    assert not s.base_heard() and "base_path" not in s.mix_settings()
+
+
+def test_a_base_said_to_be_a_midi_template_plays_that_midi_over_the_file(tmp_path):
+    """RC 3: drums and bass on a known base come from the template — Blend S's MIDI bass line and parts — with the
+    file playing under them, not from a reading of the audio."""
+    path = str(tmp_path / "my_blend_s.wav")
+    dsp.write_wav(path, make_base(), B.SR)
+    s = Session(workspace=str(tmp_path / "w"))
+    s.set_base(path, template="blend_s")
+    assert s.project.variant == "midi" and s.project.midi["template"] == "blend_s"
+    assert s.own_base() and s.base_heard() and s.mix_settings()["base_path"] == os.path.abspath(path)
+    arr = s.arrangement()
+    tpl = bases.get_template("blend_s")
+    assert [[x.kind, x.bars] for x in arr.sections] == tpl.plan
+    bass_part = next(pid for pid, r in tpl.roles.items() if r == "bass")
+    assert any(t.id == f"midi_{bass_part}" and t.kind == "bass" for x in arr.sections for t in x.tracks)
+    # Said to be another base: the remix follows the file again (as read), still on the file.
+    s.follow_base("")
+    assert s.project.variant == "base" and s.base_heard()
+
+
+def test_a_template_that_knows_the_base_gives_its_parts_chords_and_tempo(tmp_path):
+    path = str(tmp_path / "my_extended.wav")
+    dsp.write_wav(path, make_base(), B.SR)
+    s = Session(workspace=str(tmp_path / "w"))
+    s.set_base(path, template="")
+    read = dict(s.base_map())
+    known = bases.get_template("extended").audio_map()
+    assert read["sections"] != known["sections"]                 # (a 19-bar test base)
+    s.follow_base("extended")
+    bm = s.base_map()
+    assert bm["sections"] == known["sections"] and bm["progression"] == known["progression"] and bm["bpm"] == 140.0
+    assert bm["offset"] == read["offset"] and bm["path"] == read["path"]       # from this file: where bar 1 is
+    assert s.project.base["sections"] == read["sections"]        # what was read is kept (Auto shows it again)
+    assert len(s.arrangement().sections) == len(known["sections"])
+    s.follow_base("")
+    assert s.base_map()["sections"] == read["sections"]
+
+
+def _with_own_base(tmp_path, tid="blend_s"):
+    path = str(tmp_path / "under.wav")
+    dsp.write_wav(path, make_base(), B.SR)
+    s = Session(workspace=str(tmp_path / "w"))
+    s.set_variant(tid)
+    s.set_base(path, fit=False, template=tid)
+    return s, path
+
+
+def test_templates_travel_as_a_zip_with_their_midi_audio_and_channel_settings(tmp_path, monkeypatch):
+    import zipfile
+    monkeypatch.setenv("SPARTAGEN_HOME", str(tmp_path / "home"))
+    s, under = _with_own_base(tmp_path)
+    s.set_midi_mapping({"t9c7": {"role": "off"}, "t8c6": {"role": "pitch1", "octave": 1, "gain_db": -2.0}},
+                       auto_percussion=False)
+    t, audio_map = s.as_template("Blend S Mine", "with my base under it")
+    saved = bases.save_user_template(t, audio_map=audio_map)
+    assert saved.midi == "blend_s_mine/blend_s.mid" and saved.audio == "blend_s_mine/under.wav"
+    assert saved.roles["t9c7"]["role"] == "off" and saved.roles["t8c6"] == {"role": "pitch1", "octave": 1, "gain_db": -2.0}
+    assert saved.options["auto_percussion"] is False and saved.audio_map()["offset"] == s.project.mix["base_offset"]
+    zpath = bases.export_template(saved.id, str(tmp_path / "out" / "Blend S Mine.zip"))
+    with zipfile.ZipFile(zpath) as z:
+        assert sorted(z.namelist()) == ["blend_s.mid", "blend_s_mine.spartabase.json", "under.json", "under.wav"]
+        d = json.loads(z.read("blend_s_mine.spartabase.json"))
+        assert d["midi"] == "blend_s.mid" and d["audio"] == "under.wav" and d["roles"]["t9c7"]["role"] == "off"
+    # Someone else imports it: the MIDI, the audio and the channels' settings come along.
+    monkeypatch.setenv("SPARTAGEN_HOME", str(tmp_path / "friend"))
+    imp = bases.import_template(zpath)
+    assert imp.id == "my.blend_s_mine" and os.path.isfile(imp.midi_path()) and os.path.isfile(imp.audio_path())
+    assert imp.roles == saved.roles and imp.plan == saved.plan and imp.audio_map() == saved.audio_map()
+    s2 = Session(workspace=str(tmp_path / "w2"))
+    s2.set_variant(imp.id)
+    m = s2.project.midi
+    assert m["template"] == imp.id and m["auto_percussion"] is False and m["mapping"]["t9c7"]["role"] == "off"
+    assert s2.base_heard() and s2.mix_settings()["base_path"] == imp.audio_path()
+    s2.set_variant("decline_cte")                               # its audio goes with it
+    assert not s2.project.mix.get("base_path")
+    bases.delete_user_template(imp.id)
+    assert not os.path.exists(imp.path) and not os.path.exists(os.path.dirname(imp.midi_path()))
+
+
+def test_a_template_zip_is_read_with_care(tmp_path, monkeypatch):
+    import zipfile
+    monkeypatch.setenv("SPARTAGEN_HOME", str(tmp_path / "home"))
+    tpl = {"name": "Odd", "plan": [["chorus", 8]], "midi": "odd.mid"}
+
+    def make(name, files):
+        p = str(tmp_path / name)
+        with zipfile.ZipFile(p, "w") as z:
+            for arc, data in files.items():
+                z.writestr(arc, data)
+        return p
+    with pytest.raises(ValueError, match="no SpartaGen template"):
+        bases.import_template(make("none.zip", {"readme.txt": "hi"}))
+    with pytest.raises(ValueError, match="not in the zip"):
+        bases.import_template(make("missing.zip", {"odd.spartabase.json": json.dumps(tpl)}))
+    midi = open(bases.get_template("stroll").midi_path(), "rb").read()
+    # A file named to land outside the templates folder is unpacked by its name alone.
+    p = make("sly.zip", {"x/odd.spartabase.json": json.dumps(dict(tpl, midi="../../odd.mid")), "../../odd.mid": midi})
+    t = bases.import_template(p)
+    assert t.midi == "odd/odd.mid" and os.path.isfile(t.midi_path())
+    assert not (tmp_path / "odd.mid").exists() and not (tmp_path.parent / "odd.mid").exists()
+    monkeypatch.setitem(bases.MAX_FILE_MB, "midi", 0)
+    with pytest.raises(ValueError, match="too big"):
+        bases.import_template(make("big.zip", {"odd.spartabase.json": json.dumps(tpl), "odd.mid": midi}))

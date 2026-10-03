@@ -64,7 +64,46 @@ class _SourcePageState extends State<SourcePage> {
       children: [
         src == null ? _dropZone(context) : _loaded(context, src),
         _oneClick(context),
+        if (src != null) _moreVideos(context),
       ],
+    );
+  }
+
+  /// More videos to cut samples from: a pitch from one, the kick from another …
+  Widget _moreVideos(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final others = app.sources.where((v) => v['id'] != 'main').toList();
+    Future<void> add() async {
+      final path = await app.pickFile(Kinds.video);
+      if (path != null) await app.addSource(path);
+    }
+    return SectionCard(
+      title: 'More videos',
+      subtitle: 'Cut samples from several videos: on the Samples page, choose the video each one comes from — the '
+          'pitches from one, the kick or a hi-hat from another.',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final v in others)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(v['has_video'] == true ? Icons.movie_outlined : Icons.graphic_eq),
+            title: Text('${v['name']}', overflow: TextOverflow.ellipsis),
+            subtitle: Text([
+              fmtDuration(v['duration'] as num?),
+              if (v['analyzed'] == true) 'read' else 'read when a sample is cut from it',
+            ].join(' · '), style: TextStyle(color: cs.onSurfaceVariant)),
+            trailing: IconButton(
+              tooltip: 'Take this video out (its samples are cut from the main video again)',
+              onPressed: app.busy ? null : () => app.removeSource('${v['id']}'),
+              icon: const Icon(Icons.close),
+            ),
+          ),
+        const SizedBox(height: 4),
+        AdaptiveButton.outlined(
+          onPressed: app.busy ? null : add,
+          icon: const Icon(Icons.video_call_outlined),
+          label: const Text('Add another video…'),
+        ),
+      ]),
     );
   }
 

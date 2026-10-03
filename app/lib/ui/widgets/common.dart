@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -6,20 +8,32 @@ import 'package:media_kit_video/media_kit_video.dart';
 class Players {
   static bool enabled = true;
   static Player? _sample;
+  static StreamSubscription<bool>? _ended;
+
+  /// What plays now (its tag; null: nothing) — the Stop bar and the play buttons show it.
   static final ValueNotifier<String?> playing = ValueNotifier(null);
 
-  /// Play a short sound (a sample, or a stretch of the source) — one at a time, never a window.
-  static Future<void> playSound(String uri, {String? tag, double? start, double? end}) async {
+  /// What plays now, in words ("Main pitch", "your remix" …).
+  static String? label;
+
+  /// Play a sound (a sample, a stretch of a video, the remix's audio) — one at a time, never a window.
+  static Future<void> playSound(String uri, {String? tag, double? start, double? end, String? label}) async {
+    final id = tag ?? uri;
+    Players.label = label;
+    playing.value = id;
     if (!enabled) return;
     final pl = _sample ??= Player(configuration: const PlayerConfiguration(vo: 'null', title: 'SpartaGen'));
-    final id = tag ?? uri;
-    playing.value = id;
+    await _ended?.cancel();
+    _ended = pl.stream.completed.listen((done) {
+      if (done && playing.value == id) playing.value = null;
+    });
     Duration? d(double? s) => s == null ? null : Duration(microseconds: (s * 1e6).round());
     await pl.open(Media(uri, start: d(start), end: d(end)));
-    pl.stream.completed.firstWhere((c) => c).then((_) {
-      if (playing.value == id) playing.value = null;
-    });
   }
+
+  /// Play it — or, when it is what plays, stop it (a play button's second press).
+  static Future<void> toggle(String uri, {required String tag, double? start, double? end, String? label}) =>
+      playing.value == tag ? stopSound() : playSound(uri, tag: tag, start: start, end: end, label: label);
 
   static Future<void> stopSound() async {
     playing.value = null;
@@ -27,8 +41,85 @@ class Players {
   }
 
   static Future<void> dispose() async {
+    await _ended?.cancel();
     await _sample?.dispose();
     _sample = null;
+  }
+}
+
+/// What plays now, with the button that stops it — there while a sound plays, wherever it was started.
+class SoundBar extends StatelessWidget {
+  const SoundBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ValueListenableBuilder<String?>(
+      valueListenable: Players.playing,
+      builder: (context, playing, _) => AnimatedSize(
+        duration: const Duration(milliseconds: 160),
+        child: playing == null
+            ? const SizedBox(width: double.infinity)
+            : Material(
+                color: cs.secondary.withValues(alpha: 0.14),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 12, 4),
+                  child: Row(children: [
+                    Icon(Icons.graphic_eq, color: cs.secondary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text('Playing ${Players.label ?? 'a sound'}',
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                    TextButton.icon(
+                      key: const ValueKey('stop-sound'),
+                      onPressed: Players.stopSound,
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      label: const Text('Stop'),
+                    ),
+                  ]),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// A play button that turns into Stop while its own sound ([tag]) plays.
+class PlayToggle extends StatelessWidget {
+  const PlayToggle({
+    super.key,
+    required this.tag,
+    required this.play,
+    required this.label,
+    this.icon = Icons.play_arrow,
+    this.outlined = false,
+    this.iconSize,
+    this.style,
+  });
+
+  final String tag;
+  final VoidCallback? play;
+  final String label;
+  final IconData icon;
+  final bool outlined;
+  final double? iconSize;
+  final ButtonStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: Players.playing,
+      builder: (context, playing, _) {
+        final on = playing == tag;
+        final VoidCallback? press = on ? Players.stopSound : play;
+        final i = Icon(on ? Icons.stop : icon, size: iconSize);
+        final l = Text(on ? 'Stop' : label);
+        return outlined
+            ? AdaptiveButton.outlined(onPressed: press, icon: i, label: l, style: style)
+            : AdaptiveButton.tonal(onPressed: press, icon: i, label: l, style: style);
+      },
+    );
   }
 }
 
