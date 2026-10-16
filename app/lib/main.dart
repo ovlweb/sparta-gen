@@ -7,9 +7,11 @@ import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, Licens
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import 'engine/engine.dart';
 import 'platform/android_host.dart';
+import 'platform/files.dart';
 import 'state/app_state.dart';
 import 'state/settings.dart';
 import 'ui/about.dart';
@@ -129,6 +131,7 @@ class _EngineGateState extends State<EngineGate> {
   static final String? _smokeReport = Platform.environment['SPARTAGEN_SMOKE_REPORT'];
 
   Future<void> _smokeDone(AppState? app, Object? error) async {
+    final dialogs = error == null && Platform.environment['SPARTAGEN_SMOKE_DIALOGS'] == '1' ? await _dialogCheck() : null;
     final report = <String, dynamic>{
       'ok': error == null && app != null && app.ffmpegOk,
       'engine': EngineLauncher.engineCommand().$1,
@@ -140,10 +143,48 @@ class _EngineGateState extends State<EngineGate> {
         ].length,
       if (error != null) 'error': '$error',
       if (error != null) 'log': _launcher.log,
+      'dialogs': ?dialogs,
     };
     File(_smokeReport!).writeAsStringSync(const JsonEncoder.withIndent(' ').convert(report));
     await _engine?.shutdown();
     exit(report['ok'] == true ? 0 : 1);
+  }
+
+  /// The release builds' check of the system's Open and Save dialogs (issue 6: on Windows they failed or hung the
+  /// window): with a video playing, as when the app shows one, each dialog must open — the build closes it — and
+  /// come back; on Windows the helper's dialogs as well.  {open|save|helper open|helper save: "closed" or what went
+  /// wrong, and which dialog showed (the system's, or the helper's)}.
+  Future<Map<String, String>> _dialogCheck() async {
+    final out = <String, String>{};
+    Player? player;
+    final media = Platform.environment['SPARTAGEN_SMOKE_MEDIA'];
+    if (media != null && media.isNotEmpty) {
+      player = Player();
+      VideoController(player);
+      await player.open(Media(media));
+      await Future<void>.delayed(const Duration(seconds: 3));
+      out['playing'] = '${player.state.playing}';
+    }
+    Future<void> check(String name, Future<String?> Function() show) async {
+      try {
+        final got = await show().timeout(const Duration(seconds: 90));
+        out[name] = got == null ? 'closed (${Files.lastDialog})' : 'picked $got (${Files.lastDialog})';
+      } on TimeoutException {
+        out[name] = 'hung';
+      } catch (e) {
+        out[name] = 'error: $e';
+      }
+    }
+
+    await check('open', () => Files.open(Kinds.video));
+    await check('save', () => Files.saveLocation(suggestedName: 'check.mp4', kind: Kinds.mp4));
+    if (Platform.isWindows) {
+      // (the helper's dialogs too: what shows when the app's own cannot)
+      await check('helper open', () => Files.helperDialog('open', Kinds.video, null));
+      await check('helper save', () => Files.helperDialog('save', Kinds.mp4, null, name: 'check.mp4'));
+    }
+    await player?.dispose();
+    return out;
   }
 
   @override

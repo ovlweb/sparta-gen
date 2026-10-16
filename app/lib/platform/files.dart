@@ -2,6 +2,7 @@
 // and "Save as" of the system, through the app's host; iOS: the Files and Photos pickers, and the share sheet
 // to save).
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -71,6 +72,7 @@ class Files {
   /// Pick a file to open; its local path (on a phone a copy the app can read).  [photos]: from the Photos
   /// library (iOS).
   static Future<String?> open(XTypeGroup kind, {bool photos = false}) async {
+    lastDialog = 'system';
     if (Platform.isIOS && photos) {
       return _host.invokeMethod<String>('open', {'photos': true, 'images': kind.mimeTypes?.contains('image/*') ?? false});
     }
@@ -78,14 +80,100 @@ class Files {
       final mimes = kind.mimeTypes ?? const ['*/*'];
       return _host.invokeMethod<String>('open', {'mime': mimes});
     }
-    final f = await openFile(acceptedTypeGroups: [kind], initialDirectory: onPhone ? null : _startDir(kind));
-    if (f == null) return null;
-    if (f.path.isEmpty) {
+    final start = onPhone ? null : _startDir(kind);
+    final String? path;
+    try {
+      path = (await openFile(acceptedTypeGroups: [kind], initialDirectory: start))?.path;
+    } on PlatformException catch (e) {
+      if (!Platform.isWindows) rethrow;
+      return _remember(await helperDialog('open', kind, start, error: e));
+    }
+    if (path == null) return null;
+    if (path.isEmpty) {
       throw const FileSystemException('That file is not in a folder on this computer (a “Recent” or network '
           'location) — open it from its folder instead.');
     }
-    _lastDir = p.dirname(f.path);
-    return f.path;
+    return _remember(path);
+  }
+
+  static String? _remember(String? path) {
+    if (path != null && path.isNotEmpty) _lastDir = p.dirname(path);
+    return path == null || path.isEmpty ? null : path;
+  }
+
+  /// Which dialog was shown last: the system's own in the app ("system"), or the helper's (Windows, "helper").
+  static String lastDialog = 'system';
+
+  /// Windows: the same system dialog, shown by a helper process (PowerShell, in a COM apartment of its own) — for
+  /// when the app's own could not be shown ([error]; the release builds' dialog check shows it too).  [mode]: open,
+  /// save or folder.  The path chosen, or null.
+  static Future<String?> helperDialog(String mode, XTypeGroup? kind, String? dir,
+      {String? name, PlatformException? error}) async {
+    lastDialog = 'helper';
+    String q(String? v) => "'${(v ?? '').replaceAll("'", "''")}'";
+    final exts = kind?.extensions ?? const <String>[];
+    final filter = [
+      if (exts.isNotEmpty) '${kind?.label ?? 'Files'} (${exts.map((e) => '*.$e').join(', ')})|'
+          '${exts.map((e) => '*.$e').join(';')}',
+      'All files (*.*)|*.*',
+    ].join('|');
+    final dialog = switch (mode) {
+      'save' => 'System.Windows.Forms.SaveFileDialog',
+      'folder' => 'System.Windows.Forms.FolderBrowserDialog',
+      _ => 'System.Windows.Forms.OpenFileDialog',
+    };
+    final settings = mode == 'folder'
+        ? [r'$d.SelectedPath = ' + q(dir), r'$d.ShowNewFolderButton = $true']
+        : [
+            r'$d.Filter = ' + q(filter),
+            r'$d.InitialDirectory = ' + q(dir),
+            if (mode == 'save') ...[r'$d.FileName = ' + q(name), r'$d.OverwritePrompt = $true'],
+          ];
+    final script = [
+      r"$ErrorActionPreference = 'Stop'",
+      r'[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false',
+      r'Add-Type -AssemblyName System.Windows.Forms',
+      r'[System.Windows.Forms.Application]::EnableVisualStyles()',
+      r'$d = New-Object ' + dialog,
+      ...settings,
+      // (an owner kept on top: the dialog does not open behind SpartaGen's window)
+      r'$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true; ShowInTaskbar = $false}',
+      r'if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {',
+      '  [Console]::Out.Write(${mode == 'folder' ? r'$d.SelectedPath' : r'$d.FileName'})',
+      '}',
+    ].join('\n');
+    final utf16 = <int>[for (final c in script.codeUnits) ...[c & 0xff, c >> 8]];
+    final ProcessResult r;
+    try {
+      r = await Process.run('powershell.exe', [
+        '-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', base64.encode(utf16),
+      ], stdoutEncoding: utf8, stderrEncoding: utf8);
+    } on ProcessException {
+      throw FileSystemException('Windows could not show its file dialog (${error?.message ?? 'no PowerShell'}).');
+    }
+    if (r.exitCode != 0) {
+      throw FileSystemException('Windows could not show its file dialog: ${'${r.stderr}'.trim()}');
+    }
+    final out = '${r.stdout}'.replaceAll('\uFEFF', '').trim();
+    return out.isEmpty ? null : out;
+  }
+
+  /// Where to save (desktop): the system's Save dialog — on Windows the helper's when the app's cannot be shown.
+  static Future<String?> saveLocation({required String suggestedName, required XTypeGroup kind}) async {
+    final start = _startDir(kind);
+    lastDialog = 'system';
+    String? path;
+    try {
+      path = (await getSaveLocation(suggestedName: suggestedName, acceptedTypeGroups: [kind], initialDirectory: start))
+          ?.path;
+    } on PlatformException catch (e) {
+      if (!Platform.isWindows) rethrow;
+      path = await helperDialog('save', kind, start, name: suggestedName, error: e);
+    }
+    if (path == null || path.isEmpty) return null;
+    final ext = kind.extensions?.isNotEmpty == true ? kind.extensions!.first : null;
+    if (ext != null && p.extension(path).isEmpty) path = '$path.$ext';
+    return _remember(path);
   }
 
   /// Save something the engine writes: desktop asks where first and the engine writes there; a phone has
@@ -105,20 +193,22 @@ class Files {
       final ok = await _host.invokeMethod<bool>('saveAs', {'path': tmp, 'name': suggestedName, 'mime': mime});
       return ok == true ? suggestedName : null;
     }
-    final loc = await getSaveLocation(
-        suggestedName: suggestedName, acceptedTypeGroups: [kind], initialDirectory: _startDir(kind));
-    if (loc == null) return null;
-    var path = loc.path;
-    final ext = kind.extensions?.isNotEmpty == true ? kind.extensions!.first : null;
-    if (ext != null && p.extension(path).isEmpty) path = '$path.$ext';
-    _lastDir = p.dirname(path);
+    final path = await saveLocation(suggestedName: suggestedName, kind: kind);
+    if (path == null) return null;
     return await write(path) ? path : null;
   }
 
   /// A folder (desktop only).
   static Future<String?> folder({String? title}) async {
     if (onPhone) return null;
-    final dir = await getDirectoryPath(confirmButtonText: title, initialDirectory: _startDir(Kinds.video));
+    final start = _startDir(Kinds.video);
+    String? dir;
+    try {
+      dir = await getDirectoryPath(confirmButtonText: title, initialDirectory: start);
+    } on PlatformException catch (e) {
+      if (!Platform.isWindows) rethrow;
+      dir = await helperDialog('folder', null, start, error: e);
+    }
     if (dir != null) _lastDir = dir;
     return dir;
   }
