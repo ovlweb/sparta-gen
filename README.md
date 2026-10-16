@@ -49,7 +49,7 @@ rendered — then fine-tune anything you like, and **Save** it where you want.
 > [composition-cassidy on GitHub](https://github.com/composition-cassidy)) — the first to make a program for remixers
 > and others with AI: [Xleth](https://github.com/composition-cassidy/Xleth). SpartaGen follows that idea.
 
-> **Release candidate (1.0.0 RC 3)** — everything is in; now it needs testing by everyone.
+> **Release candidate (1.0.1 RC 3)** — everything is in; now it needs testing by everyone.
 > See [Release candidate — please test](#release-candidate--please-test).
 
 ### Quick start — your next remix, on your own
@@ -293,10 +293,14 @@ crashes, the log shows where each of its threads was and, on macOS, the system's
 
 ## Release candidate — please test
 
-This is **1.0.0 RC 3**: every feature is in, and it needs people to try it on their own videos, bases and
-computers. Things worth trying:
+This is **1.0.1 RC 3**: every feature is in, and it needs people to try it on their own videos, bases and
+computers. 1.0.1 fixes what was found in 1.0.0 RC 3: on Windows, the Open and Save dialogs ("Could not show
+dialog", or the window not responding after *Save video…*); and everywhere, a short clip — or one with music all
+through it — that gave no samples, and so a remix with no notes (such a clip now gets cuts of its own: its most
+tonal moments as pitches, its loudest as words and quotes, its sharpest as hits). Things worth trying:
 
-- [ ] The one-click remix on a few different videos (speech, songs, loud and quiet ones).
+- [ ] The one-click remix on a few different videos (speech, songs, loud and quiet ones, a clip of a few seconds).
+- [ ] On Windows: every *Open…*, *Add video*, *Change video…* and *Save…* button, while a video plays too.
 - [ ] A template from each group (standard, fast, wiki); your own base's audio file; a MIDI base (with a channel off,
       and with the percussion added).
 - [ ] Changing the key; a base that is not in D.

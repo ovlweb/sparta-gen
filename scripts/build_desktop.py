@@ -17,7 +17,8 @@ Needs Flutter on PATH; on Linux also clang, cmake, ninja, pkg-config, libgtk-3-d
    (macOS, then signed again ad hoc).
 5. --test: the engine inside the app started the app's way again, then the packaged app itself
    (SPARTAGEN_SMOKE_REPORT): it must find and start its engine, then quits.  A crash shows the engine's output
-   (every thread's Python traceback) and, on macOS, the crash report.
+   (every thread's Python traceback) and, on macOS, the crash report.  On Windows the app's Open and Save dialogs
+   too: with a video playing they must show and come back (see dialog_check).
 6. dist/SpartaGen-<version>-<Windows|macOS|Linux>-<arch>.zip
 """
 
@@ -346,6 +347,71 @@ def smoke_test_app(app_dir: str) -> None:
     print("the packaged app starts its bundled engine")
 
 
+# ── 5b. the app's Open and Save dialogs (Windows) ──
+def dialog_check(app_dir: str) -> None:
+    """Issue 6: on Windows the app's Open and Save dialogs failed ("Could not show dialog", RPC_E_WRONG_THREAD) or hung
+    its window.  With a video playing in the app (SPARTAGEN_SMOKE_DIALOGS), it opens each dialog in turn; this closes
+    them as they come up (Cancel) and reads what the app saw.  Once with Flutter's merged threads (where the bug came
+    from: printed, never a failure), then as built: both must show — the system's own dialog — and come back."""
+    sys.path.insert(0, ROOT)
+    from spartagen.selftest import make_test_source
+    media = make_test_source(os.path.join(BUILD, "dialog-check.mp4"))
+    for merged in (True, False):
+        data = _run_dialog_check(app_dir, media, merged)
+        print(("merged threads: " if merged else "as built: ") + json.dumps(data), flush=True)
+        if not merged and not all(str(data.get(k, "")).startswith("closed (system)") for k in ("open", "save")):
+            sys.exit("the app's Open/Save dialogs did not show and come back (issue 6)")
+    print("the app's Open and Save dialogs show and come back")
+
+
+def _run_dialog_check(app_dir: str, media: str, merged: bool) -> dict:
+    report = os.path.join(BUILD, "app-dialogs.json")
+    if os.path.exists(report):
+        os.remove(report)
+    env = dict(os.environ, SPARTAGEN_SMOKE_REPORT=report, SPARTAGEN_SMOKE_DIALOGS="1", SPARTAGEN_SMOKE_MEDIA=media,
+               SPARTAGEN_HOME=tempfile.mkdtemp(prefix="sg-home-"))
+    env.pop("SPARTAGEN_ENGINE", None)
+    if merged:
+        env["SPARTAGEN_MERGED_THREADS"] = "1"
+    seen: list = []
+    stop = threading.Event()
+    closer = threading.Thread(target=_close_dialogs, args=(stop, seen), daemon=True)
+    closer.start()
+    proc = subprocess.Popen([app_exe(app_dir)], env=env)
+    try:
+        code = proc.wait(timeout=150 if merged else 240)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        code = "timeout"
+    stop.set()
+    data = json.load(open(report, encoding="utf-8")) if os.path.isfile(report) else {}
+    out = dict(data.get("dialogs") or {"result": "no report: the app hung" if code == "timeout" else f"exit {code}"})
+    out["dialogs seen"] = sorted(set(seen))
+    time.sleep(2)                                      # its engine quits with it
+    return out
+
+
+def _close_dialogs(stop: threading.Event, seen: list) -> None:
+    """Cancel every dialog window that comes up (the app's file dialogs, while the check runs)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32                      # type: ignore[attr-defined]
+    each_window = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def cancel(hwnd, _param):
+        cls = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls, 64)
+        if cls.value == "#32770" and user32.IsWindowVisible(hwnd):
+            title = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, title, 256)
+            seen.append(title.value)
+            user32.PostMessageW(hwnd, 0x0111, 2, 0)    # WM_COMMAND, IDCANCEL
+        return True
+    callback = each_window(cancel)
+    while not stop.wait(1.5):
+        user32.EnumWindows(callback, 0)
+
+
 # ── 6. the zip ──
 def make_zip(app_dir: str) -> str:
     out = os.path.join(DIST, f"SpartaGen-{version()}-{SYSTEM}-{arch()}.zip")
@@ -385,6 +451,8 @@ def main() -> None:
     if test:
         serve_test_engine(engine_in_app(app_dir), "inside the app")
         smoke_test_app(app_dir)
+        if WINDOWS:
+            dialog_check(app_dir)
     print(f"built {make_zip(app_dir)}")
 
 

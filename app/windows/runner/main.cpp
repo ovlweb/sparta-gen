@@ -19,6 +19,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
+  // The app's Dart code runs on a thread of its own, not on this window's (Flutter merges the two by default).
+  // Merged, every call the video player makes from Dart (media_kit drives libmpv over FFI) runs on this thread —
+  // the one the system's Open and Save dialogs need for COM — and the dialogs failed ("Could not show dialog",
+  // RPC_E_WRONG_THREAD) or hung the window (issue 6).  SPARTAGEN_MERGED_THREADS=1 merges them again (the release
+  // builds' dialog check runs both ways).
+  wchar_t merged[4] = {};
+  if (::GetEnvironmentVariableW(L"SPARTAGEN_MERGED_THREADS", merged, 4) == 0 || merged[0] != L'1') {
+    project.set_ui_thread_policy(flutter::UIThreadPolicy::RunOnSeparateThread);
+  }
+
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 

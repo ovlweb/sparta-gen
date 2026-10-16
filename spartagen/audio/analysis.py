@@ -593,6 +593,7 @@ class Analysis:
     noise_floor_db: float
     loud_ref_db: float
     candidates: dict[str, list[Candidate]]
+    fallbacks: bool = True          # made by an analysis with add_fallbacks (False: saved by 1.0.0 RC 3 or older)
 
     def best(self, kind: str, index: int = 0) -> Optional[Candidate]:
         lst = self.candidates.get(kind) or []
@@ -605,6 +606,7 @@ class Analysis:
             "noise_floor_db": round(self.noise_floor_db, 2),
             "loud_ref_db": round(self.loud_ref_db, 2),
             "candidates": {k: [c.to_dict() for c in v] for k, v in self.candidates.items()},
+            "fallbacks": self.fallbacks,
         }
 
     @staticmethod
@@ -612,7 +614,106 @@ class Analysis:
         cands = {}
         for k, lst in d.get("candidates", {}).items():
             cands[k] = [Candidate(c["kind"], c["start"], c["end"], c["score"], dict(c.get("info", {}))) for c in lst]
-        return Analysis(d["duration"], d["sr"], d["noise_floor_db"], d["loud_ref_db"], cands)
+        return Analysis(d["duration"], d["sr"], d["noise_floor_db"], d["loud_ref_db"], cands,
+                        bool(d.get("fallbacks", False)))
+
+    def lacks_fallbacks(self) -> bool:
+        """Saved before add_fallbacks, with a group of kinds empty: it has to be made again (the remix may have
+        no notes otherwise)."""
+        return not self.fallbacks and any(not any(self.candidates.get(k) for k in g) for g in FALLBACK_GROUPS)
+
+
+#: Kinds the sample bank takes for each other (a word for a missing pitch, a hit for a missing kick, a hat for a
+#: missing crash): the analysis adds cuts of its own (add_fallbacks) only to a group that came out empty...
+FALLBACK_GROUPS = (("pitch", "word", "quote"), ("kick", "snare", "hit", "hat", "crash"))
+#: ... this many of each kind.
+FALLBACK_MIN = {"pitch": 4, "word": 4, "quote": 2, "kick": 2, "snare": 2, "hit": 2, "hat": 2, "crash": 1}
+
+
+def _best_windows(feat: Features, length_s: float, score, step_s: float = 0.05):
+    """Frame windows ``length_s`` long across the clip as ``(a, b, score(a, b))``, the best first, none overlapping."""
+    w = max(2, int(round(length_s * feat.sr / feat.hop)))
+    step = max(1, int(round(step_s * feat.sr / feat.hop)))
+    found = sorted(((a, min(feat.n, a + w), float(score(a, min(feat.n, a + w))))
+                    for a in range(0, max(1, feat.n - w + 1), step)), key=lambda abs_: -abs_[2])
+    out: list[tuple[int, int]] = []
+    for a, b, sc in found:
+        if all(b <= a2 or a >= b2 for a2, b2 in out):
+            out.append((a, b))
+            yield a, b, sc
+
+
+def add_fallbacks(cands: dict, feat: Features) -> dict:
+    """A short clip, or one with music all through it, may hold no clean held vowel, word or hit — and a remix
+    with no samples has no notes.  A group of kinds (FALLBACK_GROUPS) that came out empty gets cuts of its own,
+    scored below real ones: the most tonal loud moments as pitches, the loudest as words and quotes, the sharpest
+    (else the lowest or the brightest) short moments as hits, all marked ``{"fallback": True}``."""
+    empty = {k for g in FALLBACK_GROUPS if not any(cands.get(k) for k in g) for k in g}
+    # Music all through puts the "noise floor" (a low percentile) at the music's own level: near the clip's loud
+    # level counts as sound too, unless the whole clip is all but silent.
+    sound = (feat.rms_db > feat.noise_floor_db + 6.0) | ((feat.rms_db > feat.loud_ref_db - 20.0) &
+                                                         (feat.rms_db > -60.0))
+    if not empty or not sound.any():
+        return cands
+
+    def mean(arr: np.ndarray, a: int, b: int) -> float:
+        return float(np.mean(arr[a:b])) if b > a else 0.0
+
+    def loud(a: int, b: int) -> float:
+        if b <= a:
+            return 0.0
+        db = 10.0 * math.log10(float(np.mean(10.0 ** (feat.rms_db[a:b] / 10.0))) + 1e-12)   # by power: a hit counts
+        return _loud_score(db, feat) * (0.25 + 0.75 * float(np.mean(sound[a:b])))
+
+    def add(kind: str, wins, info=None, score: float = 0.05) -> None:
+        have = cands.setdefault(kind, [])
+        taken = [(c.start, c.end) for c in have]
+        for a, b, sc in wins:
+            if len(have) >= FALLBACK_MIN[kind] or sc <= 0.0:
+                break
+            t0 = max(0.0, float(feat.f2t(a)) - 0.5 * feat.hop / feat.sr)
+            t1 = float(feat.f2t(b - 1)) + 0.5 * feat.hop / feat.sr
+            if any(t0 < e and t1 > s for s, e in taken):
+                continue
+            extra = {"fallback": True, "loudness_db": mean(feat.rms_db, a, b),
+                     "clarity": mean(feat.clarity, a, b)}
+            extra.update(info(a, b) if info else {})
+            have.append(Candidate(kind, t0, t1, score * min(1.0, sc), extra))
+            taken.append((t0, t1))
+
+    def tone(a: int, b: int) -> dict:
+        f = feat.f0[a:b]
+        f = f[np.isfinite(f) & feat.voiced[a:b]]
+        if f.size < 3:
+            return {}
+        f0m = float(np.median(f))
+        midi = float(hz_to_midi(f0m))
+        return {"f0": f0m, "midi": midi, "note": note_name(midi)}
+
+    if "pitch" in empty:
+        add("pitch", _best_windows(feat, 0.35, lambda a, b: loud(a, b) * (0.3 + 0.7 * mean(feat.clarity, a, b))),
+            tone)
+    if "word" in empty:
+        add("word", _best_windows(feat, 0.3, loud, step_s=0.1))
+    if "quote" in empty:
+        add("quote", _best_windows(feat, 1.2, loud, step_s=0.2))
+    onsets = feat.flux / (float(np.max(feat.flux)) + 1e-9)
+
+    def hit(weight):
+        return _best_windows(feat, 0.18, lambda a, b: loud(a, b) * (0.2 + onsets[a]) * weight(a, b), step_s=0.03)
+    if "kick" in empty:
+        add("kick", hit(lambda a, b: 1.0 + mean(feat.low, a, b)))
+    if "snare" in empty:
+        add("snare", hit(lambda a, b: 0.3 + mean(feat.noisiness, a, b)))
+    if "hit" in empty:
+        add("hit", hit(lambda a, b: 1.0))
+    if "hat" in empty:
+        add("hat", _best_windows(feat, 0.12, lambda a, b: loud(a, b) * (0.2 + mean(feat.high, a, b) +
+                                                                       mean(feat.air, a, b)), step_s=0.03))
+    if "crash" in empty:
+        add("crash", _best_windows(feat, 0.8, lambda a, b: loud(a, b) * (0.2 + mean(feat.noisiness, a, b)),
+                                   step_s=0.1))
+    return cands
 
 
 def analyze(x: np.ndarray, sr: int, progress: Progress = None) -> Analysis:
@@ -645,6 +746,7 @@ def analyze(x: np.ndarray, sr: int, progress: Progress = None) -> Analysis:
         "quote": quotes,
         "word": words,
     }
+    cands = add_fallbacks(cands, feat)       # (a short clip, or music all through: cuts all the same)
     if progress:
         progress(1.0, "analysis done")
     return Analysis(x.shape[0] / sr, sr, feat.noise_floor_db, feat.loud_ref_db, cands)

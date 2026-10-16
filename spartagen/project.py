@@ -323,8 +323,10 @@ class Session:
                 if an is not None and not force:
                     return an
                 if entry.get("analysis") and not force:
-                    an = self._analyses[sid] = Analysis.from_dict(entry["analysis"])
-                    return an
+                    an = Analysis.from_dict(entry["analysis"])
+                    if not an.lacks_fallbacks():
+                        self._analyses[sid] = an
+                        return an
             an = analyze(self.audio(sid), SAMPLE_RATE, progress)
             with self.lock:
                 self._analyses[sid] = an
@@ -335,8 +337,10 @@ class Session:
             if self._analysis is not None and not force:
                 return self._analysis
             if self.project.analysis and not force:
-                self._analysis = Analysis.from_dict(self.project.analysis)
-                return self._analysis
+                an = Analysis.from_dict(self.project.analysis)
+                if not an.lacks_fallbacks():      # (an RC 3 analysis with no cuts of a kind is made again)
+                    self._analysis = an
+                    return an
         x = self.audio()
         an = analyze(x, SAMPLE_RATE, progress)
         with self.lock:
@@ -932,6 +936,8 @@ class Session:
         arr = self.arrangement()
         events = self.events(arr, bank)
         if not events:
+            if not bank.samples:
+                raise ValueError("no samples could be cut: the video has (almost) no sound — try another video")
             raise ValueError("the arrangement produced no notes — check the sample selection")
         mix_cfg = MixConfig.from_dict({"pitching": arr.pitching, "polish": arr.polish, **self.mix_settings()})
         mix, info = render_mix(arr, events, bank, mix_cfg, sub(0.2, 0.55 if quality != "audio" else 0.95),
