@@ -152,7 +152,8 @@ class _EngineGateState extends State<EngineGate> {
 
   /// The release builds' check of the system's Open and Save dialogs (issue 6: on Windows they failed or hung the
   /// window): with a video playing, as when the app shows one, each dialog must open — the build closes it — and
-  /// come back.  {open|save: "closed" or what went wrong, and which dialog showed (the system's, or the helper's)}.
+  /// come back; on Windows the helper's dialogs as well.  {open|save|helper open|helper save: "closed" or what went
+  /// wrong, and which dialog showed (the system's, or the helper's)}.
   Future<Map<String, String>> _dialogCheck() async {
     final out = <String, String>{};
     Player? player;
@@ -177,6 +178,11 @@ class _EngineGateState extends State<EngineGate> {
 
     await check('open', () => Files.open(Kinds.video));
     await check('save', () => Files.saveLocation(suggestedName: 'check.mp4', kind: Kinds.mp4));
+    if (Platform.isWindows) {
+      // (the helper's dialogs too: what shows when the app's own cannot)
+      await check('helper open', () => Files.helperDialog('open', Kinds.video, null));
+      await check('helper save', () => Files.helperDialog('save', Kinds.mp4, null, name: 'check.mp4'));
+    }
     await player?.dispose();
     return out;
   }

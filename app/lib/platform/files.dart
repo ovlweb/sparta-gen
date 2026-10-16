@@ -86,7 +86,7 @@ class Files {
       path = (await openFile(acceptedTypeGroups: [kind], initialDirectory: start))?.path;
     } on PlatformException catch (e) {
       if (!Platform.isWindows) rethrow;
-      return _remember(await _helperDialog('open', kind, start, error: e));
+      return _remember(await helperDialog('open', kind, start, error: e));
     }
     if (path == null) return null;
     if (path.isEmpty) {
@@ -105,8 +105,9 @@ class Files {
   static String lastDialog = 'system';
 
   /// Windows: the same system dialog, shown by a helper process (PowerShell, in a COM apartment of its own) — for
-  /// when the app's own could not be shown ([error]).  [mode]: open, save or folder.  The path chosen, or null.
-  static Future<String?> _helperDialog(String mode, XTypeGroup? kind, String? dir,
+  /// when the app's own could not be shown ([error]; the release builds' dialog check shows it too).  [mode]: open,
+  /// save or folder.  The path chosen, or null.
+  static Future<String?> helperDialog(String mode, XTypeGroup? kind, String? dir,
       {String? name, PlatformException? error}) async {
     lastDialog = 'helper';
     String q(String? v) => "'${(v ?? '').replaceAll("'", "''")}'";
@@ -167,7 +168,7 @@ class Files {
           ?.path;
     } on PlatformException catch (e) {
       if (!Platform.isWindows) rethrow;
-      path = await _helperDialog('save', kind, start, name: suggestedName, error: e);
+      path = await helperDialog('save', kind, start, name: suggestedName, error: e);
     }
     if (path == null || path.isEmpty) return null;
     final ext = kind.extensions?.isNotEmpty == true ? kind.extensions!.first : null;
@@ -206,7 +207,7 @@ class Files {
       dir = await getDirectoryPath(confirmButtonText: title, initialDirectory: start);
     } on PlatformException catch (e) {
       if (!Platform.isWindows) rethrow;
-      dir = await _helperDialog('folder', null, start, error: e);
+      dir = await helperDialog('folder', null, start, error: e);
     }
     if (dir != null) _lastDir = dir;
     return dir;

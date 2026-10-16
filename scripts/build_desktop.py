@@ -352,16 +352,19 @@ def dialog_check(app_dir: str) -> None:
     """Issue 6: on Windows the app's Open and Save dialogs failed ("Could not show dialog", RPC_E_WRONG_THREAD) or hung
     its window.  With a video playing in the app (SPARTAGEN_SMOKE_DIALOGS), it opens each dialog in turn; this closes
     them as they come up (Cancel) and reads what the app saw.  Once with Flutter's merged threads (where the bug came
-    from: printed, never a failure), then as built: both must show — the system's own dialog — and come back."""
+    from: printed, never a failure), then as built: both must show — the system's own dialog — and come back, and so
+    must the helper's (Files.helperDialog: PowerShell's, shown when the app's own cannot be)."""
     sys.path.insert(0, ROOT)
     from spartagen.selftest import make_test_source
     media = make_test_source(os.path.join(BUILD, "dialog-check.mp4"))
     for merged in (True, False):
         data = _run_dialog_check(app_dir, media, merged)
         print(("merged threads: " if merged else "as built: ") + json.dumps(data), flush=True)
-        if not merged and not all(str(data.get(k, "")).startswith("closed (system)") for k in ("open", "save")):
+        want = {"open": "closed (system)", "save": "closed (system)",
+                "helper open": "closed (helper)", "helper save": "closed (helper)"}
+        if not merged and not all(str(data.get(k, "")).startswith(v) for k, v in want.items()):
             sys.exit("the app's Open/Save dialogs did not show and come back (issue 6)")
-    print("the app's Open and Save dialogs show and come back")
+    print("the app's Open and Save dialogs show and come back, the helper's too")
 
 
 def _run_dialog_check(app_dir: str, media: str, merged: bool) -> dict:
@@ -392,22 +395,33 @@ def _run_dialog_check(app_dir: str, media: str, merged: bool) -> dict:
 
 
 def _close_dialogs(stop: threading.Event, seen: list) -> None:
-    """Cancel every dialog window that comes up (the app's file dialogs, while the check runs)."""
+    """Cancel every dialog window that comes up (the app's file dialogs, while the check runs) — not the ones that
+    were open before (the runner's own)."""
     import ctypes
     from ctypes import wintypes
     user32 = ctypes.windll.user32                      # type: ignore[attr-defined]
     each_window = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    before: set = set()
 
-    def cancel(hwnd, _param):
+    def dialog(hwnd) -> bool:
         cls = ctypes.create_unicode_buffer(64)
         user32.GetClassNameW(hwnd, cls, 64)
-        if cls.value == "#32770" and user32.IsWindowVisible(hwnd):
+        return cls.value == "#32770" and bool(user32.IsWindowVisible(hwnd))
+
+    def note(hwnd, _param):
+        if dialog(hwnd):
+            before.add(hwnd)
+        return True
+
+    def cancel(hwnd, _param):
+        if hwnd not in before and dialog(hwnd):
             title = ctypes.create_unicode_buffer(256)
             user32.GetWindowTextW(hwnd, title, 256)
             seen.append(title.value)
             user32.PostMessageW(hwnd, 0x0111, 2, 0)    # WM_COMMAND, IDCANCEL
         return True
-    callback = each_window(cancel)
+    noting, callback = each_window(note), each_window(cancel)
+    user32.EnumWindows(noting, 0)
     while not stop.wait(1.5):
         user32.EnumWindows(callback, 0)
 
